@@ -2,74 +2,104 @@ name: Generate/Update manifest.json
 
 on:
   push:
-    branches: [ "main" ]
-  workflow_dispatch:
-
-permissions:
-  contents: write
+    paths:
+      - 'plugins/*.zip'                 # każda zmiana ZIP-a w plugins/
+      - '.github/workflows/generate-manifest.yml'
+  workflow_dispatch: {}                 # możliwość uruchomienia ręcznie z Actions
+  # (opcjonalnie)
+  # schedule:
+  #   - cron: '17 * * * *'             # co godzinę o :17 – jeśli chcesz cykliczny rebuild
 
 jobs:
-  build:
+  build-manifest:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write                   # wymagane do commitu
+
     steps:
-      - name: Checkout repo
+      - name: Checkout (bez wbudowanych credów)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Zainstaluj narzędzia
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq coreutils
 
-      - name: Build manifest.json (merge, no overwrite)
+      - name: Zbuduj manifest.json z /plugins/*.zip (wersja = hash pliku)
+        id: manifest
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob  # jeśli brak .zip, pętla się nie uruchomi
 
-          [[ -f manifest.json ]] || echo '{"plugins":[]}' > manifest.json
+          REPO="${{ github.repository }}"
+          BRANCH="main"
+          RAW_BASE="https://raw.githubusercontent.com/${REPO}/${BRANCH}/plugins"
 
-          tmp="$(mktemp)"
-          cp manifest.json "$tmp"
+          # startowy obiekt
+          echo '{ "plugins": [] }' > manifest.build.json
 
-          for f in *.zip; do
-            name="${f%.zip}"
-            url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/$f"
+          shopt -s nullglob
+          files=(plugins/*.zip)
 
-            # spróbuj wyciągnąć wersję z nazwy pliku (np. my-plugin-1.2.3.zip albo my_plugin_1_2_3.zip)
-            if [[ "$f" =~ ([0-9]+\.[0-9]+\.[0-9]+)\.zip$ ]]; then
-              v="${BASH_REMATCH[1]}"
-            elif [[ "$f" =~ ([0-9]+)_([0-9]+)_([0-9]+)\.zip$ ]]; then
-              v="${BASH_REMATCH[1]}.${BASHREMATCH[2]}.${BASH_REMATCH[3]}"
-            else
-              v="1.0.0"
-            fi
-
-            if jq -e --arg n "$name" '.plugins[] | select(.name==$n)' "$tmp" > /dev/null; then
-              # aktualizuj istniejący rekord
-              jq --arg n "$name" --arg u "$url" --arg v "$v" \
-                 '(.plugins[] | select(.name==$n)) |= . + {"url":$u,"version":$v}' "$tmp" > m.json && mv m.json "$tmp"
-            else
-              # dodaj nowy rekord
-              jq --arg n "$name" --arg u "$url" --arg v "$v" \
-                 '.plugins += [{"name":$n,"url":$u,"version":$v}]' "$tmp" > m.json && mv m.json "$tmp"
-            fi
-          done
-
-          mv "$tmp" manifest.json
-          jq . manifest.json
-
-      - name: Commit changes (if any)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          if git diff --quiet manifest.json; then
-            echo "No changes."
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add manifest.json
-            git commit -m "auto: update manifest.json"
-            git push
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "Brak ZIP-ów w plugins/. Manifest będzie pusty."
           fi
 
+          # zbierz wpisy (bez duplikatów po URL)
+          tmpfile="$(mktemp)"
+          : > "$tmpfile"
+
+          for z in "${files[@]}"; do
+            base="$(basename "$z")"            # np. wtp-hello-world.zip
+            slug="${base%.zip}"                # np. wtp-hello-world
+            name="$(echo "$slug" | sed -E 's/^wtp/WTP/i; s/-/ /g; s/\bwp\b/WP/g')"
+            url="${RAW_BASE}/${base}"
+
+            # wersja = hash zawartości pliku (stabilna i przewidywalna)
+            ver="$(sha256sum "$z" | cut -c1-8)"
+
+            echo "${name}|${url}|${ver}" >> "$tmpfile"
+          done
+
+          # deduplikacja po URL + sortowanie po name
+          sort -t '|' -k1,1 "$tmpfile" | awk -F'|' '!seen[$2]++' > "${tmpfile}.uniq"
+
+          while IFS='|' read -r name url ver; do
+            jq --arg name "$name" --arg url "$url" --arg version "$ver" \
+              '.plugins += [{name:$name, url:$url, version:$version}]' \
+              manifest.build.json > manifest.tmp && mv manifest.tmp manifest.build.json
+          done < "${tmpfile}.uniq"
+
+          # ładne formatowanie
+          jq '.' manifest.build.json > manifest.json
+          rm -f manifest.build.json "$tmpfile" "${tmpfile}.uniq"
+
+          echo "Manifest wygenerowany:"
+          cat manifest.json
+
+      - name: Sprawdź czy są zmiany
+        id: diff
+        run: |
+          if git diff --quiet -- manifest.json; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true"  >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit & push (PAT WTP_AGENT_TOKEN)
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          TOKEN: ${{ secrets.WTP_AGENT_TOKEN }}
+        run: |
+          set -e
+          git config user.name  "wtp-agent"
+          git config user.email "wtp-agent@noreply.weektoppick.com"
+          git add manifest.json
+          git commit -m "auto: update manifest.json from plugins/*.zip (content-hash version)" || exit 0
+          git remote set-url origin "https://${TOKEN}@github.com/${{ github.repository }}.git"
+          git pull --rebase origin main || true
+          git push origin HEAD:main
