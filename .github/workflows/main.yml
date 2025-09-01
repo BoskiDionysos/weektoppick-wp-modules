@@ -1,0 +1,38 @@
+name: Generate manifest
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate manifest.json
+        shell: bash
+        run: |
+          echo '{ "plugins": [' > manifest.json
+          first=1
+          for f in *.zip; do
+            [ -f "$f" ] || continue
+            name="$(basename "$f" .zip)"
+            url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/$f"
+            ver="$(echo "$name" | sed -E 's/.*-([0-9_\.]+)$/\1/; s/_/./g')"
+            [ -z "$ver" ] && ver="1.0.0"
+            item="{ \"name\": \"${name}\", \"url\": \"${url}\", \"version\": \"${ver}\" }"
+            if [ $first -eq 1 ]; then
+              echo "  $item" >> manifest.json
+              first=0
+            else
+              echo "  ,$item" >> manifest.json
+            fi
+          done
+          echo '] }' >> manifest.json
+
+      - name: Commit manifest.json
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Auto: update manifest.json"
+          file_pattern: manifest.json
