@@ -1,14 +1,14 @@
 {
   "plugins": [
     {
-      "name": "WTP Hello World",
+      "name": "WTP hello world",
       "url": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins/wtp-hello-world.zip",
-      "version": "1.0.0"
+      "version": "5d6b579"
     },
     {
-      "name": "WTP Site Snapshot",
+      "name": "WTP site snapshot",
       "url": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins/wtp-site-snapshot.zip",
-      "version": "0.1.0"
-    }
-  ]
+      "version": "5d6b579"
+    }
+  ]
 }
