@@ -1,46 +1,105 @@
-name: Agent Push (add plugin zip)
+name: Generate/Update manifest.json (agent push)
 
 on:
-  repository_dispatch:
-    types: [wtp_add_plugin]
-
-permissions:
-  contents: write
+  push:
+    paths:
+      - 'plugins/*.zip'
+      - '.github/workflows/agent-push.yml'
+  workflow_dispatch: {}
 
 jobs:
-  add_plugin_zip:
+  build-manifest-and-push:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write   # wymagane do zapisu przez GITHUB_TOKEN; my i tak używamy PAT
+
     steps:
-      - name: Checkout
+      - name: Checkout (bez wbudowanych credów)
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Ensure plugins folder
-        run: mkdir -p plugins
-
-      - name: Validate payload
+      - name: Zainstaluj jq
         run: |
-          if [ -z "${{ github.event.client_payload.url }}" ] || [ -z "${{ github.event.client_payload.name }}" ]; then
-            echo "Missing payload fields. Required: client_payload.name and client_payload.url"
-            exit 1
+          sudo apt-get update -y
+          sudo apt-get install -y jq
+
+      - name: Zbuduj manifest.json z /plugins/*.zip
+        id: manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REPO="${{ github.repository }}"
+          BRANCH="main"
+          RAW_BASE="https://raw.githubusercontent.com/${REPO}/${BRANCH}/plugins"
+
+          # Startowy obiekt
+          echo '{ "plugins": [] }' > manifest.build.json
+
+          shopt -s nullglob
+          files=(plugins/*.zip)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "Brak ZIP-ów w plugins/. Manifest będzie pusty."
           fi
 
-      - name: Download ZIP from payload URL
-        run: |
-          set -e
-          URL="${{ github.event.client_payload.url }}"
-          NAME="${{ github.event.client_payload.name }}"
-          echo "Downloading $URL -> plugins/${NAME}.zip"
-          curl -L --fail "$URL" -o "plugins/${NAME}.zip"
+          for z in "${files[@]}"; do
+            base="$(basename "$z")"               # np. wtp-hello-world.zip
+            slug="${base%.zip}"                   # np. wtp-hello-world
+            # Nazwa „ładna”
+            name="$(echo "$slug" | sed -E 's/^wtp/WTP/i; s/-/ /g; s/\bwp\b/WP/g')"
+            # Wersja = skrót z SHA commitu (zmienia się przy każdej podmianie pliku)
+            ver="$(echo "${GITHUB_SHA:-0000000}" | cut -c1-7)"
+            url="${RAW_BASE}/${base}"
 
-      - name: Commit & push
+            jq --arg name "$name" --arg url "$url" --arg version "$ver" \
+              '.plugins += [{name:$name, url:$url, version:$version}]' \
+              manifest.build.json > manifest.tmp && mv manifest.tmp manifest.build.json
+          done
+
+          # Uporządkuj klucze i zapis do docelowego manifestu
+          jq '.' manifest.build.json > manifest.json
+          rm -f manifest.build.json
+
+          echo "Manifest wygenerowany:"
+          cat manifest.json
+
+      - name: Sprawdź czy są zmiany
+        id: diff
+        run: |
+          if git diff --quiet -- manifest.json; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true"  >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit & push (PAT WTP_AGENT_TOKEN)
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          TOKEN: ${{ secrets.WTP_AGENT_TOKEN }}
         run: |
           set -e
           git config user.name  "wtp-agent"
-          git config user.email "agent@weektoppick.com"
-          git add plugins/
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "agent: add/update plugin ${NAME} from ${URL}"
-            git push
-          fi
+          git config user.email "wtp-agent@noreply.weektoppick.com"
+          git add manifest.json
+          git commit -m "auto: update manifest.json from plugins/*.zip" || exit 0
+          git remote set-url origin "https://${TOKEN}@github.com/${{ github.repository }}.git"
+          git pull --rebase origin main || true
+          git push origin HEAD:main
+
+      # (opcjonalnie) NATYCHMIAST powiadom Bridge/Runner o nowym manifeście.
+      # Włącz po dodaniu sekretów: WTP_BRIDGE_URL, WTP_BRIDGE_KEY, WTP_BRIDGE_HMAC
+      # - name: Ping WTP Bridge (opcjonalnie)
+      #   if: steps.diff.outputs.changed == 'true'
+      #   env:
+      #     BRIDGE_URL:  ${{ secrets.WTP_BRIDGE_URL }}   # np. https://weektoppick.com/wp-json/wtp/v1/agent/install
+      #     BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
+      #     BRIDGE_SIG:  ${{ secrets.WTP_BRIDGE_HMAC }}
+      #   run: |
+      #     curl -sS -X POST "$BRIDGE_URL" \
+      #       -H "Content-Type: application/json" \
+      #       -H "X-WTP-Key: ${BRIDGE_KEY}" \
+      #       -H "X-WTP-Sign: ${BRIDGE_SIG}" \
+      #       -d "{\"manifest\":\"https://raw.githubusercontent.com/${{ github.repository }}/main/manifest.json\"}"
