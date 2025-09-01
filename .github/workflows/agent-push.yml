@@ -1,0 +1,46 @@
+name: Agent Push (add plugin zip)
+
+on:
+  repository_dispatch:
+    types: [wtp_add_plugin]
+
+permissions:
+  contents: write
+
+jobs:
+  add_plugin_zip:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure plugins folder
+        run: mkdir -p plugins
+
+      - name: Validate payload
+        run: |
+          if [ -z "${{ github.event.client_payload.url }}" ] || [ -z "${{ github.event.client_payload.name }}" ]; then
+            echo "Missing payload fields. Required: client_payload.name and client_payload.url"
+            exit 1
+          fi
+
+      - name: Download ZIP from payload URL
+        run: |
+          set -e
+          URL="${{ github.event.client_payload.url }}"
+          NAME="${{ github.event.client_payload.name }}"
+          echo "Downloading $URL -> plugins/${NAME}.zip"
+          curl -L --fail "$URL" -o "plugins/${NAME}.zip"
+
+      - name: Commit & push
+        run: |
+          set -e
+          git config user.name  "wtp-agent"
+          git config user.email "agent@weektoppick.com"
+          git add plugins/
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "agent: add/update plugin ${NAME} from ${URL}"
+            git push
+          fi
