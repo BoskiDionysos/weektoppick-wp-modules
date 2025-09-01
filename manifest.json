@@ -2,23 +2,13 @@
   "plugins": [
     {
       "name": "WTP Hello World",
-      "url": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/wtp-hello-world.zip",
+      "url": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins/wtp-hello-world.zip",
       "version": "1.0.0"
     },
     {
       "name": "WTP Site Snapshot",
-      "url": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/wtp-site-snapshot.zip",
+      "url": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins/wtp-site-snapshot.zip",
       "version": "0.1.0"
-    },
-    {
-      "name": "wtp-hello-world",
-      "url": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/wtp-hello-world.zip",
-      "version": "1.0.0"
-    },
-    {
-      "name": "wtp-site-snapshot",
-      "url": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/wtp-site-snapshot.zip",
-      "version": "1.0.0"
-    }
-  ]
+    }
+  ]
 }
