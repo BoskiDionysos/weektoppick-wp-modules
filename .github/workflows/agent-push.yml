@@ -30,7 +30,6 @@ jobs:
         run: mkdir -p "$ZIP_OUT_DIR"
 
       - name: Zip plugins
-        shell: bash
         run: |
           shopt -s nullglob
           for dir in $PLUGIN_GLOB; do
@@ -40,7 +39,6 @@ jobs:
           ls -l "$ZIP_OUT_DIR" || true
 
       - name: Build manifest.json
-        shell: bash
         run: |
           echo "[" > "$MANIFEST_PATH"
           first=1
@@ -61,7 +59,6 @@ jobs:
           cat "$MANIFEST_PATH"
 
       - name: Commit ZIPs + manifest
-        shell: bash
         run: |
           git config user.name "wtp-agent"
           git config user.email "wtp-agent@users.noreply.github.com"
@@ -77,7 +74,6 @@ jobs:
         env:
           RUNNER_URL: ${{ secrets.RUNNER_URL }}
           RUNNER_SECRET: ${{ secrets.WTP_AGENT_TOKEN }}
-        shell: bash
         run: |
           MANIFEST_URL="${{ env.RAW_BASE }}/manifest.json"
           curl -fSs -X POST "$RUNNER_URL" \
