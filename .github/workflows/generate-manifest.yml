@@ -5,57 +5,71 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Setup jq
-        run: sudo apt-get install -y jq
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Prepare manifest.json
+      - name: Build manifest.json (merge, no overwrite)
+        shell: bash
         run: |
-          # jeśli brak pliku - stwórz pusty szkielet
-          if [ ! -f manifest.json ]; then
-            echo '{ "plugins": [] }' > manifest.json
-          fi
+          set -euo pipefail
+          shopt -s nullglob  # jeśli brak .zip, pętla się nie uruchomi
 
-          # kopia obecnego
-          cp manifest.json old_manifest.json
+          [[ -f manifest.json ]] || echo '{"plugins":[]}' > manifest.json
 
-          # generuj nową listę
-          tmpfile=$(mktemp)
-          cp old_manifest.json $tmpfile
+          tmp="$(mktemp)"
+          cp manifest.json "$tmp"
 
           for f in *.zip; do
             name="${f%.zip}"
-            url="https://raw.githubusercontent.com/${{ github.repository }}/main/$f"
-            version="1.0.0"
+            url="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/$f"
 
-            # sprawdź czy plugin już istnieje
-            exists=$(jq --arg n "$name" '.plugins[] | select(.name==$n)' $tmpfile)
-
-            if [ -z "$exists" ]; then
-              # dodaj nowy plugin
-              jq --arg n "$name" --arg u "$url" --arg v "$version" \
-                 '.plugins += [{"name":$n,"url":$u,"version":$v}]' $tmpfile > tmp.json && mv tmp.json $tmpfile
+            # spróbuj wyciągnąć wersję z nazwy pliku (np. my-plugin-1.2.3.zip albo my_plugin_1_2_3.zip)
+            if [[ "$f" =~ ([0-9]+\.[0-9]+\.[0-9]+)\.zip$ ]]; then
+              v="${BASH_REMATCH[1]}"
+            elif [[ "$f" =~ ([0-9]+)_([0-9]+)_([0-9]+)\.zip$ ]]; then
+              v="${BASH_REMATCH[1]}.${BASHREMATCH[2]}.${BASH_REMATCH[3]}"
             else
-              # zaktualizuj istniejący (url, version)
-              jq --arg n "$name" --arg u "$url" --arg v "$version" \
-                 '(.plugins[] | select(.name==$n)) |= . + {"url":$u,"version":$v}' $tmpfile > tmp.json && mv tmp.json $tmpfile
+              v="1.0.0"
+            fi
+
+            if jq -e --arg n "$name" '.plugins[] | select(.name==$n)' "$tmp" > /dev/null; then
+              # aktualizuj istniejący rekord
+              jq --arg n "$name" --arg u "$url" --arg v "$v" \
+                 '(.plugins[] | select(.name==$n)) |= . + {"url":$u,"version":$v}' "$tmp" > m.json && mv m.json "$tmp"
+            else
+              # dodaj nowy rekord
+              jq --arg n "$name" --arg u "$url" --arg v "$v" \
+                 '.plugins += [{"name":$n,"url":$u,"version":$v}]' "$tmp" > m.json && mv m.json "$tmp"
             fi
           done
 
-          mv $tmpfile manifest.json
-          cat manifest.json
+          mv "$tmp" manifest.json
+          jq . manifest.json
 
-      - name: Commit manifest.json
+      - name: Commit changes (if any)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config user.name github-actions
-          git config user.email github-actions@github.com
-          git add manifest.json
-          git commit -m "Update manifest.json [auto]" || echo "No changes"
-          git push
+          if git diff --quiet manifest.json; then
+            echo "No changes."
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add manifest.json
+            git commit -m "auto: update manifest.json"
+            git push
+          fi
+
