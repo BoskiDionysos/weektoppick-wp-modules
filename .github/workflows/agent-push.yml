@@ -1,4 +1,4 @@
-name: Agent Push
+name: Agent Push (Silent Mode)
 
 on:
   push:
@@ -6,19 +6,27 @@ on:
     paths-ignore:
       - 'plugins/**'
       - 'plugins/manifest.json'
+  schedule:
+    - cron: '*/15 * * * *' # co 15 min agent działa sam
   workflow_dispatch:
+
+concurrency:
+  group: agent-push
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
-  build-and-publish:
+  build-deploy-and-verify:
     runs-on: ubuntu-latest
     env:
       PLUGIN_GLOB: "wtp-*"
       ZIP_OUT_DIR: "plugins"
       MANIFEST_PATH: "plugins/manifest.json"
       RAW_BASE: "https://raw.githubusercontent.com/${{ github.repository }}/main/plugins"
+      RUNNER_URL: ${{ secrets.RUNNER_URL }}
+      RUNNER_SECRET: ${{ secrets.WTP_AGENT_TOKEN }}
 
     steps:
       - name: Checkout
@@ -26,22 +34,34 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Ensure tools (zip, jq, curl)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq
+
       - name: Prepare output dir
         run: mkdir -p "$ZIP_OUT_DIR"
 
       - name: Zip plugins
+        shell: bash
         run: |
           shopt -s nullglob
+          count=0
           for dir in $PLUGIN_GLOB; do
             [ -d "$dir" ] || continue
             zip -r "$ZIP_OUT_DIR/$dir.zip" "$dir" >/dev/null
+            count=$((count+1))
           done
+          echo "Zipped $count plugin directories."
           ls -l "$ZIP_OUT_DIR" || true
 
-      - name: Build manifest.json
+      - name: Build manifest.json (hash-based)
+        id: manifest
+        shell: bash
         run: |
           echo "[" > "$MANIFEST_PATH"
           first=1
+          shopt -s nullglob
           for z in $ZIP_OUT_DIR/*.zip; do
             [ -e "$z" ] || continue
             fname=$(basename "$z")
@@ -56,9 +76,12 @@ jobs:
             fi
           done
           echo "]" >> "$MANIFEST_PATH"
+          echo "MANIFEST_URL=${RAW_BASE}/manifest.json" >> $GITHUB_ENV
+          echo "Manifest built:"
           cat "$MANIFEST_PATH"
 
-      - name: Commit ZIPs + manifest
+      - name: Commit ZIPs + manifest (only if changed)
+        shell: bash
         run: |
           git config user.name "wtp-agent"
           git config user.email "wtp-agent@users.noreply.github.com"
@@ -66,16 +89,68 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit -m "agent: publish zips & manifest [skip ci]"
             git push
+            echo "Pushed new zips/manifest."
           else
-            echo "No changes."
+            echo "No changes to commit."
           fi
 
-      - name: Trigger WTP Push runner
-        env:
-          RUNNER_URL: ${{ secrets.RUNNER_URL }}
-          RUNNER_SECRET: ${{ secrets.WTP_AGENT_TOKEN }}
+      - name: Trigger Runner install (always)
+        shell: bash
         run: |
-          MANIFEST_URL="${{ env.RAW_BASE }}/manifest.json"
-          curl -fSs -X POST "$RUNNER_URL" \
+          set -e
+          echo "Calling runner: $RUNNER_URL"
+          RESP=$(curl -fSs -X POST "$RUNNER_URL" \
             -H "Content-Type: application/json" \
-            -d "{\"secret\":\"$RUNNER_SECRET\",\"manifest\":\"$MANIFEST_URL\"}"
+            -d "{\"secret\":\"$RUNNER_SECRET\",\"manifest\":\"$MANIFEST_URL\"}")
+          echo "$RESP" | jq . > runner_response.json || echo "$RESP" > runner_response.json
+          echo "Runner response saved to runner_response.json"
+          # policz błędy z odpowiedzi (jeśli brak pola -> 0)
+          ERRORS=$(jq -r '.summary.errors // 0' runner_response.json 2>/dev/null || echo 0)
+          SENT=$(jq -r '.summary.sent // 0' runner_response.json 2>/dev/null || echo 0)
+          SKIPPED=$(jq -r '.summary.skipped // 0' runner_response.json 2>/dev/null || echo 0)
+          echo "SENT=$SENT" >> $GITHUB_ENV
+          echo "SKIPPED=$SKIPPED" >> $GITHUB_ENV
+          echo "ERRORS=$ERRORS" >> $GITHUB_ENV
+
+      - name: Fetch Runner health + logs
+        shell: bash
+        run: |
+          set -e
+          # Wyprowadź bazę REST: zamień /install -> /health, /logs
+          BASE="${RUNNER_URL%/install}"
+          HEALTH_URL="$BASE/health"
+          LOGS_URL="$BASE/logs?secret=$RUNNER_SECRET&n=100"
+          PURGE_URL="$BASE/purge"
+
+          echo "HEALTH_URL=$HEALTH_URL" >> $GITHUB_ENV
+          echo "LOGS_URL=$LOGS_URL" >> $GITHUB_ENV
+          echo "PURGE_URL=$PURGE_URL" >> $GITHUB_ENV
+
+          curl -fSs "$HEALTH_URL" | jq . > runner_health.json || curl -fSs "$HEALTH_URL" > runner_health.json
+          curl -fSs "$LOGS_URL"   | jq . > runner_logs.json   || curl -fSs "$LOGS_URL"   > runner_logs.json
+
+      - name: Upload artifacts (response, health, logs, manifest)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wtp-runner-artifacts
+          path: |
+            runner_response.json
+            runner_health.json
+            runner_logs.json
+            plugins/manifest.json
+
+      - name: Write job summary
+        shell: bash
+        run: |
+          echo "### WTP Agent summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Manifest: $MANIFEST_URL" >> $GITHUB_STEP_SUMMARY
+          echo "- Runner: $RUNNER_URL" >> $GITHUB_STEP_SUMMARY
+          echo "- Health: $HEALTH_URL" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Result:** sent=$SENT, skipped=$SKIPPED, errors=$ERRORS" >> $GITHUB_STEP_SUMMARY
+
+      - name: Fail job on errors
+        if: ${{ env.ERRORS != '0' }}
+        run: |
+          echo "Runner reported errors=${ERRORS}. Failing the job."
+          exit 1
