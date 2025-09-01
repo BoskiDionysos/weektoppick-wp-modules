@@ -1,38 +1,95 @@
-name: Generate manifest
+name: Generate manifest (auto-merge)
 
 on:
   push:
-    branches:
-      - main
+    paths:
+      - '.zip'
+      - '.github/workflows/generate-manifest.yml'
+      - 'manifest.json'
+  workflow_dispatch: {}
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Generate manifest.json
+      - name: Set env
         run: |
-          echo '{
-            "plugins": [
-              {
-                "name": "WTP Hello World",
-                "url": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/wtp-hello-world.zip",
-                "version": "1.0.0"
-              },
-              {
-                "name": "WTP Site Snapshot",
-                "url": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/wtp-site-snapshot.zip",
-                "version": "0.1.0"
-              }
-            ]
-          }' > manifest.json
+          echo "RAW_BASE=https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_REF_NAME}" >> $GITHUB_ENV
+          echo "NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_ENV
 
-      - name: Commit manifest.json
+      - name: Generate / update manifest.json
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add manifest.json
-          git commit -m "Update manifest.json [skip ci]" || echo "No changes"
-          git push
+          cat > .wtp_manifest_gen.py << 'PY'
+          import os, re, json, pathlib, datetime
+          RAW_BASE = os.environ["RAW_BASE"]
+          now      = os.environ.get("NOW")
+          root = pathlib.Path(".")
+          zips = [p for p in root.rglob("*.zip") if ".git" not in p.parts and ".github" not in p.parts]
+
+          # load existing manifest (keep old entries -> append/merge)
+          manifest_path = root / "manifest.json"
+          if manifest_path.exists():
+            try:
+              data = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except Exception:
+              data = {}
+          else:
+            data = {}
+          plugins = data.get("plugins", [])
+          by_slug = { (i.get("slug") or i.get("name") or i.get("url")): i for i in plugins }
+
+          def parse_zip(p: pathlib.Path):
+            name = p.stem
+            m = re.search(r"-(\d+(?:\.\d+)+)$", name)
+            version = m.group(1) if m else "1.0.0"
+            slug = name[:-(len(version)+1)] if m else name
+            display = re.sub(r"[-_]+", " ", slug).strip().title()
+            url = f"{RAW_BASE}/{p.as_posix()}"
+            return {
+              "slug": slug,
+              "name": display,
+              "version": version,
+              "url": url,
+              "path": p.as_posix(),
+              "updated_at": now
+            }
+
+          # merge: update existing slugs, add new slugs, NEVER delete old ones
+          seen = set()
+          for p in sorted(zips):
+            item = parse_zip(p)
+            slug = item["slug"]
+            if slug in by_slug:
+              # update only changing fields; keep any extra keys user had
+              old = by_slug[slug]
+              for k in ("version","url","path"):
+                if old.get(k) != item[k]:
+                  old[k] = item[k]
+              old.setdefault("name", item["name"])
+              old["updated_at"] = now
+              seen.add(slug)
+            else:
+              by_slug[slug] = item
+              plugins.append(by_slug[slug])
+              seen.add(slug)
+
+          # sort for determinism
+          plugins_sorted = sorted(plugins, key=lambda i: (i.get("slug") or i.get("name","")).lower())
+          out = {
+            "generated_at": now,
+            "repository": os.environ.get("GITHUB_REPOSITORY"),
+            "branch": os.environ.get("GITHUB_REF_NAME"),
+            "plugins": plugins_sorted
+          }
+          manifest_path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+          PY
+          python3 .wtp_manifest_gen.py
+
+      - name: Commit & push if changed
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore(manifest): auto-merge update"
+          file_pattern: manifest.json
