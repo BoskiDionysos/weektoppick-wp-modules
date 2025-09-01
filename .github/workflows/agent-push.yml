@@ -7,7 +7,7 @@ on:
       - 'plugins/**'
       - 'plugins/manifest.json'
   schedule:
-    - cron: '*/15 * * * *' # co 15 min agent działa sam
+    - cron: '*/15 * * * *'  # co 15 min, bez Twojego klikania
   workflow_dispatch:
 
 concurrency:
@@ -18,7 +18,7 @@ permissions:
   contents: write
 
 jobs:
-  build-deploy-and-verify:
+  build-deploy-sync-and-verify:
     runs-on: ubuntu-latest
     env:
       PLUGIN_GLOB: "wtp-*"
@@ -34,7 +34,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Ensure tools (zip, jq, curl)
+      - name: Ensure tools (jq)
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq
@@ -77,7 +77,6 @@ jobs:
           done
           echo "]" >> "$MANIFEST_PATH"
           echo "MANIFEST_URL=${RAW_BASE}/manifest.json" >> $GITHUB_ENV
-          echo "Manifest built:"
           cat "$MANIFEST_PATH"
 
       - name: Commit ZIPs + manifest (only if changed)
@@ -94,62 +93,88 @@ jobs:
             echo "No changes to commit."
           fi
 
-      - name: Trigger Runner install (always)
+      - name: Derive runner endpoints
+        shell: bash
+        run: |
+          BASE="${RUNNER_URL%/install}"
+          echo "RUNNER_BASE=$BASE" >> $GITHUB_ENV
+          echo "HEALTH_URL=$BASE/health" >> $GITHUB_ENV
+          echo "LOGS_URL=$BASE/logs?secret=$RUNNER_SECRET&n=100" >> $GITHUB_ENV
+          echo "SYNC_URL=$BASE/sync" >> $GITHUB_ENV
+          echo "INVENTORY_URL=$BASE/inventory" >> $GITHUB_ENV
+
+      - name: Call runner /install (deploy + purge)
         shell: bash
         run: |
           set -e
-          echo "Calling runner: $RUNNER_URL"
+          echo "Calling: $RUNNER_URL"
           RESP=$(curl -fSs -X POST "$RUNNER_URL" \
             -H "Content-Type: application/json" \
             -d "{\"secret\":\"$RUNNER_SECRET\",\"manifest\":\"$MANIFEST_URL\"}")
           echo "$RESP" | jq . > runner_response.json || echo "$RESP" > runner_response.json
-          echo "Runner response saved to runner_response.json"
-          # policz błędy z odpowiedzi (jeśli brak pola -> 0)
           ERRORS=$(jq -r '.summary.errors // 0' runner_response.json 2>/dev/null || echo 0)
-          SENT=$(jq -r '.summary.sent // 0' runner_response.json 2>/dev/null || echo 0)
-          SKIPPED=$(jq -r '.summary.skipped // 0' runner_response.json 2>/dev/null || echo 0)
-          echo "SENT=$SENT" >> $GITHUB_ENV
-          echo "SKIPPED=$SKIPPED" >> $GITHUB_ENV
           echo "ERRORS=$ERRORS" >> $GITHUB_ENV
 
-      - name: Fetch Runner health + logs
+      - name: Runner /inventory snapshot (POST)
         shell: bash
         run: |
-          set -e
-          # Wyprowadź bazę REST: zamień /install -> /health, /logs
-          BASE="${RUNNER_URL%/install}"
-          HEALTH_URL="$BASE/health"
-          LOGS_URL="$BASE/logs?secret=$RUNNER_SECRET&n=100"
-          PURGE_URL="$BASE/purge"
+          curl -fSs -X POST "$INVENTORY_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"secret\":\"$RUNNER_SECRET\"}" | jq . > runner_inventory.json || true
 
-          echo "HEALTH_URL=$HEALTH_URL" >> $GITHUB_ENV
-          echo "LOGS_URL=$LOGS_URL" >> $GITHUB_ENV
-          echo "PURGE_URL=$PURGE_URL" >> $GITHUB_ENV
+      - name: Runner /sync (WP → GitHub)
+        shell: bash
+        run: |
+          # Wymaga ENV WTP_GH_SYNC_PAT ustawionego NA SERWERZE WP
+          SYNC_RESP=$(curl -sS -X POST "$SYNC_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"secret\":\"$RUNNER_SECRET\"}")
+          echo "$SYNC_RESP" | jq . > runner_sync.json || echo "$SYNC_RESP" > runner_sync.json
+          SYNC_OK=$(jq -r '.ok // false' runner_sync.json 2>/dev/null || echo false)
+          if [ "$SYNC_OK" != "true" ]; then
+            echo "SYNC_WARNING=1" >> $GITHUB_ENV
+            echo "Runner sync did not report ok=true. Check runner_sync.json."
+          else
+            echo "SYNC_WARNING=0" >> $GITHUB_ENV
+          fi
 
+      - name: Fetch runner health + logs
+        shell: bash
+        run: |
           curl -fSs "$HEALTH_URL" | jq . > runner_health.json || curl -fSs "$HEALTH_URL" > runner_health.json
           curl -fSs "$LOGS_URL"   | jq . > runner_logs.json   || curl -fSs "$LOGS_URL"   > runner_logs.json
 
-      - name: Upload artifacts (response, health, logs, manifest)
+      - name: Upload artifacts (response, health, logs, inventory, sync, manifest)
         uses: actions/upload-artifact@v4
         with:
           name: wtp-runner-artifacts
           path: |
             runner_response.json
+            runner_inventory.json
+            runner_sync.json
             runner_health.json
             runner_logs.json
             plugins/manifest.json
 
-      - name: Write job summary
+      - name: Job summary
         shell: bash
         run: |
+          SENT=$(jq -r '.summary.sent // 0' runner_response.json 2>/dev/null || echo 0)
+          SKIPPED=$(jq -r '.summary.skipped // 0' runner_response.json 2>/dev/null || echo 0)
+          ERRORS="${ERRORS:-0}"
+          SYNC_WARNING="${SYNC_WARNING:-0}"
           echo "### WTP Agent summary" >> $GITHUB_STEP_SUMMARY
           echo "- Manifest: $MANIFEST_URL" >> $GITHUB_STEP_SUMMARY
           echo "- Runner: $RUNNER_URL" >> $GITHUB_STEP_SUMMARY
           echo "- Health: $HEALTH_URL" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Result:** sent=$SENT, skipped=$SKIPPED, errors=$ERRORS" >> $GITHUB_STEP_SUMMARY
+          echo "**Install:** sent=$SENT, skipped=$SKIPPED, errors=$ERRORS" >> $GITHUB_STEP_SUMMARY
+          if [ "$SYNC_WARNING" = "1" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> ⚠️ Runner /sync nie zgłosił ok=true — sprawdź 'runner_sync.json' i czy ENV 'WTP_GH_SYNC_PAT' jest ustawione na serwerze WP." >> $GITHUB_STEP_SUMMARY
+          fi
 
-      - name: Fail job on errors
+      - name: Fail on install errors
         if: ${{ env.ERRORS != '0' }}
         run: |
           echo "Runner reported errors=${ERRORS}. Failing the job."
