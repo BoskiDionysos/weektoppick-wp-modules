@@ -1,0 +1,113 @@
+name: Agent Push (download zip → build manifest → push)
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: 'Slug pliku bez .zip (np. wtp-hello-world)'
+        required: true
+      url:
+        description: 'Pełny URL do .zip (np. https://weektoppick.com/downloads/wtp-hello-world.zip)'
+        required: true
+
+  repository_dispatch:
+    types: [wtp_add_plugin]
+
+permissions:
+  contents: write
+
+jobs:
+  agent-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (bez wbudowanych credów)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Narzędzia
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq coreutils curl
+
+      - name: Ustal parametry (UI lub repository_dispatch)
+        id: params
+        shell: bash
+        run: |
+          NAME="${{ github.event.inputs.name }}"
+          URL="${{ github.event.inputs.url }}"
+          # fallback dla repository_dispatch
+          if [ -z "$NAME" ]; then NAME="${{ github.event.client_payload.name }}"; fi
+          if [ -z "$URL"  ]; then URL="${{ github.event.client_payload.url  }}"; fi
+          if [ -z "$NAME" ] || [ -z "$URL" ]; then
+            echo "Brak NAME/URL"; exit 1
+          fi
+          echo "name=$NAME" >> $GITHUB_OUTPUT
+          echo "url=$URL"   >> $GITHUB_OUTPUT
+
+      - name: Upewnij się, że istnieje katalog plugins/
+        run: mkdir -p plugins
+
+      - name: Pobierz ZIP do plugins/
+        env:
+          URL:  ${{ steps.params.outputs.url }}
+          NAME: ${{ steps.params.outputs.name }}
+        run: |
+          set -e
+          echo "Pobieram: $URL → plugins/${NAME}.zip"
+          curl -L --fail "$URL" -o "plugins/${NAME}.zip"
+          ls -lh plugins
+
+      - name: Zbuduj manifest.json (wersja = hash pliku)
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          BRANCH="main"
+          RAW_BASE="https://raw.githubusercontent.com/${REPO}/${BRANCH}/plugins"
+          echo '{ "plugins": [] }' > manifest.build.json
+          shopt -s nullglob
+          files=(plugins/*.zip)
+          tmpfile="$(mktemp)"; : > "$tmpfile"
+          for z in "${files[@]}"; do
+            base="$(basename "$z")"
+            slug="${base%.zip}"
+            name="$(echo "$slug" | sed -E 's/^wtp/WTP/i; s/-/ /g; s/\bwp\b/WP/g')"
+            url="${RAW_BASE}/${base}"
+            ver="$(sha256sum "$z" | cut -c1-8)"
+            echo "${name}|${url}|${ver}" >> "$tmpfile"
+          done
+          sort -t '|' -k1,1 "$tmpfile" | awk -F'|' '!seen[$2]++' > "${tmpfile}.uniq"
+          while IFS='|' read -r name url ver; do
+            jq --arg name "$name" --arg url "$url" --arg version "$ver" \
+              '.plugins += [{name:$name, url:$url, version:$version}]' \
+              manifest.build.json > manifest.tmp && mv manifest.tmp manifest.build.json
+          done < "${tmpfile}.uniq"
+          jq '.' manifest.build.json > manifest.json
+          rm -f manifest.build.json "$tmpfile" "${tmpfile}.uniq"
+          echo "Manifest:"
+          cat manifest.json
+
+      - name: Sprawdź zmiany
+        id: diff
+        run: |
+          if git status --porcelain | grep -E '^( M|A |??) (manifest.json|plugins/.*\.zip)'; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit & push (PAT)
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          TOKEN: ${{ secrets.WTP_AGENT_TOKEN }}
+        run: |
+          set -e
+          git config user.name  "wtp-agent"
+          git config user.email "wtp-agent@noreply.weektoppick.com"
+          git add manifest.json plugins/*.zip || true
+          git commit -m "agent: add/refresh plugin(s) + manifest" || exit 0
+          git remote set-url origin "https://${TOKEN}@github.com/${{ github.repository }}.git"
+          git pull --rebase origin main || true
+          git push origin HEAD:main
