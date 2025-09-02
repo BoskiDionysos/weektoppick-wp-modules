@@ -1,11 +1,11 @@
 name: GSC Collector
 
 on:
-  # Auto-run po sukcesie Agent Push
+  # Auto: po sukcesie Agent Push (Silent Mode)
   workflow_run:
     workflows: ["Agent Push (Silent Mode)"]
     types: [completed]
-  # Ręczny start
+  # Ręcznie z Actions -> GSC Collector -> Run workflow
   workflow_dispatch:
 
 permissions:
@@ -13,25 +13,29 @@ permissions:
 
 jobs:
   collect:
-    # uruchom po ręcznym starcie albo po sukcesie poprzedniego workflow
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
+    # uruchom po sukcesie Agenta albo ręcznie
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
     steps:
+      # Pozbywa się warningu z auth@v2 o pustej przestrzeni roboczej
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Install tools (jq, curl)
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq curl
 
+      # ⬇️ KLUCZOWA ZMIANA — jawne scope'y do Search Console API
       - name: Authenticate to Google (service account JSON)
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.WTP_GSC_KEY }}
-          create_credentials_file: true
-          token_format: 'access_token'
+          token_format: access_token
           access_token_scopes: |
+            https://www.googleapis.com/auth/webmasters
             https://www.googleapis.com/auth/webmasters.readonly
-            https://www.googleapis.com/auth/userinfo.email
 
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
@@ -40,67 +44,90 @@ jobs:
 
       - name: Get access token
         id: token
-        run: echo "token=$(gcloud auth print-access-token)" >> $GITHUB_OUTPUT
+        run: |
+          set -euo pipefail
+          echo "token=$(gcloud auth print-access-token)" >> "$GITHUB_OUTPUT"
 
       - name: Define property (site)
         id: prop
+        env:
+          SITE_SECRET: ${{ secrets.WTP_GSC_SITE }}
         run: |
-          PROP="${{ secrets.WTP_GSC_SITE }}"
-          if [ -z "$PROP" ]; then
-            PROP="sc-domain:weektoppick.com"
-          fi
-          echo "site=$PROP" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          SITE="${SITE_SECRET:-}"
+          if [ -z "$SITE" ]; then SITE="sc-domain:weektoppick.com"; fi
+          echo "site=$SITE" >> "$GITHUB_OUTPUT"
+          echo "SITE: $SITE"
 
       - name: Query GSC Search Analytics (last 7 days)
-        id: query
         env:
           TOKEN: ${{ steps.token.outputs.token }}
           SITE:  ${{ steps.prop.outputs.site }}
         run: |
           set -euo pipefail
+
+          # Pokaż tylko początek tokena dla debug (bez wycieku całości)
+          echo "TOKEN: ${TOKEN:0:16}... (trimmed)"
+          echo "SITE:  $SITE"
+
           START=$(date -u -d '7 days ago' +%Y-%m-%d)
           END=$(date -u -d '1 day ago' +%Y-%m-%d)
+
           BODY=$(jq -n --arg start "$START" --arg end "$END" \
                  '{startDate:$start, endDate:$end, dimensions:["query","page"], rowLimit:2500}')
+
           URL="https://searchconsole.googleapis.com/webmasters/v3/sites/${SITE}/searchAnalytics/query"
+
           code=$(curl -sS -o gsc-raw.json -w "%{http_code}" \
             -H "Authorization: Bearer ${TOKEN}" \
             -H "Content-Type: application/json" \
             -X POST "$URL" \
             --data-binary "$BODY")
+
           echo "HTTP=$code"
           if [ "$code" -ge 400 ]; then
             echo "==== GSC error body (trimmed) ===="
-            head -c 2000 gsc-raw.json || true
-            echo
+            # Zanonimizuj długie stringi w logu
+            sed -E 's/("[A-Za-z0-9_]*":) *"[^"]{40,}"/\1 "***"/g' gsc-raw.json || true
             exit 1
           fi
 
-      - name: Build GSC summary
+          # zapisz daty do pliku pomocniczego (użyjemy w summary)
+          jq -n --arg start "$START" --arg end "$END" '{start:$start,end:$end}' > gsc-range.json
+
+      - name: Build summary
         run: |
           set -euo pipefail
+          START=$(jq -r '.start' gsc-range.json)
+          END=$(jq -r '.end' gsc-range.json)
           TOTAL=$(jq '.rows|length // 0' gsc-raw.json)
+          TOP10=$(jq '[.rows[0:10][]?.keys[0]] // []' gsc-raw.json)
           jq -n \
-            --arg status "ok" \
-            --arg source "gsc" \
-            --arg site "${{ steps.prop.outputs.site }}" \
-            --arg start "$(date -u -d '7 days ago' +%Y-%m-%d)" \
-            --arg end   "$(date -u -d '1 day ago' +%Y-%m-%d)" \
-            --argjson rows "$TOTAL" \
-            '{status:$status, source:$source, site:$site, start:$start, end:$end, rows:$rows, ts: now|floor}' \
-            > gsc-summary.json
+             --arg status "ok" \
+             --arg source "gsc" \
+             --arg start "$START" \
+             --arg end "$END" \
+             --argjson rows "$TOTAL" \
+             --argjson top "$TOP10" \
+             '{status:$status, source:$source, start:$start, end:$end, rows:$rows, top:$top, ts:(now|floor)}' \
+             > gsc-summary.json
+          cat gsc-summary.json
 
       - name: Flag Bridge availability (safe check)
         id: bridge
+        env:
+          BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
+          BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
         run: |
-          if [ -n "${{ secrets.WTP_BRIDGE_KEY }}" ] && [ -n "${{ secrets.WTP_BRIDGE_HMAC }}" ] && [ -n "${{ secrets.RUNNER_URL }}" ]; then
-            echo "ok=true" >> $GITHUB_OUTPUT
+          if [ -n "${BRIDGE_KEY:-}" ] && [ -n "${BRIDGE_HMAC:-}" ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
           else
-            echo "ok=false" >> $GITHUB_OUTPUT
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Bridge secrets missing -> skipping POST to WP"
           fi
 
       - name: POST summary to WP (only when Bridge secrets present)
-        if: ${{ steps.bridge.outputs.ok == 'true' }}
+        if: steps.bridge.outputs.ok == 'true'
         env:
           BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
           BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
@@ -113,7 +140,9 @@ jobs:
           PATHONLY="/wp-json/wtp/v1/runner/ingest"
           BODY=$(cat gsc-summary.json)
           SIG=$(printf "%s\nPOST\n%s\n%s" "$TS" "$PATHONLY" "$BODY" \
-               | openssl dgst -sha256 -hmac "$BRIDGE_HMAC" -binary | xxd -p -c 256)
+                | openssl dgst -sha256 -hmac "$BRIDGE_HMAC" -binary | xxd -p -c 256)
+
+          echo "POST ${BASE}${PATHONLY}"
           curl -sS -X POST "${BASE}${PATHONLY}" \
             -H "Content-Type: application/json" \
             -H "X-WTP-Key: ${BRIDGE_KEY}" \
@@ -121,11 +150,12 @@ jobs:
             -H "X-WTP-Signature: ${SIG}" \
             --data-binary @"gsc-summary.json" || true
 
-      - name: Upload artifacts (GSC raw + summary)
+      - name: Upload artifacts (raw + summary)
         uses: actions/upload-artifact@v4
         with:
           name: gsc-data
           path: |
             gsc-raw.json
+            gsc-range.json
             gsc-summary.json
           retention-days: 7
