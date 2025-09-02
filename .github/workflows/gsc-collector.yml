@@ -11,11 +11,8 @@ permissions:
   issues: write
 
 env:
-  # OIDC/WIF – wartości z Twojej konfiguracji (masz je już ustawione)
   GCP_WIP_PROVIDER: projects/760942758973/locations/global/workloadIdentityPools/github-pool/providers/github-actions
   GCP_SERVICE_ACCOUNT: wtp-gsc-collector@weektoppick.iam.gserviceaccount.com
-
-  # GSC site z repo secret (np. sc-domain:weektoppick.com albo https://weektoppick.com/)
   GSC_SITE: ${{ secrets.WTP_GSC_SITE }}
 
 jobs:
@@ -99,13 +96,17 @@ jobs:
                 > gsc-digest.json
 
       - name: POST digest to WP (Bridge)
-        if: ${{ success() && secrets.WTP_BRIDGE_KEY != '' && secrets.WTP_BRIDGE_HMAC != '' }}
         env:
           BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
           BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
           BASE:        ${{ secrets.RUNNER_URL }}
         run: |
           set -euo pipefail
+          if [ -z "${BRIDGE_KEY:-}" ] || [ -z "${BRIDGE_HMAC:-}" ]; then
+            echo "Brak kluczy BRIDGE, skip."
+            exit 0
+          fi
+
           BASE="${BASE:-https://weektoppick.com}"
           BASE="${BASE%%/}"
           TS=$(date +%s)
@@ -130,7 +131,6 @@ jobs:
             gsc-raw.pretty.json
             gsc-digest.json
 
-      # === Auto-close old failure issues when this run is green ===
       - name: Auto-close previous failure issues
         if: success()
         uses: actions/github-script@v7
@@ -140,7 +140,7 @@ jobs:
             const titlePrefix = "❌ GSC collector failed";
             const issues = await github.paginate(
               github.rest.issues.listForRepo,
-              { owner, repo, state: "open", labels: undefined }
+              { owner, repo, state: "open" }
             );
             const failures = issues.filter(i => i.title.startsWith(titlePrefix));
             for (const i of failures) {
@@ -153,7 +153,6 @@ jobs:
               });
             }
 
-      # === Create an issue on failure with logs ===
       - name: Create Issue on failure with logs
         if: failure()
         uses: actions/github-script@v7
