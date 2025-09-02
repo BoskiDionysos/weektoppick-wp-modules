@@ -33,19 +33,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        # domyślnie użyje GITHUB_TOKEN — nie blokujemy tego
+        with:
+          persist-credentials: false   # NIE używamy GITHUB_TOKEN
 
-      - name: Configure git (use PAT if provided, else GitHub token)
+      - name: Configure git (REQUIRES WTP_GITHUB_PAT)
         env:
-          GH_PAT: ${{ secrets.WTP_GITHUB_PAT }}
-          GH_TOKEN: ${{ github.token }}
+          WTP_PAT: ${{ secrets.WTP_GITHUB_PAT }}
         run: |
           set -euo pipefail
+          if [ -z "${WTP_PAT:-}" ]; then
+            echo "::error::Missing secret WTP_GITHUB_PAT"; exit 1
+          fi
           git config user.name  "wtp-bot"
           git config user.email "wtp-bot@weektoppick.com"
-          TOKEN="${GH_PAT:-}"
-          if [ -z "$TOKEN" ]; then TOKEN="${GH_TOKEN}"; fi
-          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}"
+          git remote set-url origin "https://x-access-token:${WTP_PAT}@github.com/${{ github.repository }}"
 
       - name: Ensure tools (jq, zip, curl)
         run: |
