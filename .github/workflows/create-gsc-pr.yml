@@ -1,0 +1,148 @@
+name: Create PR – GSC Collector (one-time helper)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Add GSC Collector workflow file
+        run: |
+          mkdir -p .github/workflows
+          cat > .github/workflows/gsc-collector.yml <<'YAML'
+          name: SEO / GSC Collector
+
+          on:
+            workflow_run:
+              workflows: ["Agent Push (Silent Mode)"]
+              types: [completed]
+
+          permissions:
+            contents: write
+
+          jobs:
+            gsc:
+              runs-on: ubuntu-latest
+              if: ${{ github.event.workflow_run.conclusion == 'success' && secrets.WTP_GSC_KEY != '' }}
+              steps:
+                - uses: actions/checkout@v4
+
+                - name: Setup Python
+                  uses: actions/setup-python@v5
+                  with:
+                    python-version: '3.11'
+
+                - name: Collect GSC data
+                  env:
+                    WTP_GSC_KEY: ${{ secrets.WTP_GSC_KEY }}
+                    WTP_GSC_PROPERTY: ${{ secrets.WTP_GSC_PROPERTY }}
+                  run: |
+                    python -m pip install --quiet --upgrade google-api-python-client google-auth
+                    python - <<'PY'
+                    import os, json, gzip, datetime, pathlib, sys
+                    from google.oauth2.service_account import Credentials
+                    from googleapiclient.discovery import build
+
+                    key = os.environ["WTP_GSC_KEY"]
+                    info = json.loads(key)
+                    creds = Credentials.from_service_account_info(
+                        info, scopes=["https://www.googleapis.com/auth/webmasters.readonly"]
+                    )
+                    svc = build("webmasters", "v3", credentials=creds, cache_discovery=False)
+
+                    prop = (os.environ.get("WTP_GSC_PROPERTY") or "").strip()
+                    candidates = [p for p in [prop, "sc-domain:weektoppick.com", "https://weektoppick.com/", "http://weektoppick.com/"] if p]
+                    try:
+                        owned = {e["siteUrl"] for e in svc.sites().list().execute().get("siteEntry", []) if e.get("permissionLevel")}
+                    except Exception as e:
+                        print(f"::error::GSC sites.list failed: {e}")
+                        sys.exit(1)
+                    site = next((c for c in candidates if c in owned), candidates[0] if candidates else None)
+
+                    today = datetime.date.today()
+                    start = (today - datetime.timedelta(days=1)).isoformat()
+                    end   = today.isoformat()
+
+                    outdir = pathlib.Path("ops/seo/gsc")
+                    outdir.mkdir(parents=True, exist_ok=True)
+                    date_tag = today.isoformat()
+
+                    summary = {"siteUrl": site, "date": date_tag, "ok": True, "performance_rows": 0, "note": ""}
+
+                    rows = []
+                    try:
+                        body = {"startDate": start, "EndDate": end, "dimensions": ["page"], "rowLimit": 5000}
+                    except:
+                        body = {"startDate": start, "endDate": end, "dimensions": ["page"], "rowLimit": 5000}
+                    try:
+                        resp = svc.searchanalytics().query(siteUrl=site, body=body).execute()
+                        for r in resp.get("rows", []):
+                            url = r.get("keys", [""])[0]
+                            rows.append({
+                                "url": url,
+                                "clicks": r.get("clicks", 0),
+                                "impressions": r.get("impressions", 0),
+                                "ctr": r.get("ctr", 0.0),
+                                "position": r.get("position", 0.0),
+                            })
+                        summary["performance_rows"] = len(rows)
+                    except Exception as e:
+                        summary["ok"] = False
+                        summary["note"] += f" perf_err={e}"
+
+                    raw = outdir / f"gsc-performance-{date_tag}.jsonl.gz"
+                    with gzip.open(raw, "wt", encoding="utf-8") as f:
+                        for r in rows:
+                            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+                    (outdir / f"gsc-summary-{date_tag}.json").write_text(
+                        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+
+                    status = "ok" if summary["ok"] else "warning"
+                    print(f"::notice title=GSC Collector::{status}; site={summary['siteUrl']}; rows={summary['performance_rows']}")
+                    PY
+
+                - name: Upload GSC artifacts
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: gsc-${{ github.run_id }}
+                    path: |
+                      ops/seo/gsc/gsc-summary-*.json
+                      ops/seo/gsc/gsc-performance-*.jsonl.gz
+
+                # (Opcjonalnie) wyślij podsumowanie do WP Dashboard – wymaga kluczy mostka
+                - name: Send GSC summary to WP (optional)
+                  if: ${{ secrets.WTP_BRIDGE_KEY != '' && secrets.WTP_BRIDGE_HMAC != '' }}
+                  env:
+                    BRIDGE_KEY: ${{ secrets.WTP_BRIDGE_KEY }}
+                    BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
+                  run: |
+                    LATEST=$(ls -1t ops/seo/gsc/gsc-summary-*.json | head -n1)
+                    TS=$(date +%s)
+                    PATHONLY="/wp-json/wtp/v1/seo/ingest"
+                    BODY=$(cat "$LATEST")
+                    SIG=$(php -r 'echo hash_hmac("sha256", $argv[1]."\nPOST\n".$argv[2]."\n".$argv[3], $argv[4]);' "$TS" "$PATHONLY" "$BODY" "$BRIDGE_HMAC")
+                    curl -sS -X POST "https://weektoppick.com${PATHONLY}" \
+                      -H "Content-Type: application/json" \
+                      -H "X-WTP-Key: ${BRIDGE_KEY}" \
+                      -H "X-WTP-Timestamp: ${TS}" \
+                      -H "X-WTP-Signature: ${SIG}" \
+                      --data-binary @"$LATEST" || true
+          YAML
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "feat(seo): add GSC Collector workflow and WP summary hook"
+          branch: autopilot/gsc-collector
+          title: "Add GSC Collector + WP Dashboard Summary"
+          body: "Automatically added by helper workflow. Merges after review."
+          labels: autopilot, seo, gsc
