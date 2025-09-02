@@ -1,18 +1,29 @@
 name: GSC Collector
 
 on:
-  workflow_dispatch:   # ręczne uruchomienie
-  workflow_run:        # automatycznie po sukcesie Agent Push
+  workflow_dispatch:
+  workflow_run:
     workflows: ["Agent Push (Silent Mode)"]
     types: [completed]
 
 permissions:
   contents: read
 
+concurrency:
+  group: gsc-collector-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   collect:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # uruchom ręcznie LUB po sukcesie agent-push
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
+
+    # <- Ładujemy secrety do ENV, by używać ich w if: i w skryptach
+    env:
+      BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
+      BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
+      RUNNER_URL:  ${{ secrets.RUNNER_URL }}
 
     steps:
       - name: Install tools
@@ -34,12 +45,12 @@ jobs:
         id: token
         run: |
           set -euo pipefail
-          echo "token=$(gcloud auth print-access-token)" >> $GITHUB_OUTPUT
+          echo "token=$(gcloud auth print-access-token)" >> "$GITHUB_OUTPUT"
 
       - name: Define property (force Domain property)
         id: prop
         run: |
-          echo "site=sc-domain:weektoppick.com" >> $GITHUB_OUTPUT
+          echo "site=sc-domain:weektoppick.com" >> "$GITHUB_OUTPUT"
 
       - name: Query GSC Search Analytics (last 7 days)
         env:
@@ -60,7 +71,7 @@ jobs:
           echo "GSC HTTP=$http_code"
           if [ "$http_code" -ge 400 ]; then
             echo "::error::GSC API error HTTP $http_code"
-            cat gsc-raw.json || true
+            head -c 2000 gsc-raw.json || true
             exit 1
           fi
 
@@ -71,23 +82,23 @@ jobs:
           TOP_QUERIES=$(jq -r '[.rows[0:10][]?.keys[0]] // []' gsc-raw.json)
           jq -n --arg status "ok" --arg source "gsc" \
                --argjson rows "$TOTAL_ROWS" --argjson top "$TOP_QUERIES" \
-               '{status:$status, source:$source, rows:$rows, top:$top, ts: now|floor}' > gsc-summary.json
+               '{status:$status, source:$source, rows:$rows, top:$top, ts:(now|floor)}' \
+               > gsc-summary.json
+          echo "Rows: $TOTAL_ROWS"
+          echo "Summary: $(jq -c . gsc-summary.json)"
 
-      - name: POST summary to WP
-        if: ${{ secrets.WTP_BRIDGE_KEY != '' && secrets.WTP_BRIDGE_HMAC != '' }}
-        env:
-          BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
-          BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
-          BASE:        ${{ secrets.RUNNER_URL }}
+      - name: POST summary to WP (only if Bridge secrets exist)
+        if: ${{ env.BRIDGE_KEY != '' && env.BRIDGE_HMAC != '' }}
         run: |
           set -euo pipefail
-          BASE="${BASE:-https://weektoppick.com}"
+          BASE="${RUNNER_URL:-https://weektoppick.com}"
           BASE="${BASE%%/}"
           TS=$(date +%s)
           PATHONLY="/wp-json/wtp/v1/runner/ingest"
           BODY=$(cat gsc-summary.json)
           SIG=$(printf "%s\nPOST\n%s\n%s" "$TS" "$PATHONLY" "$BODY" \
                | openssl dgst -sha256 -hmac "$BRIDGE_HMAC" -binary | xxd -p -c 256)
+          echo "POST ${BASE}${PATHONLY}"
           curl -sS -X POST "${BASE}${PATHONLY}" \
             -H "Content-Type: application/json" \
             -H "X-WTP-Key: ${BRIDGE_KEY}" \
