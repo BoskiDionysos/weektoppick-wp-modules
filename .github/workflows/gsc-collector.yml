@@ -1,7 +1,7 @@
 name: GSC Collector
 
 on:
-  # AUTO: odpal po ZAKOŃCZENIU workflow "Agent Push (Silent Mode)"
+  # AUTO: uruchom po zakończeniu "Agent Push (Silent Mode)"
   workflow_run:
     workflows: ["Agent Push (Silent Mode)"]
     types: [completed]
@@ -17,12 +17,11 @@ concurrency:
 
 jobs:
   collect:
-    # uruchom gdy ręcznie LUB gdy Agent Push zakończył się sukcesem
+    # Start gdy ręcznie LUB gdy Agent Push zakończył się sukcesem
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
 
     steps:
-      # --- ECHO na wejściu (łatwo zobaczyć w logach) ---
       - name: Echo trigger details
         run: |
           echo "GSC Collector triggered."
@@ -56,7 +55,6 @@ jobs:
       - name: Define property
         id: prop
         run: |
-          # jeśli masz secret WTP_GSC_SITE, użyj go; inaczej domena
           PROP="${{ secrets.WTP_GSC_SITE }}"
           if [ -z "$PROP" ]; then PROP="sc-domain:weektoppick.com"; fi
           echo "site=$PROP" >> $GITHUB_OUTPUT
@@ -72,7 +70,6 @@ jobs:
           END=$(date -u -d '1 day ago' +%Y-%m-%d)
           BODY=$(jq -n --arg start "$START" --arg end "$END" \
                   '{startDate:$start, endDate:$end, dimensions:["query","page"], rowLimit:2500}')
-          # Uwaga: SITE musi być URL-encoded; API akceptuje już format sc-domain:example.com
           URL="https://searchconsole.googleapis.com/webmasters/v3/sites/${SITE}/searchAnalytics/query"
           http_code=$(curl -sS -o gsc-raw.json -w "%{http_code}" \
             -H "Authorization: Bearer ${TOKEN}" \
@@ -93,10 +90,10 @@ jobs:
           TOP_QUERIES=$(jq -r '[.rows[0:10][]?.keys[0]] // []' gsc-raw.json)
           jq -n --arg status "ok" --arg source "gsc" \
                --argjson rows "$TOTAL_ROWS" --argjson top "$TOP_QUERIES" \
-               '{status:$status, source:$source, rows:$rows, top:$top, ts: (now|floor)}' \
+               '{status:$status, source:$source, rows:$rows, top:$top, ts:(now|floor)}' \
                > gsc-summary.json
           echo "Rows: $TOTAL_ROWS"
-          echo "Top queries: $(jq -c . gsc-summary.json)"
+          echo "Summary: $(jq -c . gsc-summary.json)"
 
       - name: POST summary to WP (optional, if Bridge secrets exist)
         if: ${{ secrets.WTP_BRIDGE_KEY != '' && secrets.WTP_BRIDGE_HMAC != '' }}
