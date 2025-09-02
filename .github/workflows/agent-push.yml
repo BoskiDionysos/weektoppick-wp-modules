@@ -1,13 +1,13 @@
 name: Agent Push (Silent Mode)
 
 on:
-  workflow_dispatch:          # ręcznie z UI
+  workflow_dispatch:          # ręczny start
   push:                       # auto po zmianach
     paths:
       - 'manifest.json'
       - 'plugins/'
       - '.github/workflows/agent-push.yml'
-  schedule:                   # strażnik co 30 min (UTC)
+  schedule:                   # watchdog co 30 minut (UTC)
     - cron: '*/30 * * * *'
 
 concurrency:
@@ -32,9 +32,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          persist-credentials: false  # użyjemy własnego PAT (WTP_GITHUB_PAT)
+          persist-credentials: false  # użyjemy własnego PAT
 
-      - name: Configure git (PAT if provided)
+      - name: Configure git (use PAT if provided)
         run: |
           git config user.name  "wtp-bot"
           git config user.email "wtp-bot@weektoppick.com"
@@ -48,7 +48,7 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y jq zip curl
 
-      - name: Prepare output dir
+      - name: Prepare output dirs
         run: |
           mkdir -p "$DIST_DIR" "$OPS_DIR"
 
@@ -108,11 +108,12 @@ jobs:
             BASE="https://weektoppick.com"
           fi
           BASE="${BASE%%/}"
-          echo "install=${BASE}/wp-json/wtp/v1/agent/install"    >> $GITHUB_OUTPUT
-          echo "inventory=${BASE}/wp-json/wtp-runner/v1/inventory" >> $GITHUB_OUTPUT
-          echo "sync=${BASE}/wp-json/wtp-runner/v1/sync"          >> $GITHUB_OUTPUT
-          echo "ingest=${BASE}/wp-json/wtp/v1/runner/ingest"      >> $GITHUB_OUTPUT
+          echo "install=${BASE}/wp-json/wtp/v1/agent/install"         >> $GITHUB_OUTPUT
+          echo "inventory=${BASE}/wp-json/wtp-runner/v1/inventory"   >> $GITHUB_OUTPUT
+          echo "sync=${BASE}/wp-json/wtp-runner/v1/sync"             >> $GITHUB_OUTPUT
+          echo "ingest=${BASE}/wp-json/wtp/v1/runner/ingest"         >> $GITHUB_OUTPUT
 
+      # ===================== DEPLOY (Bridge /install) =====================
       - name: Call runner /install (deploy + purge)
         env:
           BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
@@ -165,12 +166,8 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      # ===== Publikacja podsumowania do WP =====
-      - name: WTP – post summary to WP
-        if: ${{ secrets.WTP_BRIDGE_KEY != '' && secrets.WTP_BRIDGE_HMAC != '' }}
-        env:
-          BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
-          BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
+      # ===================== SUMMARY → WP =====================
+      - name: Prepare summary
         run: |
           set -euo pipefail
           SENT=$(jq '.plugins|length' manifest.json 2>/dev/null || echo 0)
@@ -180,20 +177,30 @@ jobs:
                '{sent:$sent, skipped:$skipped, errors:$errors, ts: now|floor}' \
                > "$OPS_DIR/summary.json"
 
+      - name: POST summary to WP (only when Bridge secrets present)
+        if: ${{ env.BRIDGE_KEY != '' && env.BRIDGE_HMAC != '' }}
+        env:
+          BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
+          BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
+          BASE:        ${{ secrets.RUNNER_URL }}
+        run: |
+          set -euo pipefail
+          BASE="${BASE:-https://weektoppick.com}"
+          BASE="${BASE%%/}"
           TS=$(date +%s)
           PATHONLY="/wp-json/wtp/v1/runner/ingest"
           BODY=$(cat "$OPS_DIR/summary.json")
           SIG=$(printf "%s\nPOST\n%s\n%s" "$TS" "$PATHONLY" "$BODY" \
                | openssl dgst -sha256 -hmac "$BRIDGE_HMAC" -binary | xxd -p -c 256)
-          curl -sS -X POST "${{ steps.ep.outputs.ingest }}" \
+          curl -sS -X POST "${BASE}${PATHONLY}" \
             -H "Content-Type: application/json" \
             -H "X-WTP-Key: ${BRIDGE_KEY}" \
             -H "X-WTP-Timestamp: ${TS}" \
             -H "X-WTP-Signature: ${SIG}" \
             --data-binary @"$OPS_DIR/summary.json" || true
 
-      # ===== Twarde progi błędów instalacji =====
-      - name: WTP – fail on excessive install errors
+      # ===================== TWARDY PRÓG BŁĘDÓW =====================
+      - name: Fail on excessive install errors
         if: ${{ always() }}
         run: |
           set -euo pipefail
@@ -206,4 +213,4 @@ jobs:
           PCT=0; if [ "$TOTAL" -gt 0 ]; then PCT=$((100 * ERRORS / TOTAL)); fi
           echo "install errors=${ERRORS} (${PCT}%) total=${TOTAL}"
           if [ "$ERRORS" -ge 2 ] || [ "$PCT" -gt 20 ]; then
-            echo "::error::excessive install errors – failing job"; exit 1; fi
+            echo "::error::excessive install errors – failing job"; exit 1; fi
