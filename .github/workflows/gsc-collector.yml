@@ -21,6 +21,12 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
     runs-on: ubuntu-latest
 
+    # <- TU ładujemy secrety do env, żeby użyć ich w if:
+    env:
+      BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
+      BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
+      GSC_SITE:    ${{ secrets.WTP_GSC_SITE }}
+
     steps:
       - name: Echo trigger details
         run: |
@@ -55,7 +61,7 @@ jobs:
       - name: Define property
         id: prop
         run: |
-          PROP="${{ secrets.WTP_GSC_SITE }}"
+          PROP="${GSC_SITE}"
           if [ -z "$PROP" ]; then PROP="sc-domain:weektoppick.com"; fi
           echo "site=$PROP" >> $GITHUB_OUTPUT
           echo "Using Search Console property: $PROP"
@@ -96,11 +102,10 @@ jobs:
           echo "Summary: $(jq -c . gsc-summary.json)"
 
       - name: POST summary to WP (optional, if Bridge secrets exist)
-        if: ${{ secrets.WTP_BRIDGE_KEY != '' && secrets.WTP_BRIDGE_HMAC != '' }}
+        # <- SPRAWDZAMY env.*, NIE secrets.*, żeby uniknąć błędu parsera
+        if: ${{ env.BRIDGE_KEY != '' && env.BRIDGE_HMAC != '' }}
         env:
-          BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
-          BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
-          BASE:        ${{ secrets.RUNNER_URL }}
+          BASE: ${{ secrets.RUNNER_URL }}
         run: |
           set -euo pipefail
           BASE="${BASE:-https://weektoppick.com}"
