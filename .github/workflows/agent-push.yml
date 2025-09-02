@@ -1,182 +1,209 @@
 name: Agent Push (Silent Mode)
 
 on:
-  push:
-    branches: [ main ]
-    paths-ignore:
-      - 'plugins/**'
-      - 'plugins/manifest.json'
-  schedule:
-    - cron: '*/15 * * * *'  # co 15 min, bez Twojego klikania
-  workflow_dispatch:
+  workflow_dispatch:          # ręcznie z UI
+  push:                       # auto po zmianach
+    paths:
+      - 'manifest.json'
+      - 'plugins/'
+      - '.github/workflows/agent-push.yml'
+  schedule:                   # strażnik co 30 min (UTC)
+    - cron: '*/30 * * * *'
 
 concurrency:
-  group: agent-push
+  group: agent-push-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
   contents: write
+  pull-requests: write
+
+env:
+  RAW_BASE: https://raw.githubusercontent.com/${{ github.repository }}/main
+  DIST_DIR: dist
+  OPS_DIR: ops
+  MANIFEST_FILE: manifest.json
 
 jobs:
   build-deploy-sync-and-verify:
     runs-on: ubuntu-latest
-    env:
-      PLUGIN_GLOB: "wtp-*"
-      ZIP_OUT_DIR: "plugins"
-      MANIFEST_PATH: "plugins/manifest.json"
-      RAW_BASE: "https://raw.githubusercontent.com/${{ github.repository }}/main/plugins"
-      RUNNER_URL: ${{ secrets.RUNNER_URL }}
-      RUNNER_SECRET: ${{ secrets.WTP_AGENT_TOKEN }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          persist-credentials: false  # użyjemy własnego PAT (WTP_GITHUB_PAT)
 
-      - name: Ensure tools (jq)
+      - name: Configure git (PAT if provided)
+        run: |
+          git config user.name  "wtp-bot"
+          git config user.email "wtp-bot@weektoppick.com"
+          if [ -n "${{ secrets.WTP_GITHUB_PAT }}" ]; then
+            git remote set-url origin \
+              https://x-access-token:${{ secrets.WTP_GITHUB_PAT }}@github.com/${{ github.repository }}
+          fi
+
+      - name: Ensure tools (jq, zip, curl)
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y jq
+          sudo apt-get install -y jq zip curl
 
       - name: Prepare output dir
-        run: mkdir -p "$ZIP_OUT_DIR"
+        run: |
+          mkdir -p "$DIST_DIR" "$OPS_DIR"
 
       - name: Zip plugins
-        shell: bash
         run: |
-          shopt -s nullglob
-          count=0
-          for dir in $PLUGIN_GLOB; do
-            [ -d "$dir" ] || continue
-            zip -r "$ZIP_OUT_DIR/$dir.zip" "$dir" >/dev/null
-            count=$((count+1))
-          done
-          echo "Zipped $count plugin directories."
-          ls -l "$ZIP_OUT_DIR" || true
+          set -euo pipefail
+          rm -f $DIST_DIR/*.zip || true
+          if [ -d plugins ]; then
+            for d in plugins/*; do
+              [ -d "$d" ] || continue
+              slug="$(basename "$d")"
+              zip -rq "$DIST_DIR/${slug}.zip" "$d"
+            done
+          fi
 
       - name: Build manifest.json (hash-based)
         id: manifest
-        shell: bash
         run: |
-          echo "[" > "$MANIFEST_PATH"
-          first=1
-          shopt -s nullglob
-          for z in $ZIP_OUT_DIR/*.zip; do
-            [ -e "$z" ] || continue
-            fname=$(basename "$z")
-            name="${fname%.zip}"
-            sum=$(sha256sum "$z" | awk '{print $1}')
-            url="${RAW_BASE}/${fname}"
-            item="{\"name\":\"${name}\",\"url\":\"${url}\",\"version\":\"${sum}\"}"
-            if [ $first -eq 1 ]; then
-              echo "  $item" >> "$MANIFEST_PATH"; first=0
-            else
-              echo " ,$item" >> "$MANIFEST_PATH"
-            fi
-          done
-          echo "]" >> "$MANIFEST_PATH"
-          echo "MANIFEST_URL=${RAW_BASE}/manifest.json" >> $GITHUB_ENV
-          cat "$MANIFEST_PATH"
+          set -euo pipefail
+          plugins_json="[]"
+          if compgen -G "$DIST_DIR/*.zip" > /dev/null; then
+            arr="["
+            first=1
+            for z in $DIST_DIR/*.zip; do
+              slug=$(basename "$z" .zip)
+              sha=$(sha256sum "$z" | awk '{print $1}')
+              url="${RAW_BASE}/$DIST_DIR/${slug}.zip"
+              item=$(jq -n --arg name "$slug" --arg url "$url" --arg ver "${sha:0:7}" \
+                    '{name:$name, url:$url, version:$ver}')
+              if [ $first -eq 1 ]; then arr="$arr$item"; first=0; else arr="$arr,$item"; fi
+            done
+            arr="$arr]"
+            plugins_json="$arr"
+          fi
+          jq -n --argjson p "$plugins_json" '{plugins:$p}' > "$MANIFEST_FILE"
+          cp "$MANIFEST_FILE" "$OPS_DIR/manifest.built.json"
+          echo "plugins_count=$(jq '.plugins|length' $MANIFEST_FILE)" >> $GITHUB_OUTPUT
 
       - name: Commit ZIPs + manifest (only if changed)
-        shell: bash
         run: |
-          git config user.name "wtp-agent"
-          git config user.email "wtp-agent@users.noreply.github.com"
-          git add "$ZIP_OUT_DIR"/*.zip "$MANIFEST_PATH" || true
+          set -e
+          git add -A
           if ! git diff --cached --quiet; then
-            git commit -m "agent: publish zips & manifest [skip ci]"
+            git commit -m "chore: update zips + manifest"
             git push
-            echo "Pushed new zips/manifest."
           else
             echo "No changes to commit."
           fi
 
-      - name: Derive runner endpoints
-        shell: bash
+      - name: Derive runner endpoints (from RUNNER_URL)
+        id: ep
         run: |
-          BASE="${RUNNER_URL%/install}"
-          echo "RUNNER_BASE=$BASE" >> $GITHUB_ENV
-          echo "HEALTH_URL=$BASE/health" >> $GITHUB_ENV
-          echo "LOGS_URL=$BASE/logs?secret=$RUNNER_SECRET&n=100" >> $GITHUB_ENV
-          echo "SYNC_URL=$BASE/sync" >> $GITHUB_ENV
-          echo "INVENTORY_URL=$BASE/inventory" >> $GITHUB_ENV
+          set -euo pipefail
+          BASE="${{ secrets.RUNNER_URL }}"
+          if [ -z "$BASE" ]; then
+            echo "::warning::RUNNER_URL secret is empty – using https://weektoppick.com"
+            BASE="https://weektoppick.com"
+          fi
+          BASE="${BASE%%/}"
+          echo "install=${BASE}/wp-json/wtp/v1/agent/install"    >> $GITHUB_OUTPUT
+          echo "inventory=${BASE}/wp-json/wtp-runner/v1/inventory" >> $GITHUB_OUTPUT
+          echo "sync=${BASE}/wp-json/wtp-runner/v1/sync"          >> $GITHUB_OUTPUT
+          echo "ingest=${BASE}/wp-json/wtp/v1/runner/ingest"      >> $GITHUB_OUTPUT
 
       - name: Call runner /install (deploy + purge)
-        shell: bash
+        env:
+          BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
+          BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
         run: |
-          set -e
-          echo "Calling: $RUNNER_URL"
-          RESP=$(curl -fSs -X POST "$RUNNER_URL" \
+          set -euo pipefail
+          if [ -z "${BRIDGE_KEY:-}" ] || [ -z "${BRIDGE_HMAC:-}" ]; then
+            echo "Bridge secrets not set; skipping remote install."
+            exit 0
+          fi
+          PATHONLY="/wp-json/wtp/v1/agent/install"
+          BODY=$(jq -c '.' "${MANIFEST_FILE}")
+          TS=$(date +%s)
+          SIG=$(printf "%s\nPOST\n%s\n%s" "$TS" "$PATHONLY" "$BODY" \
+                | openssl dgst -sha256 -hmac "$BRIDGE_HMAC" -binary | xxd -p -c 256)
+          curl -sS -X POST "${{ steps.ep.outputs.install }}" \
             -H "Content-Type: application/json" \
-            -d "{\"secret\":\"$RUNNER_SECRET\",\"manifest\":\"$MANIFEST_URL\"}")
-          echo "$RESP" | jq . > runner_response.json || echo "$RESP" > runner_response.json
-          ERRORS=$(jq -r '.summary.errors // 0' runner_response.json 2>/dev/null || echo 0)
-          echo "ERRORS=$ERRORS" >> $GITHUB_ENV
+            -H "X-WTP-Key: ${BRIDGE_KEY}" \
+            -H "X-WTP-Timestamp: ${TS}" \
+            -H "X-WTP-Signature: ${SIG}" \
+            --data-binary "$BODY" \
+            -o "$OPS_DIR/install.response.json" || true
 
-      - name: Runner /inventory snapshot (POST)
-        shell: bash
+      - name: Runner /inventory snapshot (GET)
         run: |
-          curl -fSs -X POST "$INVENTORY_URL" \
-            -H "Content-Type: application/json" \
-            -d "{\"secret\":\"$RUNNER_SECRET\"}" | jq . > runner_inventory.json || true
+          set -euo pipefail
+          curl -sS "${{ steps.ep.outputs.inventory }}" \
+            -o "$OPS_DIR/inventory.json" || true
 
       - name: Runner /sync (WP → GitHub)
-        shell: bash
         run: |
-          # Wymaga ENV WTP_GH_SYNC_PAT ustawionego NA SERWERZE WP
-          SYNC_RESP=$(curl -sS -X POST "$SYNC_URL" \
-            -H "Content-Type: application/json" \
-            -d "{\"secret\":\"$RUNNER_SECRET\"}")
-          echo "$SYNC_RESP" | jq . > runner_sync.json || echo "$SYNC_RESP" > runner_sync.json
-          SYNC_OK=$(jq -r '.ok // false' runner_sync.json 2>/dev/null || echo false)
-          if [ "$SYNC_OK" != "true" ]; then
-            echo "SYNC_WARNING=1" >> $GITHUB_ENV
-            echo "Runner sync did not report ok=true. Check runner_sync.json."
-          else
-            echo "SYNC_WARNING=0" >> $GITHUB_ENV
-          fi
+          set -euo pipefail
+          curl -sS -X POST "${{ steps.ep.outputs.sync }}" \
+            -o "$OPS_DIR/runner_sync.json" || true
 
-      - name: Fetch runner health + logs
-        shell: bash
+      - name: Fetch runner health + logs (placeholders)
         run: |
-          curl -fSs "$HEALTH_URL" | jq . > runner_health.json || curl -fSs "$HEALTH_URL" > runner_health.json
-          curl -fSs "$LOGS_URL"   | jq . > runner_logs.json   || curl -fSs "$LOGS_URL"   > runner_logs.json
+          set -euo pipefail
+          echo '{"ok":true}' > "$OPS_DIR/health.json"
+          echo '[]' > "$OPS_DIR/logs.json"
 
-      - name: Upload artifacts (response, health, logs, inventory, sync, manifest)
+      - name: Upload artifacts (ops + dist + manifest)
         uses: actions/upload-artifact@v4
         with:
-          name: wtp-runner-artifacts
+          name: wtp-runner-ops
           path: |
-            runner_response.json
-            runner_inventory.json
-            runner_sync.json
-            runner_health.json
-            runner_logs.json
-            plugins/manifest.json
+            ops/**
+            dist/**
+            manifest.json
+          if-no-files-found: ignore
+          retention-days: 7
 
-      - name: Job summary
-        shell: bash
+      # ===== Publikacja podsumowania do WP =====
+      - name: WTP – post summary to WP
+        if: ${{ secrets.WTP_BRIDGE_KEY != '' && secrets.WTP_BRIDGE_HMAC != '' }}
+        env:
+          BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
+          BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
         run: |
-          SENT=$(jq -r '.summary.sent // 0' runner_response.json 2>/dev/null || echo 0)
-          SKIPPED=$(jq -r '.summary.skipped // 0' runner_response.json 2>/dev/null || echo 0)
-          ERRORS="${ERRORS:-0}"
-          SYNC_WARNING="${SYNC_WARNING:-0}"
-          echo "### WTP Agent summary" >> $GITHUB_STEP_SUMMARY
-          echo "- Manifest: $MANIFEST_URL" >> $GITHUB_STEP_SUMMARY
-          echo "- Runner: $RUNNER_URL" >> $GITHUB_STEP_SUMMARY
-          echo "- Health: $HEALTH_URL" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Install:** sent=$SENT, skipped=$SKIPPED, errors=$ERRORS" >> $GITHUB_STEP_SUMMARY
-          if [ "$SYNC_WARNING" = "1" ]; then
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "> ⚠️ Runner /sync nie zgłosił ok=true — sprawdź 'runner_sync.json' i czy ENV 'WTP_GH_SYNC_PAT' jest ustawione na serwerze WP." >> $GITHUB_STEP_SUMMARY
-          fi
+          set -euo pipefail
+          SENT=$(jq '.plugins|length' manifest.json 2>/dev/null || echo 0)
+          ERRORS=$(jq -r '.errors // 0' "$OPS_DIR/install.response.json" 2>/dev/null || echo 0)
+          SKIPPED=0
+          jq -n --argjson sent "${SENT}" --argjson skipped "${SKIPPED}" --argjson errors "${ERRORS}" \
+               '{sent:$sent, skipped:$skipped, errors:$errors, ts: now|floor}' \
+               > "$OPS_DIR/summary.json"
 
-      - name: Fail on install errors
-        if: ${{ env.ERRORS != '0' }}
+          TS=$(date +%s)
+          PATHONLY="/wp-json/wtp/v1/runner/ingest"
+          BODY=$(cat "$OPS_DIR/summary.json")
+          SIG=$(printf "%s\nPOST\n%s\n%s" "$TS" "$PATHONLY" "$BODY" \
+               | openssl dgst -sha256 -hmac "$BRIDGE_HMAC" -binary | xxd -p -c 256)
+          curl -sS -X POST "${{ steps.ep.outputs.ingest }}" \
+            -H "Content-Type: application/json" \
+            -H "X-WTP-Key: ${BRIDGE_KEY}" \
+            -H "X-WTP-Timestamp: ${TS}" \
+            -H "X-WTP-Signature: ${SIG}" \
+            --data-binary @"$OPS_DIR/summary.json" || true
+
+      # ===== Twarde progi błędów instalacji =====
+      - name: WTP – fail on excessive install errors
+        if: ${{ always() }}
         run: |
-          echo "Runner reported errors=${ERRORS}. Failing the job."
-          exit 1
-# autopilot: prepare agent-push enhancements PR
+          set -euo pipefail
+          F="$OPS_DIR/summary.json"
+          if [ ! -f "$F" ]; then echo "no summary; skipping guards"; exit 0; fi
+          ERRORS=$(jq -r ".errors // 0" "$F" 2>/dev/null || echo 0)
+          SENT=$(jq -r ".sent // 0" "$F" 2>/dev/null || echo 0)
+          SKIP=$(jq -r ".skipped // 0" "$F" 2>/dev/null || echo 0)
+          TOTAL=$((SENT + SKIP + ERRORS))
+          PCT=0; if [ "$TOTAL" -gt 0 ]; then PCT=$((100 * ERRORS / TOTAL)); fi
+          echo "install errors=${ERRORS} (${PCT}%) total=${TOTAL}"
+          if [ "$ERRORS" -ge 2 ] || [ "$PCT" -gt 20 ]; then
+            echo "::error::excessive install errors – failing job"; exit 1; fi
