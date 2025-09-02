@@ -2,7 +2,7 @@ name: Agent Push (Silent Mode)
 
 on:
   workflow_dispatch:          # ręczny start
-  push:                       # auto po zmianach
+  push:                       # auto po zmianach w pluginach / manifeście / pliku workflow
     paths:
       - 'manifest.json'
       - 'plugins/'
@@ -32,7 +32,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          persist-credentials: false  # użyjemy własnego PAT
+          persist-credentials: false  # użyjemy własnego PAT gdy jest
 
       - name: Configure git (use PAT if provided)
         run: |
@@ -199,18 +199,25 @@ jobs:
             -H "X-WTP-Signature: ${SIG}" \
             --data-binary @"$OPS_DIR/summary.json" || true
 
-      # ===================== TWARDY PRÓG BŁĘDÓW =====================
+      # ===================== TWARDY PRÓG BŁĘDÓW – prosty i stabilny =====================
       - name: Fail on excessive install errors
-        if: ${{ always() }}
         run: |
           set -euo pipefail
           F="$OPS_DIR/summary.json"
-          if [ ! -f "$F" ]; then echo "no summary; skipping guards"; exit 0; fi
+          if [ ! -f "$F" ]; then
+            echo "no summary; skipping guards"
+            exit 0
+          fi
           ERRORS=$(jq -r ".errors // 0" "$F" 2>/dev/null || echo 0)
           SENT=$(jq -r ".sent // 0" "$F" 2>/dev/null || echo 0)
           SKIP=$(jq -r ".skipped // 0" "$F" 2>/dev/null || echo 0)
           TOTAL=$((SENT + SKIP + ERRORS))
-          PCT=0; if [ "$TOTAL" -gt 0 ]; then PCT=$((100 * ERRORS / TOTAL)); fi
-          echo "install errors=${ERRORS} (${PCT}%) total=${TOTAL}"
+          PCT=0
+          if [ "$TOTAL" -gt 0 ]; then
+            PCT=$(awk -v e="$ERRORS" -v t="$TOTAL" 'BEGIN{printf("%d",(e*100)/t)}')
+          fi
+          echo "install errors=$ERRORS (${PCT}%) total=$TOTAL"
           if [ "$ERRORS" -ge 2 ] || [ "$PCT" -gt 20 ]; then
-            echo "::error::excessive install errors – failing job"; exit 1; fi
+            echo "::error::excessive install errors – failing job"
+            exit 1
+          fi
