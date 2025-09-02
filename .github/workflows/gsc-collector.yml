@@ -3,28 +3,31 @@ name: GSC collector
 on:
   workflow_dispatch:
   schedule:
-    - cron: "12 6 * * *"  # ustaw po swojemu (UTC)
+    - cron: "5 5 * * *"   # codziennie 05:05 UTC (07:05 w PL latem)
 
 permissions:
   id-token: write
   contents: read
+  issues: write
 
 env:
-  # 🔧 ZMIEŃ, jeśli u Ciebie mają inne identyfikatory:
+  # OIDC/WIF – wartości z Twojej konfiguracji (masz je już ustawione)
   GCP_WIP_PROVIDER: projects/760942758973/locations/global/workloadIdentityPools/github-pool/providers/github-actions
   GCP_SERVICE_ACCOUNT: wtp-gsc-collector@weektoppick.iam.gserviceaccount.com
 
-  # z repo secret
+  # GSC site z repo secret (np. sc-domain:weektoppick.com albo https://weektoppick.com/)
   GSC_SITE: ${{ secrets.WTP_GSC_SITE }}
 
 jobs:
   gsc:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Authenticate to Google (OIDC)
+      - name: Auth to Google (OIDC)
+        id: auth
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ env.GCP_WIP_PROVIDER }}
@@ -35,12 +38,23 @@ jobs:
       - name: Setup gcloud
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Install tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq curl
+
       - name: Query GSC Search Analytics (last 7 days)
+        id: query
         shell: bash
+        env:
+          SITE: ${{ env.GSC_SITE }}
         run: |
           set -euo pipefail
-          sudo apt-get update -y >/dev/null
-          sudo apt-get install -y jq curl >/dev/null
+
+          if [[ -z "${SITE:-}" ]]; then
+            echo "Brak WTP_GSC_SITE"
+            exit 2
+          fi
 
           START=$(date -u -d '7 days ago' +%Y-%m-%d)
           END=$(date -u -d '1 day ago' +%Y-%m-%d)
@@ -48,31 +62,115 @@ jobs:
           BODY=$(jq -n --arg start "$START" --arg end "$END" \
                  '{startDate:$start, endDate:$end, dimensions:["query","page"], rowLimit:2500}')
 
-          ACCESS_TOKEN=$(gcloud auth application-default print-access-token \
-                           --scopes=https://www.googleapis.com/auth/webmasters.readonly)
+          ACCESS_TOKEN=$(gcloud auth application-default print-access-token --scopes=https://www.googleapis.com/auth/webmasters.readonly)
 
-          URL="https://searchconsole.googleapis.com/webmasters/v3/sites/${GSC_SITE}/searchAnalytics/query"
+          SITE_ENC=$(jq -rn --arg s "$SITE" '$s|@uri')
+          URL="https://searchconsole.googleapis.com/webmasters/v3/sites/${SITE_ENC}/searchAnalytics/query"
 
-          echo "SITE: ${GSC_SITE}"
           HTTP=$(curl -sS -o gsc-raw.json -w "%{http_code}" \
                    -X POST "$URL" \
                    -H "Authorization: Bearer ${ACCESS_TOKEN}" \
                    -H "Content-Type: application/json" \
                    --data-binary "$BODY")
-          echo "HTTP=${HTTP}"
+          echo "http=$HTTP" >> $GITHUB_OUTPUT
+
           if [ "$HTTP" -ge 400 ]; then
-            echo "==== GSC error body (trimmed) ===="
-            sed -n '1,200p' gsc-raw.json || true
+            echo "==== ERROR BODY (first 2KB) ===="
+            head -c 2000 gsc-raw.json || true
             exit 1
           fi
 
           jq . gsc-raw.json > gsc-raw.pretty.json
-          echo "OK – zapisano gsc-raw.json i gsc-raw.pretty.json"
 
-      - name: Upload artifacts (raw + pretty)
+      - name: Build digest (summary JSON)
+        id: digest
+        run: |
+          set -euo pipefail
+          ROWS=$(jq '.rows|length // 0' gsc-raw.json)
+          TOPQ=$(jq -r '[.rows[0:10][]?.keys[0]] // []' gsc-raw.json)
+          TSP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          jq -n --arg status "ok" \
+                --arg source "gsc" \
+                --arg ts "$TSP" \
+                --arg site "${{ env.GSC_SITE }}" \
+                --argjson rows "$ROWS" \
+                --argjson top "$TOPQ" \
+                '{status:$status, source:$source, ts:$ts, site:$site, rows:$rows, top:$top}' \
+                > gsc-digest.json
+
+      - name: POST digest to WP (Bridge)
+        if: ${{ success() && secrets.WTP_BRIDGE_KEY != '' && secrets.WTP_BRIDGE_HMAC != '' }}
+        env:
+          BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
+          BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
+          BASE:        ${{ secrets.RUNNER_URL }}
+        run: |
+          set -euo pipefail
+          BASE="${BASE:-https://weektoppick.com}"
+          BASE="${BASE%%/}"
+          TS=$(date +%s)
+          PATHONLY="/wp-json/wtp/v1/runner/ingest"
+          BODY=$(cat gsc-digest.json)
+          SIG=$(printf "%s\nPOST\n%s\n%s" "$TS" "$PATHONLY" "$BODY" \
+                | openssl dgst -sha256 -hmac "$BRIDGE_HMAC" -binary | xxd -p -c 256)
+          curl -sS -X POST "${BASE}${PATHONLY}" \
+            -H "Content-Type: application/json" \
+            -H "X-WTP-Key: ${BRIDGE_KEY}" \
+            -H "X-WTP-Timestamp: ${TS}" \
+            -H "X-WTP-Signature: ${SIG}" \
+            --data-binary @"gsc-digest.json" || true
+
+      - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gsc-response
+          name: gsc-data
           path: |
             gsc-raw.json
             gsc-raw.pretty.json
+            gsc-digest.json
+
+      # === Auto-close old failure issues when this run is green ===
+      - name: Auto-close previous failure issues
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const titlePrefix = "❌ GSC collector failed";
+            const issues = await github.paginate(
+              github.rest.issues.listForRepo,
+              { owner, repo, state: "open", labels: undefined }
+            );
+            const failures = issues.filter(i => i.title.startsWith(titlePrefix));
+            for (const i of failures) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: i.number,
+                body: `✅ Fixed by successful run #${context.runNumber}: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`
+              });
+              await github.rest.issues.update({
+                owner, repo, issue_number: i.number, state: "closed"
+              });
+            }
+
+      # === Create an issue on failure with logs ===
+      - name: Create Issue on failure with logs
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = 'GSC Collector failed.\n\n';
+            try {
+              const raw = fs.readFileSync('gsc-raw.json', 'utf8').slice(0, 2000);
+              body += 'Error snippet (first 2KB):\n\n```\n' + raw + '\n```\n';
+            } catch(e) {
+              body += 'No gsc-raw.json available.\n';
+            }
+            body += `\nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `❌ GSC collector failed (run #${context.runNumber})`,
+              body
+            });
