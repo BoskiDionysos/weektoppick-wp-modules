@@ -1,22 +1,19 @@
-name: GSC Collector
+name: GSC collector
 
 on:
   workflow_dispatch:
 
+permissions:
+  id-token: write        # konieczne do OIDC
+  contents: read
+
+env:
+  # dokładnie jak w Search Console, np. "sc-domain:weektoppick.com"
+  GSC_SITE: ${{ secrets.WTP_GSC_SITE }}
+
 jobs:
   collect:
     runs-on: ubuntu-latest
-
-    # potrzebne do OIDC
-    permissions:
-      contents: read
-      id-token: write
-
-    env:
-      # 👉 sekret z GSC: np. sc-domain:weektoppick.com
-      GSC_SITE: ${{ secrets.WTP_GSC_SITE }}
-      # 👉 nazwa Twojego serwisowego konta w GCP
-      GCP_SA_EMAIL: wtp-gsc-collector@weektoppick.iam.gserviceaccount.com
 
     steps:
       - name: Checkout
@@ -26,44 +23,45 @@ jobs:
         id: google-auth
         uses: google-github-actions/auth@v2
         with:
+          # 👇 JEDYNY sposób uwierzytelniania – OIDC (bez credentials_json)
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ env.GCP_SA_EMAIL }}
-          # KLUCZOWE: chcemy access token z odpowiednim scope
+          service_account: wtp-gsc-collector@weektoppick.iam.gserviceaccount.com
           token_format: access_token
           access_token_scopes: https://www.googleapis.com/auth/webmasters.readonly
 
-      - name: Setup gcloud (dla wygody narzędzi)
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Query GSC Search Analytics (last 7 days)
+      # --- KRÓTKI DEBUG (pomoże natychmiast złapać problem) ---
+      - name: Debug – pokaż scope access tokena
         env:
-          ACCESS_TOKEN: ${{ steps.google-auth.outputs.access_token }}
-        shell: bash
+          TOKEN: ${{ steps.google-auth.outputs.access_token }}
         run: |
           set -euo pipefail
+          curl -sS "https://oauth2.googleapis.com/tokeninfo?access_token=${TOKEN}" | jq '{scopes: .scope}'
 
-          # Daty
+      - name: Debug – czy SA widzi Twoje właściwości GSC?
+        env:
+          TOKEN: ${{ steps.google-auth.outputs.access_token }}
+        run: |
+          set -euo pipefail
+          curl -sS -H "Authorization: Bearer ${TOKEN}" \
+               "https://searchconsole.googleapis.com/webmasters/v3/sites" | jq .
+
+      # --- Właściwe zapytanie ---
+      - name: Query GSC Search Analytics (last 7 days)
+        env:
+          TOKEN: ${{ steps.google-auth.outputs.access_token }}
+          SITE: ${{ env.GSC_SITE }}
+        run: |
+          set -euo pipefail
           START=$(date -u -d '7 days ago' +%Y-%m-%d)
           END=$(date -u -d '1 day ago' +%Y-%m-%d)
+          BODY=$(jq -n --arg start "$START" --arg end "$END" \
+            '{startDate:$start, endDate:$end, dimensions:["query","page"], rowLimit:2500}')
 
-          # URL-encode property (np. "sc-domain:weektoppick.com")
-          SITE_ENC=$(jq -rn --arg s "$GSC_SITE" '$s|@uri')
-
-          # Body zapytania
-          BODY=$(jq -n --arg start "$START" --arg end "$END" '{
-            startDate: $start,
-            endDate:   $end,
-            dimensions: ["query","page"],
-            rowLimit: 2500
-          }')
-
-          URL="https://searchconsole.googleapis.com/webmasters/v3/sites/${SITE_ENC}/searchAnalytics/query"
-
-          echo "SITE: $GSC_SITE"
-          echo "URL:  $URL"
+          SITE_URI=$(printf '%s' "$SITE" | jq -sRr @uri)
+          URL="https://searchconsole.googleapis.com/webmasters/v3/sites/${SITE_URI}/searchAnalytics/query"
 
           code=$(curl -sS -o gsc-raw.json -w "%{http_code}" \
-            -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+            -H "Authorization: Bearer ${TOKEN}" \
             -H "Content-Type: application/json" \
             -X POST "$URL" \
             --data-binary "$BODY")
@@ -71,16 +69,17 @@ jobs:
           echo "HTTP=$code"
           if [ "$code" -ge 400 ]; then
             echo "==== GSC error body (trimmed) ===="
-            sed -n '1,120p' gsc-raw.json
+            head -c 4000 gsc-raw.json || true
+            echo
             exit 1
           fi
 
-          # Prosty podgląd liczby rekordów
-          jq '.rows | length' gsc-raw.json || true
+          jq . gsc-raw.json | tee gsc-pretty.json >/dev/null
 
-      - name: Upload artifacts (raw)
-        if: always()
+      - name: Upload artifacts (raw + pretty)
         uses: actions/upload-artifact@v4
         with:
-          name: gsc-raw
-          path: gsc-raw.json
+          name: gsc-results
+          path: |
+            gsc-raw.json
+            gsc-pretty.json
