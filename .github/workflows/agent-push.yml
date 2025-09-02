@@ -17,6 +17,8 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
+  issues: write
+  id-token: write
 
 env:
   RAW_BASE: https://raw.githubusercontent.com/${{ github.repository }}/main
@@ -31,17 +33,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          persist-credentials: false  # użyjemy własnego PAT gdy jest
+        # domyślnie użyje GITHUB_TOKEN — nie blokujemy tego
 
-      - name: Configure git (use PAT if provided)
+      - name: Configure git (use PAT if provided, else GitHub token)
+        env:
+          GH_PAT: ${{ secrets.WTP_GITHUB_PAT }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           git config user.name  "wtp-bot"
           git config user.email "wtp-bot@weektoppick.com"
-          if [ -n "${{ secrets.WTP_GITHUB_PAT }}" ]; then
-            git remote set-url origin \
-              https://x-access-token:${{ secrets.WTP_GITHUB_PAT }}@github.com/${{ github.repository }}
-          fi
+          TOKEN="${GH_PAT:-}"
+          if [ -z "$TOKEN" ]; then TOKEN="${GH_TOKEN}"; fi
+          git remote set-url origin "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}"
 
       - name: Ensure tools (jq, zip, curl)
         run: |
@@ -92,8 +96,8 @@ jobs:
           set -e
           git add -A
           if ! git diff --cached --quiet; then
-            git commit -m "chore: update zips + manifest"
-            git push
+            git commit -m "auto: update zips + manifest"
+            git push origin HEAD:main
           else
             echo "No changes to commit."
           fi
@@ -224,3 +228,48 @@ jobs:
             echo "::error::excessive install errors – failing job"
             exit 1
           fi
+
+      # === Auto-close previous failure issues when green ===
+      - name: Auto-close previous failure issues
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {owner, repo} = context.repo;
+            const titlePrefix = "❌ Agent Push failed";
+            const issues = await github.paginate(
+              github.rest.issues.listForRepo,
+              { owner, repo, state: "open" }
+            );
+            const failures = issues.filter(i => i.title.startsWith(titlePrefix));
+            for (const i of failures) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: i.number,
+                body: `✅ Fixed by successful run #${context.runNumber}: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`
+              });
+              await github.rest.issues.update({
+                owner, repo, issue_number: i.number, state: "closed"
+              });
+            }
+
+      # === Create Issue on failure with logs ===
+      - name: Create Issue on failure with logs
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = 'Agent Push failed.\n\n';
+            try {
+              const raw = fs.readFileSync('ops/install.response.json', 'utf8').slice(0, 2000);
+              body += 'Install response (first 2KB):\n\n```\n' + raw + '\n```\n';
+            } catch(e) {
+              body += 'No ops/install.response.json available.\n';
+            }
+            body += `\nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `❌ Agent Push failed (run #${context.runNumber})`,
+              body
+            });
