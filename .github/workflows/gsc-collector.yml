@@ -1,42 +1,20 @@
 name: GSC Collector
 
 on:
-  # AUTO: uruchom po zakończeniu "Agent Push (Silent Mode)"
-  workflow_run:
+  workflow_dispatch:   # ręczne uruchomienie
+  workflow_run:        # automatycznie po sukcesie Agent Push
     workflows: ["Agent Push (Silent Mode)"]
     types: [completed]
-  # RĘCZNIE: przycisk "Run workflow"
-  workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: gsc-collector-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   collect:
-    # Start gdy ręcznie LUB gdy Agent Push zakończył się sukcesem
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
-    # <- TU ładujemy secrety do env, żeby użyć ich w if:
-    env:
-      BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
-      BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
-      GSC_SITE:    ${{ secrets.WTP_GSC_SITE }}
-
     steps:
-      - name: Echo trigger details
-        run: |
-          echo "GSC Collector triggered."
-          echo "event_name=${{ github.event_name }}"
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "workflow_run.name=${{ github.event.workflow_run.name }}"
-            echo "workflow_run.conclusion=${{ github.event.workflow_run.conclusion }}"
-          fi
-
       - name: Install tools
         run: |
           sudo apt-get update -y
@@ -58,13 +36,10 @@ jobs:
           set -euo pipefail
           echo "token=$(gcloud auth print-access-token)" >> $GITHUB_OUTPUT
 
-      - name: Define property
+      - name: Define property (force Domain property)
         id: prop
         run: |
-          PROP="${GSC_SITE}"
-          if [ -z "$PROP" ]; then PROP="sc-domain:weektoppick.com"; fi
-          echo "site=$PROP" >> $GITHUB_OUTPUT
-          echo "Using Search Console property: $PROP"
+          echo "site=sc-domain:weektoppick.com" >> $GITHUB_OUTPUT
 
       - name: Query GSC Search Analytics (last 7 days)
         env:
@@ -85,7 +60,7 @@ jobs:
           echo "GSC HTTP=$http_code"
           if [ "$http_code" -ge 400 ]; then
             echo "::error::GSC API error HTTP $http_code"
-            head -c 2000 gsc-raw.json || true
+            cat gsc-raw.json || true
             exit 1
           fi
 
@@ -96,16 +71,14 @@ jobs:
           TOP_QUERIES=$(jq -r '[.rows[0:10][]?.keys[0]] // []' gsc-raw.json)
           jq -n --arg status "ok" --arg source "gsc" \
                --argjson rows "$TOTAL_ROWS" --argjson top "$TOP_QUERIES" \
-               '{status:$status, source:$source, rows:$rows, top:$top, ts:(now|floor)}' \
-               > gsc-summary.json
-          echo "Rows: $TOTAL_ROWS"
-          echo "Summary: $(jq -c . gsc-summary.json)"
+               '{status:$status, source:$source, rows:$rows, top:$top, ts: now|floor}' > gsc-summary.json
 
-      - name: POST summary to WP (optional, if Bridge secrets exist)
-        # <- SPRAWDZAMY env.*, NIE secrets.*, żeby uniknąć błędu parsera
-        if: ${{ env.BRIDGE_KEY != '' && env.BRIDGE_HMAC != '' }}
+      - name: POST summary to WP
+        if: ${{ secrets.WTP_BRIDGE_KEY != '' && secrets.WTP_BRIDGE_HMAC != '' }}
         env:
-          BASE: ${{ secrets.RUNNER_URL }}
+          BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
+          BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
+          BASE:        ${{ secrets.RUNNER_URL }}
         run: |
           set -euo pipefail
           BASE="${BASE:-https://weektoppick.com}"
@@ -115,7 +88,6 @@ jobs:
           BODY=$(cat gsc-summary.json)
           SIG=$(printf "%s\nPOST\n%s\n%s" "$TS" "$PATHONLY" "$BODY" \
                | openssl dgst -sha256 -hmac "$BRIDGE_HMAC" -binary | xxd -p -c 256)
-          echo "POST ${BASE}${PATHONLY}"
           curl -sS -X POST "${BASE}${PATHONLY}" \
             -H "Content-Type: application/json" \
             -H "X-WTP-Key: ${BRIDGE_KEY}" \
