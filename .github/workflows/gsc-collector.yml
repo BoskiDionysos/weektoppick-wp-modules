@@ -6,14 +6,17 @@ on:
 jobs:
   collect:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Install tools (jq, curl)
-        run: sudo apt-get update && sudo apt-get install -y jq curl
+      - name: Install tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq curl
 
-      - name: Authenticate to Google (service account JSON)
+      - name: Auth to Google (service account)
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.WTP_GSC_KEY }}
@@ -24,74 +27,101 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Get access token
-        id: gcloud-auth
+        id: token
         run: |
-          ACCESS_TOKEN=$(gcloud auth print-access-token)
-          echo "token=$ACCESS_TOKEN" >> $GITHUB_OUTPUT
+          echo "token=$(gcloud auth print-access-token)" >> $GITHUB_OUTPUT
 
-      - name: Define property (site)
-        id: gsc-site
-        run: echo "site=${{ secrets.WTP_GSC_SITE }}" >> $GITHUB_OUTPUT
+      - name: Define site (property)
+        id: site
+        run: |
+          SITE="${{ secrets.WTP_GSC_SITE }}"
+          if [ -z "$SITE" ]; then
+            SITE="sc-domain:weektoppick.com"
+          fi
+          echo "site=$SITE" >> $GITHUB_OUTPUT
+          # URL-encode (np. sc-domain:weektoppick.com -> sc-domain%3Aweektoppick.com)
+          SITE_ENC=$(printf '%s' "$SITE" | jq -sRr @uri)
+          echo "site_enc=$SITE_ENC" >> $GITHUB_OUTPUT
 
       - name: Query GSC Search Analytics (last 7 days)
-        id: gsc-query
+        id: gsc
+        env:
+          TOKEN: ${{ steps.token.outputs.token }}
+          SITE_ENC: ${{ steps.site.outputs.site_enc }}
         run: |
           set -euo pipefail
-          END_DATE=$(date -u +"%Y-%m-%d")
-          START_DATE=$(date -u -d "$END_DATE - 7 days" +"%Y-%m-%d")
 
-          RESPONSE=$(curl -s -X POST \
-            -H "Authorization: Bearer ${{ steps.gcloud-auth.outputs.token }}" \
+          END=$(date -u +%Y-%m-%d)
+          START=$(date -u -d "$END -7 days" +%Y-%m-%d)
+
+          jq -n --arg s "$START" --arg e "$END" \
+                '{startDate:$s, endDate:$e, dimensions:["query","page"], rowLimit:2500}' > body.json
+
+          CODE=$(curl -sS -o gsc-raw.json -w "%{http_code}" \
+            -H "Authorization: Bearer $TOKEN" \
             -H "Content-Type: application/json" \
-            "https://searchconsole.googleapis.com/v1/sites/${{ steps.gsc-site.outputs.site }}/searchAnalytics/query" \
-            -d "{
-              \"startDate\": \"$START_DATE\",
-              \"endDate\": \"$END_DATE\",
-              \"dimensions\": [\"query\"],
-              \"rowLimit\": 20
-            }")
+            -X POST "https://searchconsole.googleapis.com/webmasters/v3/sites/${SITE_ENC}/searchAnalytics/query" \
+            --data-binary @body.json)
 
-          echo "$RESPONSE" | jq . > gsc-output.json
-
-          if echo "$RESPONSE" | jq -e '.error' > /dev/null; then
-            echo "Error: GSC API returned an error"
-            cat gsc-output.json
+          echo "HTTP=$CODE"
+          if [ "$CODE" -lt 200 ] || [ "$CODE" -ge 300 ]; then
+            echo "==== GSC ERROR BODY ===="
+            # pokaż do logu (przytnij, gdyby to był HTML)
+            head -c 5000 gsc-raw.json || true
+            echo "========================"
             exit 1
           fi
 
-      - name: Build GSC summary
-        if: success()
+          # walidacja JSON
+          jq . gsc-raw.json > /dev/null
+
+      - name: Build summary
         run: |
-          echo "### Google Search Console Report" > summary.md
-          jq -r '.rows[] | "- \(.keys[0]): Clicks=\(.clicks), Impressions=\(.impressions)"' gsc-output.json >> summary.md
+          ROWS=$(jq '.rows|length // 0' gsc-raw.json)
+          echo "Wierszy: $ROWS"
+          {
+            echo "### Google Search Console – top queries (7d)"
+            jq -r '.rows[0:20][]? | "- \(.keys[0]) | page=\(.keys[1]) | clicks=\(.clicks) | imp=\(.impressions)"' gsc-raw.json
+          } > summary.md
           cat summary.md
 
-      - name: Flag Bridge availability (safe check)
-        if: success()
+      - name: Flag Bridge availability
         run: |
-          if [ -n "${{ secrets.WTP_BRIDGE_KEY || '' }}" ] && [ -n "${{ secrets.WTP_BRIDGE_HMAC || '' }}" ]; then
-            echo "bridge=ok" >> $GITHUB_ENV
+          if [ -n "${{ secrets.WTP_BRIDGE_KEY }}" ] && [ -n "${{ secrets.WTP_BRIDGE_HMAC }}" ] && [ -n "${{ secrets.RUNNER_URL }}" ]; then
+            echo "BRIDGE=ok" >> $GITHUB_ENV
           else
-            echo "bridge=skip" >> $GITHUB_ENV
+            echo "BRIDGE=skip" >> $GITHUB_ENV
           fi
 
       - name: POST summary to WP (only when Bridge secrets present)
-        if: env.bridge == 'ok'
+        if: env.BRIDGE == 'ok'
+        env:
+          BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
+          BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
+          BASE:        ${{ secrets.RUNNER_URL }}
         run: |
+          set -euo pipefail
+          BASE="${BASE%%/}"
+          PATHONLY="/wp-json/wtp/v1/runner/ingest"
           BODY=$(jq -Rs . < summary.md)
-          TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          SIGNATURE=$(echo -n "$TIMESTAMP$BODY" | openssl dgst -sha256 -hmac "${{ secrets.WTP_BRIDGE_HMAC }}" | sed 's/^.* //')
-          curl -X POST "${{ secrets.WTP_BRIDGE_URL }}" \
-            -H "X-WTP-Key: ${{ secrets.WTP_BRIDGE_KEY }}" \
-            -H "X-WTP-Signature: $SIGNATURE" \
-            -H "X-WTP-Timestamp: $TIMESTAMP" \
-            -H "Content-Type: application/json" \
-            -d "{\"report\": $BODY}"
+          TS=$(date -u +%s)
+          # podpis: (TS \n POST \n PATH \n BODY)
+          SIG=$(printf "%s\nPOST\n%s\n%s" "$TS" "$PATHONLY" "$(cat summary.md)" \
+              | openssl dgst -sha256 -hmac "$BRIDGE_HMAC" -binary | xxd -p -c 256)
 
-      - name: Upload artifacts (GSC raw + summary)
+          curl -sS -X POST "${BASE}${PATHONLY}" \
+            -H "Content-Type: application/json" \
+            -H "X-WTP-Key: ${BRIDGE_KEY}" \
+            -H "X-WTP-Timestamp: ${TS}" \
+            -H "X-WTP-Signature: ${SIG}" \
+            --data-binary "{\"report\": $(cat summary.md | jq -Rs .)}"
+
+      - name: Upload artifacts (raw + summary)
         uses: actions/upload-artifact@v4
         with:
-          name: gsc-report
+          name: gsc-data
           path: |
-            gsc-output.json
+            body.json
+            gsc-raw.json
             summary.md
+          retention-days: 7
