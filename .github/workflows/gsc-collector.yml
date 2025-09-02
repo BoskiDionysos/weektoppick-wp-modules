@@ -10,10 +10,11 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   collect:
-    # uruchom tylko po sukcesie Agent Push
+    # uruchom tylko po sukcesie Agent Push albo manualnie
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
@@ -108,4 +109,4 @@ jobs:
           path: |
             gsc-raw.json
             gsc-summary.json
-          retention-days: 7
+          retention-days: 7
