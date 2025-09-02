@@ -177,14 +177,17 @@ jobs:
                '{sent:$sent, skipped:$skipped, errors:$errors, ts: now|floor}' \
                > "$OPS_DIR/summary.json"
 
-      - name: POST summary to WP (only when Bridge secrets present)
-        if: ${{ env.BRIDGE_KEY != '' && env.BRIDGE_HMAC != '' }}
+      - name: POST summary to WP (Bridge)
         env:
           BRIDGE_KEY:  ${{ secrets.WTP_BRIDGE_KEY }}
           BRIDGE_HMAC: ${{ secrets.WTP_BRIDGE_HMAC }}
           BASE:        ${{ secrets.RUNNER_URL }}
         run: |
           set -euo pipefail
+          if [ -z "${BRIDGE_KEY:-}" ] || [ -z "${BRIDGE_HMAC:-}" ]; then
+            echo "Bridge secrets not set; skipping summary POST."
+            exit 0
+          fi
           BASE="${BASE:-https://weektoppick.com}"
           BASE="${BASE%%/}"
           TS=$(date +%s)
