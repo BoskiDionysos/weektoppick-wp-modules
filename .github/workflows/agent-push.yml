@@ -55,7 +55,7 @@ jobs:
 
       - name: Prepare output dirs
         run: |
-          mkdir -p "$DIST_DIR" "$OPS_DIR"
+          mkdir -p "$DIST_DIR" "$OPS_DIR" runner/logs
 
       - name: Zip plugins
         run: |
@@ -92,12 +92,25 @@ jobs:
           cp "$MANIFEST_FILE" "$OPS_DIR/manifest.built.json"
           echo "plugins_count=$(jq '.plugins|length' $MANIFEST_FILE)" >> $GITHUB_OUTPUT
 
-      - name: Commit ZIPs + manifest (only if changed)
+      # === NEW: zaciągnięcie snapshotu logów z WP (selftest.json) ===
+      - name: Fetch wp-debug snapshot (selftest.json)
+        run: |
+          set -euo pipefail
+          URL="https://weektoppick.com/wp-json/wtp-ro-open/v1/get?site_key=5Depft8Y9LU0t6Sv&file=selftest.json"
+          echo "GET $URL"
+          if curl -fsSL "$URL" -o runner/logs/selftest.json; then
+            echo "✓ Saved runner/logs/selftest.json"
+          else
+            echo "⚠ selftest.json not available; writing empty stub"
+            echo '{}' > runner/logs/selftest.json
+          fi
+
+      - name: Commit ZIPs + manifest + logs (only if changed)
         run: |
           set -e
           git add -A
           if ! git diff --cached --quiet; then
-            git commit -m "auto: update zips + manifest"
+            git commit -m "auto: update zips + manifest + logs(selftest.json)"
             git push origin HEAD:main
           else
             echo "No changes to commit."
@@ -160,7 +173,7 @@ jobs:
           echo '{"ok":true}' > "$OPS_DIR/health.json"
           echo '[]' > "$OPS_DIR/logs.json"
 
-      - name: Upload artifacts (ops + dist + manifest)
+      - name: Upload artifacts (ops + dist + manifest + runner logs)
         uses: actions/upload-artifact@v4
         with:
           name: wtp-runner-ops
@@ -168,6 +181,7 @@ jobs:
             ops/**
             dist/**
             manifest.json
+            runner/logs/**
           if-no-files-found: ignore
           retention-days: 7
 
@@ -230,7 +244,6 @@ jobs:
             exit 1
           fi
 
-      # === Auto-close previous failure issues when green ===
       - name: Auto-close previous failure issues
         if: success()
         uses: actions/github-script@v7
@@ -253,7 +266,6 @@ jobs:
               });
             }
 
-      # === Create Issue on failure with logs ===
       - name: Create Issue on failure with logs
         if: failure()
         uses: actions/github-script@v7
@@ -273,4 +285,4 @@ jobs:
               repo: context.repo.repo,
               title: `❌ Agent Push failed (run #${context.runNumber})`,
               body
-            });
+            })
