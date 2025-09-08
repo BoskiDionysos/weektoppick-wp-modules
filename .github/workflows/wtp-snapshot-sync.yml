@@ -24,7 +24,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install jq
+      - name: Install tools
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq
@@ -39,80 +39,89 @@ jobs:
           [ -z "$REST_BASE" ] && REST_BASE="https://weektoppick.com/wp-json/wtp-ro-open/v1"
 
           OUT_DIR="snapshots/$SITE_KEY"
-          CURL_UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36'
           CURL_FLAGS='-fL --retry 5 --retry-delay 2 --connect-timeout 15'
+          CURL_UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36'
 
-          echo "SITE_KEY=$SITE_KEY"   >> "$GITHUB_OUTPUT"
-          echo "REST_BASE=$REST_BASE" >> "$GITHUB_OUTPUT"
-          echo "OUT_DIR=$OUT_DIR"     >> "$GITHUB_OUTPUT"
-          echo "CURL_UA=$CURL_UA"     >> "$GITHUB_OUTPUT"
-          echo "CURL_FLAGS=$CURL_FLAGS" >> "$GITHUB_OUTPUT"
+          echo "SITE_KEY=$SITE_KEY"       >> "$GITHUB_OUTPUT"
+          echo "REST_BASE=$REST_BASE"     >> "$GITHUB_OUTPUT"
+          echo "OUT_DIR=$OUT_DIR"         >> "$GITHUB_OUTPUT"
+          echo "CURL_FLAGS=$CURL_FLAGS"   >> "$GITHUB_OUTPUT"
+          echo "CURL_UA=$CURL_UA"         >> "$GITHUB_OUTPUT"
 
           mkdir -p "$OUT_DIR"
 
-      - name: Fetch manifest.json (single source of truth)
+      - name: Fetch manifest.json
         id: manifest
         shell: bash
         run: |
           set -euo pipefail
           url="${{ steps.vars.outputs.REST_BASE }}/get?site_key=${{ steps.vars.outputs.SITE_KEY }}&file=manifest.json&_b=$(date +%s)"
           echo "GET $url"
-          curl ${{ steps.vars.outputs.CURL_FLAGS }} \
-               -A "${{ steps.vars.outputs.CURL_UA }}" \
+          curl ${{ steps.vars.outputs.CURL_FLAGS }} -A "${{ steps.vars.outputs.CURL_UA }}" \
                -H 'Accept: application/json' \
                "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/manifest.json"
-          echo "Manifest type: $(jq -r 'type' "${{ steps.vars.outputs.OUT_DIR }}/manifest.json")"
 
-      - name: Build list of files from manifest
+          # Walidacja JSON
+          jq -e . "${{ steps.vars.outputs.OUT_DIR }}/manifest.json" >/dev/null
+          echo "Manifest OK"
+
+      - name: Build sanitized file list
         id: list
         shell: bash
         run: |
           set -euo pipefail
           M="${{ steps.vars.outputs.OUT_DIR }}/manifest.json"
-          LIST_FILE="${{ steps.vars.outputs.OUT_DIR }}/_files.txt"
+          LIST="${{ steps.vars.outputs.OUT_DIR }}/_files.txt"
 
-          MAIN_LIST=$(
+          # Wyciągnij główną listę (array .files[] lub bezpośredni array)
+          MAIN=$(
             jq -r '
-              if type=="array" then
-                .[]
-              elif type=="object" and has("files") then
-                .files[]
-              else
-                empty
-              end
-            ' "$M"
+              if type=="array" then .[]
+              elif type=="object" and has("files") then .files[]
+              else empty end
+            ' "$M" 2>/dev/null | tr -d '\r' || true
           )
 
+          # Dodatkowe znane pliki (jeśli obiekt ma te pola)
           EXTRAS=$(
             jq -r '
               if type=="object" then
                 [ .manifest, .options, .selftest, .index ] | .[]?
               else empty end
-            ' "$M"
+            ' "$M" 2>/dev/null | tr -d '\r' || true
           )
 
           {
-            echo "$MAIN_LIST"
+            echo "$MAIN"
             echo "$EXTRAS"
             echo "manifest.json"
-          } | awk 'NF' | sort -u > "$LIST_FILE"
+          } | awk 'NF' \
+            | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' \
+            | grep -E '^[A-Za-z0-9._/-]+$' \
+            | sort -u > "$LIST"
 
-          echo "== Files to fetch =="
-          cat "$LIST_FILE"
+          echo "== Sanitized list =="
+          nl -ba "$LIST" || true
+
+          if [ ! -s "$LIST" ]; then
+            echo "ERROR: Lista plików pusta po walidacji." >&2
+            echo "Manifest preview:" >&2
+            head -n 200 "$M" >&2 || true
+            exit 1
+          fi
 
       - name: Download files via /get
         shell: bash
         run: |
           set -euo pipefail
-          LIST_FILE="${{ steps.vars.outputs.OUT_DIR }}/_files.txt"
+          LIST="${{ steps.vars.outputs.OUT_DIR }}/_files.txt"
           while IFS= read -r fname; do
             [ -z "$fname" ] && continue
             url="${{ steps.vars.outputs.REST_BASE }}/get?site_key=${{ steps.vars.outputs.SITE_KEY }}&file=${fname}&_b=$(date +%s)"
             echo "GET $url"
-            curl ${{ steps.vars.outputs.CURL_FLAGS }} \
-                 -A "${{ steps.vars.outputs.CURL_UA }}" \
+            curl ${{ steps.vars.outputs.CURL_FLAGS }} -A "${{ steps.vars.outputs.CURL_UA }}" \
                  "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/${fname}"
-          done < "$LIST_FILE"
+          done < "$LIST"
 
       - name: Stamp runner metadata
         shell: bash
@@ -120,19 +129,21 @@ jobs:
           set -euo pipefail
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           mkdir -p runner
-          cat > runner/runner_response.json <<JSON
-          {"status":"ok","started_at":"$NOW","finished_at":"$NOW","commit_sha":"$GITHUB_SHA","summary":"Mirror ${{ steps.vars.outputs.SITE_KEY }} synchronized via REST manifest"}
-          JSON
-          cat > runner/runner_logs.json <<JSON
-          {"logs":[{"ts":"$NOW","level":"info","step":"mirror","msg":"Synced ${{ steps.vars.outputs.SITE_KEY }} (REST)"}]}
-          JSON
+          printf '{"status":"ok","started_at":"%s","finished_at":"%s","commit_sha":"%s","summary":"Mirror %s synchronized via REST manifest"}\n' \
+            "$NOW" "$NOW" "$GITHUB_SHA" "${{ steps.vars.outputs.SITE_KEY }}" \
+            > runner/runner_response.json
+
+          printf '{"logs":[{"ts":"%s","level":"info","step":"mirror","msg":"Synced %s (REST)"}]}\n' \
+            "$NOW" "${{ steps.vars.outputs.SITE_KEY }}" \
+            > runner/runner_logs.json
+
           if [ -f runner/runner_health.json ]; then
             jq --arg now "$NOW" '.last_snapshot_at=$now' runner/runner_health.json > runner/_tmp.json || cp runner/runner_health.json runner/_tmp.json
             mv runner/_tmp.json runner/runner_health.json
           else
-            cat > runner/runner_health.json <<JSON
-            {"php_version":"","wp_version":"","wp_cli":"","server":"","memory_limit":"","disk_free_mb":0,"last_snapshot_at":"$NOW"}
-            JSON
+            printf '{"php_version":"","wp_version":"","wp_cli":"","server":"","memory_limit":"","disk_free_mb":0,"last_snapshot_at":"%s"}\n' \
+              "$NOW" \
+              > runner/runner_health.json
           fi
 
       - name: Commit & push
@@ -142,5 +153,5 @@ jobs:
           git config user.name  "wtp-snapshot-bot"
           git config user.email "wtp-snapshot-bot@users.noreply.github.com"
           git add snapshots runner/*.json
-          git commit -m "mirror: sync ${{ steps.vars.outputs.SITE_KEY }} via REST manifest" || echo "No changes"
+          git commit -m "mirror: sync ${{ steps.vars.outputs.SITE_KEY }} via REST manifest (sanitized)" || echo "No changes"
           git push
