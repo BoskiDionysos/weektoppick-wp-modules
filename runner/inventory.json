@@ -1,0 +1,9 @@
+{
+  "theme": [
+    { "name": "", "version": "", "path": "theme/", "files": 0 }
+  ],
+  "plugins": [
+    { "slug": "", "version": "", "mu": false, "files": 0 }
+  ],
+  "mu_plugins": []
+}
