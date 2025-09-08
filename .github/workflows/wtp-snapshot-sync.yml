@@ -12,7 +12,7 @@ on:
         required: false
         default: "https://weektoppick.com/wp-json/wtp-ro-open/v1"
   schedule:
-    - cron: "*/30 * * * *"  # co 30 min (usuń, jeśli chcesz tylko ręcznie)
+    - cron: "*/30 * * * *"  # usuń, jeśli chcesz tylko ręcznie
 
 jobs:
   sync:
@@ -60,12 +60,10 @@ jobs:
           echo "GET $url"
           resp="$(curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url")"
           echo "$resp" | jq '.' > "${{ steps.vars.outputs.OUT_DIR }}/ls.json"
-          # prefer dirA, fallback dirB
-          FILES=$(echo "$resp" | jq -r '.list.dirA // [] | .[]' )
+          FILES=$(echo "$resp" | jq -r '.list.dirA // [] | .[]')
           if [ -z "$FILES" ]; then
             FILES=$(echo "$resp" | jq -r '.list.dirB // [] | .[]')
           fi
-          # zapisz listę do outputs
           {
             echo "FILES<<EOF"
             echo "$FILES"
@@ -88,21 +86,28 @@ jobs:
       - name: Stamp runner metadata
         shell: bash
         run: |
+          set -e
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           mkdir -p runner
-          cat > runner/runner_response.json <<JSON
-          {"status":"ok","started_at":"$NOW","finished_at":"$NOW","commit_sha":"${GITHUB_SHA}","summary":"Mirror ${{ steps.vars.outputs.SITE_KEY }} synchronized via REST /ls+get"}
-          JSON
-          cat > runner/runner_logs.json <<JSON
-          {"logs":[{"ts":"$NOW","level":"info","step":"mirror","msg":"Synced ${{ steps.vars.outputs.SITE_KEY }} (REST)"}]}
-          JSON
+
+          # runner_response.json
+          printf '{"status":"ok","started_at":"%s","finished_at":"%s","commit_sha":"%s","summary":"Mirror %s synchronized via REST /ls+get"}\n' \
+            "$NOW" "$NOW" "$GITHUB_SHA" "${{ steps.vars.outputs.SITE_KEY }}" \
+            > runner/runner_response.json
+
+          # runner_logs.json
+          printf '{"logs":[{"ts":"%s","level":"info","step":"mirror","msg":"Synced %s (REST)"}]}\n' \
+            "$NOW" "${{ steps.vars.outputs.SITE_KEY }}" \
+            > runner/runner_logs.json
+
+          # runner_health.json
           if [ -f runner/runner_health.json ]; then
-            jq --arg now "$NOW" '.last_snapshot_at=$now' runner/runner_health.json > runner/runner_health.tmp || cp runner/runner_health.json runner/runner_health.tmp
-            mv runner/runner_health.tmp runner/runner_health.json
+            jq --arg now "$NOW" '.last_snapshot_at=$now' runner/runner_health.json > runner/_tmp.json || cp runner/runner_health.json runner/_tmp.json
+            mv runner/_tmp.json runner/runner_health.json
           else
-            cat > runner/runner_health.json <<JSON
-            {"php_version":"","wp_version":"","wp_cli":"","server":"","memory_limit":"","disk_free_mb":0,"last_snapshot_at":"$NOW"}
-            JSON
+            printf '{"php_version":"","wp_version":"","wp_cli":"","server":"","memory_limit":"","disk_free_mb":0,"last_snapshot_at":"%s"}\n' \
+              "$NOW" \
+              > runner/runner_health.json
           fi
 
       - name: Commit & push
