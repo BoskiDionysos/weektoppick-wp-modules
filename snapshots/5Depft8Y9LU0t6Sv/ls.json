@@ -40,9 +40,12 @@
       "files_019.json",
       "files_020.json",
       "index.json",
+      "logs",
       "manifest.json",
       "options.json",
-      "selftest.json"
+      "selftest.json",
+      "wp-debug-latest.txt",
+      "wp-debug-meta.json"
     ],
     "dirB": [
       "files_000.json",
@@ -67,9 +70,12 @@
       "files_019.json",
       "files_020.json",
       "index.json",
+      "logs",
       "manifest.json",
       "options.json",
-      "selftest.json"
+      "selftest.json",
+      "wp-debug-latest.txt",
+      "wp-debug-meta.json"
     ]
   },
   "urls": {
