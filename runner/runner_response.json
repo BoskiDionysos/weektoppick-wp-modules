@@ -1,7 +1,1 @@
-{
-  "status": "ok",
-  "started_at": "2025-09-07T15:20:00Z",
-  "finished_at": "2025-09-07T15:22:30Z",
-  "commit_sha": "manual-seed",
-  "summary": "Snapshot z plików wygenerowany i opublikowany (bundle + files_000..016)."
-}
+{"status":"ok","started_at":"2025-09-08T14:31:08Z","finished_at":"2025-09-08T14:31:08Z","commit_sha":"14eb6d80de8d38fc1c482fb60a5c8ea07b45171c","summary":"Mirror 5Depft8Y9LU0t6Sv synchronized via REST /ls+get"}

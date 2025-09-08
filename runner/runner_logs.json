@@ -1,8 +1,1 @@
-{
-  "logs": [
-    { "ts": "2025-09-07T15:20:00Z", "level": "info", "step": "start", "msg": "Runner start" },
-    { "ts": "2025-09-07T15:20:10Z", "level": "info", "step": "bundle", "msg": "bundle.json zapisany" },
-    { "ts": "2025-09-07T15:21:40Z", "level": "info", "step": "files", "msg": "files_000..016 zapisane" },
-    { "ts": "2025-09-07T15:22:30Z", "level": "info", "step": "done", "msg": "OK" }
-  ]
-}
+{"logs":[{"ts":"2025-09-08T14:31:08Z","level":"info","step":"mirror","msg":"Synced 5Depft8Y9LU0t6Sv (REST)"}]}
