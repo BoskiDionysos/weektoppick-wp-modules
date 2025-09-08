@@ -33,22 +33,22 @@ jobs:
         id: vars
         shell: bash
         run: |
-          SITE_KEY="${{ github.event.inputs.site_key }}"
-          REST_BASE="${{ github.event.inputs.rest_base }}"
-          [ -z "$SITE_KEY" ] && SITE_KEY="5Depft8Y9LU0t6Sv"
-          [ -z "$REST_BASE" ] && REST_BASE="https://weektoppick.com/wp-json/wtp-ro-open/v1"
-          OUT_DIR="snapshots/$SITE_KEY"
-          echo "SITE_KEY=$SITE_KEY"   >> "$GITHUB_OUTPUT"
-          echo "REST_BASE=$REST_BASE" >> "$GITHUB_OUTPUT"
-          echo "OUT_DIR=$OUT_DIR"     >> "$GITHUB_OUTPUT"
-
-      - name: Prepare output dirs (idempotent)
-        shell: bash
-        run: |
           set -euo pipefail
-          mkdir -p "${{ steps.vars.outputs.OUT_DIR }}" "${{ steps.vars.outputs.OUT_DIR }}/logs"
+          SITE_KEY="${{ github.event.inputs.site_key || '5Depft8Y9LU0t6Sv' }}"
+          REST_BASE="${{ github.event.inputs.rest_base || 'https://weektoppick.com/wp-json/wtp-ro-open/v1' }}"
+          OUT_DIR="snapshots/${SITE_KEY}"
+          LOG_DIR="${OUT_DIR}/logs"
+          echo "SITE_KEY=${SITE_KEY}"   >> "$GITHUB_OUTPUT"
+          echo "REST_BASE=${REST_BASE}" >> "$GITHUB_OUTPUT"
+          echo "OUT_DIR=${OUT_DIR}"     >> "$GITHUB_OUTPUT"
+          echo "LOG_DIR=${LOG_DIR}"     >> "$GITHUB_OUTPUT"
 
-      - name: Set curl flags (browser-like) + helper
+      - name: Prepare dirs
+        run: |
+          mkdir -p "${{ steps.vars.outputs.OUT_DIR }}"
+          mkdir -p "${{ steps.vars.outputs.LOG_DIR }}"
+
+      - name: Curl flags
         id: dl
         shell: bash
         run: |
@@ -65,42 +65,56 @@ jobs:
           resp="$(curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url")"
           echo "$resp" | jq '.' > "${{ steps.vars.outputs.OUT_DIR }}/ls.json"
 
-          # Pliki z /ls (bez pozycji 'logs', która jest katalogiem)
-          FILES=$(echo "$resp" | jq -r '(.list.dirA // .list.dirB // []) | map(select(. != "logs")) | .[]?')
+          # Zbierz listę plików z obu koszy (dirA/dirB), usuń duplikaty
+          FILES=$(echo "$resp" | jq -r '((.list.dirA // []) + (.list.dirB // [])) | unique | .[]')
           {
             echo "FILES<<EOF"
             echo "$FILES"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Download listed files via /get
+      - name: Download all files via /get (robust)
         shell: bash
         run: |
           set -euo pipefail
-          while read -r fname; do
+          while IFS= read -r fname; do
             [ -z "$fname" ] && continue
             url="${{ steps.vars.outputs.REST_BASE }}/get?site_key=${{ steps.vars.outputs.SITE_KEY }}&file=${fname}&_b=$(date +%s)"
+            dest="${{ steps.vars.outputs.OUT_DIR }}/${fname}"
             echo "GET $url"
-            curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/${fname}"
+            # Upewnij się, że katalog docelowy istnieje (na wypadek podkatalogów)
+            mkdir -p "$(dirname "$dest")"
+            if curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "$dest"; then
+              echo "✓ saved $fname"
+            else
+              echo "::warning::skip ${fname} (HTTP error)"
+            fi
           done << 'EOF'
           ${{ steps.ls.outputs.FILES }}
           EOF
 
-      # LOGI: te endpointy wymagają ścieżki z katalogiem 'logs/' i URL-encoding.
-      - name: Download logs (wp-debug-latest.txt, php_errors-latest.txt, wp-debug-meta.json)
+      - name: Extract logs from downloaded set (if present)
         shell: bash
         run: |
           set -euo pipefail
-          BASE="${{ steps.vars.outputs.REST_BASE }}/get?site_key=${{ steps.vars.outputs.SITE_KEY }}&_b=$(date +%s)"
-          # Uwaga: file=logs%2F<nazwa>
+          SRC="${{ steps.vars.outputs.OUT_DIR }}"
+          DST="${{ steps.vars.outputs.LOG_DIR }}"
+          mkdir -p "$DST"
+
+          # Kandydaci na logi/metadane
           for f in "wp-debug-latest.txt" "php_errors-latest.txt" "wp-debug-meta.json"; do
-            enc="logs%2F${f}"
-            url="${BASE}&file=${enc}"
-            out="${{ steps.vars.outputs.OUT_DIR }}/logs/${f}"
-            echo "GET $url"
-            # pozwól na 400/404 bez przerwania joba – logi mogą nie istnieć
-            curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "$out" || true
+            if [ -f "${SRC}/${f}" ]; then
+              cp -f "${SRC}/${f}" "${DST}/"
+            fi
           done
+
+          # Dodatkowo — jeśli logi są podkatalogiem "logs/" w snapshot
+          if [ -d "${SRC}/logs" ]; then
+            cp -rf "${SRC}/logs/." "${DST}/" || true
+          fi
+
+          echo "Log files in ${DST}:"
+          ls -la "${DST}" || true
 
       - name: Stamp runner metadata
         shell: bash
@@ -108,7 +122,7 @@ jobs:
           set -euo pipefail
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           mkdir -p runner
-          printf '{"status":"ok","started_at":"%s","finished_at":"%s","commit_sha":"%s","summary":"Mirror %s synchronized via REST /ls+get (with logs)"}\n' \
+          printf '{"status":"ok","started_at":"%s","finished_at":"%s","commit_sha":"%s","summary":"Mirror %s + logs via REST"}\n' \
             "$NOW" "$NOW" "$GITHUB_SHA" "${{ steps.vars.outputs.SITE_KEY }}" \
             > runner/runner_response.json
           printf '{"logs":[{"ts":"%s","level":"info","step":"mirror","msg":"Synced %s (REST) with logs"}]}\n' \
@@ -123,12 +137,21 @@ jobs:
               > runner/runner_health.json
           fi
 
-      - name: Commit & push
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name  "wtp-snapshot-bot"
-          git config user.email "wtp-snapshot-bot@users.noreply.github.com"
-          git add snapshots runner/*.json
-          git commit -m "mirror: sync ${{ steps.vars.outputs.SITE_KEY }} via REST list + logs" || echo "No changes"
-          git push
+      - name: Upload artifact (snapshots)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wtp-snapshots-${{ steps.vars.outputs.SITE_KEY }}
+          path: |
+            ${{ steps.vars.outputs.OUT_DIR }}/**
+            runner/*.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Upload artifact (logs only)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wtp-logs-${{ steps.vars.outputs.SITE_KEY }}
+          path: |
+            ${{ steps.vars.outputs.LOG_DIR }}/**
+          if-no-files-found: warn
+          retention-days: 14
