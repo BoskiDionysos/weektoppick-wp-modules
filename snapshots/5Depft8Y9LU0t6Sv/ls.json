@@ -43,6 +43,7 @@
       "logs",
       "manifest.json",
       "options.json",
+      "php_errors-latest.txt",
       "selftest.json",
       "wp-debug-latest.txt",
       "wp-debug-meta.json"
@@ -73,13 +74,14 @@
       "logs",
       "manifest.json",
       "options.json",
+      "php_errors-latest.txt",
       "selftest.json",
       "wp-debug-latest.txt",
       "wp-debug-meta.json"
     ]
   },
   "urls": {
-    "baseurl": "https://weektoppick.com/wp-content/uploads",
+    "baseurl": "https://weektoppick.com/wp-content/uploads/",
     "public_url": "https://weektoppick.com/wp-content/uploads/wtp-ro/public/5Depft8Y9LU0t6Sv/"
   }
 }
