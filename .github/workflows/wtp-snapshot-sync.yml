@@ -1,4 +1,4 @@
-: WTP Snapshot Sync
+name: WTP Snapshot Sync
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ on:
         required: false
         default: "https://weektoppick.com/wp-json/wtp-ro-open/v1"
   schedule:
-    - cron: "*/30 * * * *"  # usuń, jeśli chcesz tylko ręcznie
+    - cron: "*/30 * * * *"
 
 jobs:
   sync:
@@ -62,13 +62,10 @@ jobs:
           echo "GET $url"
           resp="$(curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url")"
           echo "$resp" | jq '.' > "${{ steps.vars.outputs.OUT_DIR }}/ls.json"
-
-          # preferuj dirA, fallback do dirB
           FILES=$(echo "$resp" | jq -r '.list.dirA // [] | .[]')
           if [ -z "$FILES" ]; then
             FILES=$(echo "$resp" | jq -r '.list.dirB // [] | .[]')
           fi
-
           {
             echo "FILES<<EOF"
             echo "$FILES"
@@ -94,18 +91,12 @@ jobs:
           set -euo pipefail
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           mkdir -p runner
-
-          # runner_response.json
           printf '{"status":"ok","started_at":"%s","finished_at":"%s","commit_sha":"%s","summary":"Mirror %s synchronized via REST /ls+get"}\n' \
             "$NOW" "$NOW" "$GITHUB_SHA" "${{ steps.vars.outputs.SITE_KEY }}" \
             > runner/runner_response.json
-
-          # runner_logs.json
           printf '{"logs":[{"ts":"%s","level":"info","step":"mirror","msg":"Synced %s (REST)"}]}\n' \
             "$NOW" "${{ steps.vars.outputs.SITE_KEY }}" \
             > runner/runner_logs.json
-
-          # runner_health.json
           if [ -f runner/runner_health.json ]; then
             jq --arg now "$NOW" '.last_snapshot_at=$now' runner/runner_health.json > runner/_tmp.json || cp runner/runner_health.json runner/_tmp.json
             mv runner/_tmp.json runner/runner_health.json
