@@ -1,6 +1,6 @@
 {
     "version": 1,
-    "generated_at": 1757320332,
+    "generated_at": 1757323312,
     "total_chunks": 10,
     "chunks": [
         {
@@ -59,8 +59,8 @@
         },
         {
             "path": "plugins-bundle_009.json",
-            "size": 1003825,
-            "sha1": "0e16dd561ddd25faa03d799b54f099384e71fcd7",
+            "size": 970977,
+            "sha1": "85952c18fcc36d0b2e8c54270e03ac0775328531",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_009.json"
         }
     ]
