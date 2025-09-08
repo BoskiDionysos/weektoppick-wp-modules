@@ -1,18 +1,18 @@
 {
     "version": 1,
-    "generated_at": 1757329092,
+    "generated_at": 1757335439,
     "total_chunks": 12,
     "chunks": [
         {
             "path": "plugins-bundle_000.json",
-            "size": 4491937,
-            "sha1": "0b5cc21bd6ed34a42acd00e3ff8eb7042330ad78",
+            "size": 4497331,
+            "sha1": "d080d32b15d3a514e45b0f4efe8de76d301bf631",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_000.json"
         },
         {
             "path": "plugins-bundle_001.json",
-            "size": 3916643,
-            "sha1": "0905169813b9d7ed48a0f88c8ca24f7112aac58a",
+            "size": 3883980,
+            "sha1": "45e94b39ad035a6fc52f307ad349663fd74426ee",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_001.json"
         },
         {
@@ -23,14 +23,14 @@
         },
         {
             "path": "plugins-bundle_003.json",
-            "size": 4261981,
-            "sha1": "7287d72886b0cd43f187d5d7986dbdab1dea4f7f",
+            "size": 4261529,
+            "sha1": "89bfb169c76a88f6b8d0d296a6a1675838e32637",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_003.json"
         },
         {
             "path": "plugins-bundle_004.json",
-            "size": 4457599,
-            "sha1": "fec37bdcc78209432294a231b50b3312d2b6fe92",
+            "size": 4481853,
+            "sha1": "74940a0d6e50a2c5418e67fc8f511a973cce82c8",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_004.json"
         },
         {
@@ -71,8 +71,8 @@
         },
         {
             "path": "plugins-bundle_011.json",
-            "size": 332981,
-            "sha1": "9207f54f8ca35d462e2c55df92020c7267ad33b3",
+            "size": 357745,
+            "sha1": "b64cc906bd8a435084da9e61f9b8721fa6b01fe3",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_011.json"
         }
     ]
