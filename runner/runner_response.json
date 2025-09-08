@@ -1,7 +1,7 @@
 {
-  "status": "unknown",
-  "started_at": "",
-  "finished_at": "",
-  "commit_sha": "",
-  "summary": ""
+  "status": "ok",
+  "started_at": "2025-09-07T15:20:00Z",
+  "finished_at": "2025-09-07T15:22:30Z",
+  "commit_sha": "manual-seed",
+  "summary": "Snapshot z plików wygenerowany i opublikowany (bundle + files_000..016)."
 }
