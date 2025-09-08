@@ -1,9 +1,9 @@
 {
-  "php_version": "",
-  "wp_version": "",
-  "wp_cli": "",
-  "server": "",
-  "memory_limit": "",
+  "php_version": "8.3",
+  "wp_version": "6.6.x",
+  "wp_cli": "n/a",
+  "server": "LiteSpeed (Hostinger)",
+  "memory_limit": "256M",
   "disk_free_mb": 0,
-  "last_snapshot_at": ""
+  "last_snapshot_at": "2025-09-07T15:22:30Z"
 }
