@@ -7,12 +7,12 @@ on:
         description: "WTP site_key (folder w uploads/wtp-ro/public)"
         required: false
         default: "5Depft8Y9LU0t6Sv"
-      base_url:
-        description: "Bazowy URL do katalogu snapshotu"
+      rest_base:
+        description: "Base REST URL"
         required: false
-        default: "https://weektoppick.com/wp-content/uploads/wtp-ro/public"
+        default: "https://weektoppick.com/wp-json/wtp-ro-open/v1/get"
   schedule:
-    - cron: "*/30 * * * *"   # co 30 min (możesz usunąć, jeśli chcesz tylko ręcznie)
+    - cron: "*/30 * * * *"
 
 jobs:
   sync:
@@ -24,7 +24,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure jq (JSON CLI)
+      - name: Ensure jq
         run: |
           sudo apt-get update
           sudo apt-get install -y jq
@@ -34,37 +34,36 @@ jobs:
         shell: bash
         run: |
           SITE_KEY="${{ github.event.inputs.site_key }}"
-          BASE_URL="${{ github.event.inputs.base_url }}"
-          if [ -z "$SITE_KEY" ]; then SITE_KEY="5Depft8Y9LU0t6Sv"; fi
-          if [ -z "$BASE_URL" ]; then BASE_URL="https://weektoppick.com/wp-content/uploads/wtp-ro/public"; fi
+          REST_BASE="${{ github.event.inputs.rest_base }}"
+          [ -z "$SITE_KEY" ] && SITE_KEY="5Depft8Y9LU0t6Sv"
+          [ -z "$REST_BASE" ] && REST_BASE="https://weektoppick.com/wp-json/wtp-ro-open/v1/get"
           OUT_DIR="snapshots/$SITE_KEY"
-          echo "SITE_KEY=$SITE_KEY"   >> "$GITHUB_OUTPUT"
-          echo "BASE_URL=$BASE_URL"   >> "$GITHUB_OUTPUT"
-          echo "OUT_DIR=$OUT_DIR"     >> "$GITHUB_OUTPUT"
+          echo "SITE_KEY=$SITE_KEY" >> "$GITHUB_OUTPUT"
+          echo "REST_BASE=$REST_BASE" >> "$GITHUB_OUTPUT"
+          echo "OUT_DIR=$OUT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Create output dir
-        run: |
-          mkdir -p "${{ steps.vars.outputs.OUT_DIR }}"
+        run: mkdir -p "${{ steps.vars.outputs.OUT_DIR }}"
 
-      - name: Set download flags (browser-like headers)
+      - name: Set download flags
         id: dl
         shell: bash
         run: |
-          FLAGS='-fL --retry 5 --retry-delay 2 --connect-timeout 15 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" -H "Referer: https://weektoppick.com/" -H "Origin: https://weektoppick.com" -H "Accept: application/json,text/plain,*/*"'
+          FLAGS='-fL --retry 5 --retry-delay 2 --connect-timeout 15 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" -H "Accept: application/json,text/plain,*/*"'
           echo "CURL_FLAGS=$FLAGS" >> "$GITHUB_OUTPUT"
 
-      - name: Download bundle.json
+      - name: Download bundle.json (REST)
         shell: bash
         run: |
-          url="${{ steps.vars.outputs.BASE_URL }}/${{ steps.vars.outputs.SITE_KEY }}/bundle.json?bust=$(date +%s)"
+          url="${{ steps.vars.outputs.REST_BASE }}?site_key=${{ steps.vars.outputs.SITE_KEY }}&file=bundle.json&bust=$(date +%s)"
           echo "GET $url"
           curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/bundle.json"
 
-      - name: Download manifest/options/selftest/index if exist
+      - name: Download manifest/options/selftest/index (REST, if exist)
         shell: bash
         run: |
           for f in manifest.json options.json selftest.json index.json; do
-            url="${{ steps.vars.outputs.BASE_URL }}/${{ steps.vars.outputs.SITE_KEY }}/${f}?bust=$(date +%s)"
+            url="${{ steps.vars.outputs.REST_BASE }}?site_key=${{ steps.vars.outputs.SITE_KEY }}&file=${f}&bust=$(date +%s)"
             echo "TRY $url"
             if curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/${f}"; then
               echo "OK $f"
@@ -79,16 +78,16 @@ jobs:
         run: |
           FILES=$(jq -r '.files[]' "${{ steps.vars.outputs.OUT_DIR }}/bundle.json")
           echo "FILES<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$FILES"      >> "$GITHUB_OUTPUT"
-          echo "EOF"         >> "$GITHUB_OUTPUT"
+          echo "$FILES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
-      - name: Download files_* chunks
+      - name: Download files_* chunks (REST)
         shell: bash
         run: |
           set -e
           while read -r fname; do
             [ -z "$fname" ] && continue
-            url="${{ steps.vars.outputs.BASE_URL }}/${{ steps.vars.outputs.SITE_KEY }}/${fname}?bust=$(date +%s)"
+            url="${{ steps.vars.outputs.REST_BASE }}?site_key=${{ steps.vars.outputs.SITE_KEY }}&file=${fname}&bust=$(date +%s)"
             echo "GET $url"
             curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/${fname}"
           done << 'EOF'
@@ -101,10 +100,10 @@ jobs:
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           mkdir -p runner
           cat > runner/runner_response.json <<JSON
-          {"status":"ok","started_at":"$NOW","finished_at":"$NOW","commit_sha":"${GITHUB_SHA}","summary":"Mirror ${{ steps.vars.outputs.SITE_KEY }} synchronized."}
+          {"status":"ok","started_at":"$NOW","finished_at":"$NOW","commit_sha":"${GITHUB_SHA}","summary":"Mirror ${{ steps.vars.outputs.SITE_KEY }} synchronized via REST."}
           JSON
           cat > runner/runner_logs.json <<JSON
-          {"logs":[{"ts":"$NOW","level":"info","step":"mirror","msg":"Synced ${{ steps.vars.outputs.SITE_KEY }}"}]}
+          {"logs":[{"ts":"$NOW","level":"info","step":"mirror","msg":"Synced ${{ steps.vars.outputs.SITE_KEY }} (REST)"}]}
           JSON
           if [ -f runner/runner_health.json ]; then
             jq --arg now "$NOW" '.last_snapshot_at=$now' runner/runner_health.json > runner/runner_health.tmp || cp runner/runner_health.json runner/runner_health.tmp
@@ -121,5 +120,5 @@ jobs:
           git config user.name  "wtp-snapshot-bot"
           git config user.email "wtp-snapshot-bot@users.noreply.github.com"
           git add snapshots runner/*.json
-          git commit -m "mirror: sync ${{ steps.vars.outputs.SITE_KEY }}" || echo "No changes"
+          git commit -m "mirror: sync ${{ steps.vars.outputs.SITE_KEY }} via REST" || echo "No changes"
           git push
