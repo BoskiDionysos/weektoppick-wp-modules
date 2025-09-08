@@ -5,85 +5,118 @@ on:
     inputs:
       site_key:
         description: "WTP site_key (folder w uploads/wtp-ro/public)"
-        required: true
+        required: false
         default: "5Depft8Y9LU0t6Sv"
       base_url:
         description: "Bazowy URL do katalogu snapshotu"
-        required: true
+        required: false
         default: "https://weektoppick.com/wp-content/uploads/wtp-ro/public"
-
   schedule:
-    - cron: "*/30 * * * *"   # co 30 min (możesz zmienić lub usunąć)
+    - cron: "*/30 * * * *"   # co 30 min (możesz usunąć, jeśli chcesz tylko ręcznie)
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # potrzeba do commita do repo
+      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Ensure jq (JSON CLI)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
       - name: Set vars
         id: vars
+        shell: bash
         run: |
-          echo "SITE_KEY=${{ github.event.inputs.site_key || '5Depft8Y9LU0t6Sv' }}" >> $GITHUB_OUTPUT
-          echo "BASE_URL=${{ github.event.inputs.base_url || 'https://weektoppick.com/wp-content/uploads/wtp-ro/public' }}" >> $GITHUB_OUTPUT
-          echo "OUT_DIR=snapshots/${{ github.event.inputs.site_key || '5Depft8Y9LU0t6Sv' }}" >> $GITHUB_OUTPUT
+          SITE_KEY="${{ github.event.inputs.site_key }}"
+          BASE_URL="${{ github.event.inputs.base_url }}"
+          if [ -z "$SITE_KEY" ]; then SITE_KEY="5Depft8Y9LU0t6Sv"; fi
+          if [ -z "$BASE_URL" ]; then BASE_URL="https://weektoppick.com/wp-content/uploads/wtp-ro/public"; fi
+          OUT_DIR="snapshots/$SITE_KEY"
+          echo "SITE_KEY=$SITE_KEY"   >> "$GITHUB_OUTPUT"
+          echo "BASE_URL=$BASE_URL"   >> "$GITHUB_OUTPUT"
+          echo "OUT_DIR=$OUT_DIR"     >> "$GITHUB_OUTPUT"
 
       - name: Create output dir
         run: |
           mkdir -p "${{ steps.vars.outputs.OUT_DIR }}"
 
-      - name: Download bundle.json
+      - name: Set download flags (browser-like headers)
+        id: dl
+        shell: bash
         run: |
-          curl -fsSL "${{ steps.vars.outputs.BASE_URL }}/${{ steps.vars.outputs.SITE_KEY }}/bundle.json" \
-            -o "${{ steps.vars.outputs.OUT_DIR }}/bundle.json"
+          FLAGS='-fL --retry 5 --retry-delay 2 --connect-timeout 15 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" -H "Referer: https://weektoppick.com/" -H "Origin: https://weektoppick.com" -H "Accept: application/json,text/plain,*/*"'
+          echo "CURL_FLAGS=$FLAGS" >> "$GITHUB_OUTPUT"
 
-      - name: Download manifest/options/selftest if exist
+      - name: Download bundle.json
+        shell: bash
+        run: |
+          url="${{ steps.vars.outputs.BASE_URL }}/${{ steps.vars.outputs.SITE_KEY }}/bundle.json?bust=$(date +%s)"
+          echo "GET $url"
+          curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/bundle.json"
+
+      - name: Download manifest/options/selftest/index if exist
+        shell: bash
         run: |
           for f in manifest.json options.json selftest.json index.json; do
-            curl -fSL "${{ steps.vars.outputs.BASE_URL }}/${{ steps.vars.outputs.SITE_KEY }}/${f}" \
-              -o "${{ steps.vars.outputs.OUT_DIR }}/${f}" || true
+            url="${{ steps.vars.outputs.BASE_URL }}/${{ steps.vars.outputs.SITE_KEY }}/${f}?bust=$(date +%s)"
+            echo "TRY $url"
+            if curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/${f}"; then
+              echo "OK $f"
+            else
+              echo "skip $f"
+            fi
           done
 
       - name: Get files_* list from bundle.json
         id: list
+        shell: bash
         run: |
           FILES=$(jq -r '.files[]' "${{ steps.vars.outputs.OUT_DIR }}/bundle.json")
-          echo "FILES<<EOF" >> $GITHUB_OUTPUT
-          echo "$FILES" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "FILES<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$FILES"      >> "$GITHUB_OUTPUT"
+          echo "EOF"         >> "$GITHUB_OUTPUT"
 
       - name: Download files_* chunks
+        shell: bash
         run: |
           set -e
           while read -r fname; do
             [ -z "$fname" ] && continue
-            echo "Downloading $fname"
-            curl -fsSL "${{ steps.vars.outputs.BASE_URL }}/${{ steps.vars.outputs.SITE_KEY }}/${fname}" \
-              -o "${{ steps.vars.outputs.OUT_DIR }}/${fname}"
+            url="${{ steps.vars.outputs.BASE_URL }}/${{ steps.vars.outputs.SITE_KEY }}/${fname}?bust=$(date +%s)"
+            echo "GET $url"
+            curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/${fname}"
           done << 'EOF'
           ${{ steps.list.outputs.FILES }}
           EOF
 
       - name: Stamp runner metadata
+        shell: bash
         run: |
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          mkdir -p runner
           cat > runner/runner_response.json <<JSON
-          {"status":"ok","started_at":"$NOW","finished_at":"$NOW","commit_sha":"${GITHUB_SHA}","summary":"Mirror ${{
-            steps.vars.outputs.SITE_KEY }} synchronized."}
+          {"status":"ok","started_at":"$NOW","finished_at":"$NOW","commit_sha":"${GITHUB_SHA}","summary":"Mirror ${{ steps.vars.outputs.SITE_KEY }} synchronized."}
           JSON
-          # dopisz prosty log
           cat > runner/runner_logs.json <<JSON
           {"logs":[{"ts":"$NOW","level":"info","step":"mirror","msg":"Synced ${{ steps.vars.outputs.SITE_KEY }}"}]}
           JSON
-          # zaktualizuj health (ostatni snapshot)
-          jq --arg now "$NOW" '.last_snapshot_at=$now' runner/runner_health.json > runner/runner_health.json.tmp || cp runner/runner_health.json runner/runner_health.json.tmp || true
-          mv runner/runner_health.json.tmp runner/runner_health.json
+          if [ -f runner/runner_health.json ]; then
+            jq --arg now "$NOW" '.last_snapshot_at=$now' runner/runner_health.json > runner/runner_health.tmp || cp runner/runner_health.json runner/runner_health.tmp
+            mv runner/runner_health.tmp runner/runner_health.json
+          else
+            cat > runner/runner_health.json <<JSON
+            {"php_version":"","wp_version":"","wp_cli":"","server":"","memory_limit":"","disk_free_mb":0,"last_snapshot_at":"$NOW"}
+            JSON
+          fi
 
       - name: Commit & push
+        shell: bash
         run: |
           git config user.name  "wtp-snapshot-bot"
           git config user.email "wtp-snapshot-bot@users.noreply.github.com"
