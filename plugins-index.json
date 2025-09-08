@@ -1,7 +1,7 @@
 {
     "version": 1,
-    "generated_at": 1757323312,
-    "total_chunks": 10,
+    "generated_at": 1757329092,
+    "total_chunks": 12,
     "chunks": [
         {
             "path": "plugins-bundle_000.json",
@@ -53,15 +53,27 @@
         },
         {
             "path": "plugins-bundle_008.json",
-            "size": 4482095,
-            "sha1": "42c35ba2b55214a464f2126b3b6a7fea60db97d3",
+            "size": 4500108,
+            "sha1": "b9745fd73375aa68d2b24c3c45004669d03ee558",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_008.json"
         },
         {
             "path": "plugins-bundle_009.json",
-            "size": 970977,
-            "sha1": "85952c18fcc36d0b2e8c54270e03ac0775328531",
+            "size": 4063712,
+            "sha1": "a2669a94607461a851fa009b536ecf84f45ba750",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_009.json"
+        },
+        {
+            "path": "plugins-bundle_010.json",
+            "size": 4500406,
+            "sha1": "21113efcc66f516aa7ccc1786be02b45e22be0ed",
+            "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_010.json"
+        },
+        {
+            "path": "plugins-bundle_011.json",
+            "size": 332981,
+            "sha1": "9207f54f8ca35d462e2c55df92020c7267ad33b3",
+            "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_011.json"
         }
     ]
 }
