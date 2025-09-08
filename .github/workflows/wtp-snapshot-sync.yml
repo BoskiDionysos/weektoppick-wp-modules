@@ -26,18 +26,17 @@ jobs:
 
       - name: Ensure jq
         run: |
-          sudo apt-get update
+          sudo apt-get update -y
           sudo apt-get install -y jq
 
       - name: Set vars
         id: vars
         shell: bash
         run: |
-          set -euo pipefail
           SITE_KEY="${{ github.event.inputs.site_key }}"
           REST_BASE="${{ github.event.inputs.rest_base }}"
-          [ -z "${SITE_KEY:-}" ] && SITE_KEY="5Depft8Y9LU0t6Sv"
-          [ -z "${REST_BASE:-}" ] && REST_BASE="https://weektoppick.com/wp-json/wtp-ro-open/v1"
+          [ -z "$SITE_KEY" ] && SITE_KEY="5Depft8Y9LU0t6Sv"
+          [ -z "$REST_BASE" ] && REST_BASE="https://weektoppick.com/wp-json/wtp-ro-open/v1"
           OUT_DIR="snapshots/$SITE_KEY"
           echo "SITE_KEY=$SITE_KEY"   >> "$GITHUB_OUTPUT"
           echo "REST_BASE=$REST_BASE" >> "$GITHUB_OUTPUT"
@@ -46,25 +45,28 @@ jobs:
       - name: Create output dir
         run: mkdir -p "${{ steps.vars.outputs.OUT_DIR }}"
 
-      - name: Set curl flags (browser-like)
+      - name: Set curl flags
         id: dl
         shell: bash
         run: |
-          FLAGS='-fL --retry 5 --retry-delay 2 --connect-timeout 15 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" -H "Accept: application/json,text/plain,*/*"'
+          FLAGS='-sS -L --retry 5 --retry-delay 2 --connect-timeout 15 -A "Mozilla/5.0" -H "Accept: application/json,text/plain,*/*"'
           echo "CURL_FLAGS=$FLAGS" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch file list via /ls
+      - name: Try /ls (best-effort)
         id: ls
         shell: bash
         run: |
           set -euo pipefail
           url="${{ steps.vars.outputs.REST_BASE }}/ls?site_key=${{ steps.vars.outputs.SITE_KEY }}"
           echo "GET $url"
-          resp="$(curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url")"
-          echo "$resp" | jq '.' > "${{ steps.vars.outputs.OUT_DIR }}/ls.json"
-          FILES=$(echo "$resp" | jq -r '.list.dirA // [] | .[]')
-          if [ -z "$FILES" ]; then
-            FILES=$(echo "$resp" | jq -r '.list.dirB // [] | .[]')
+          # Pobierz /ls, ale nie kończ joba przy 4xx/5xx – wtedy fallback
+          code=$(curl ${{ steps.dl.outputs.CURL_FLAGS }} -w "%{http_code}" -o "$RUNNER_TEMP/ls.json" "$url" || true)
+          echo "HTTP $code (/ls)"
+          if [ "$code" = "200" ]; then
+            cat "$RUNNER_TEMP/ls.json" | jq '.' > "${{ steps.vars.outputs.OUT_DIR }}/ls.json"
+            FILES=$(cat "$RUNNER_TEMP/ls.json" | jq -r '(.list.dirA // []) + (.list.dirB // []) | .[] | select(test("^files_\\d{3}\\.json$") or . == "index.json" or . == "manifest.json" or . == "options.json" or . == "selftest.json" or . == "logs")')
+          else
+            FILES=""
           fi
           {
             echo "FILES<<EOF"
@@ -72,26 +74,68 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Download listed files via /get
+      - name: Download snapshot files (with fallback)
         shell: bash
         run: |
           set -euo pipefail
-          echo "${{ steps.ls.outputs.FILES }}" | while read -r fname; do
-            [ -z "$fname" ] && continue
-            url="${{ steps.vars.outputs.REST_BASE }}/get?site_key=${{ steps.vars.outputs.SITE_KEY }}&file=${fname}&_b=$(date +%s)"
+          OUT="${{ steps.vars.outputs.OUT_DIR }}"
+          REST="${{ steps.vars.outputs.REST_BASE }}"
+          KEY="${{ steps.vars.outputs.SITE_KEY }}"
+          FLAGS='${{ steps.dl.outputs.CURL_FLAGS }}'
+
+          dl() {
+            local f="$1"
+            local url="${REST}/get?site_key=${KEY}&file=${f}&_b=$(date +%s)"
             echo "GET $url"
-            if ! curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/${fname}"; then
-              echo "::warning::failed to download $fname"
-            fi
-          done
+            # Nie przerywaj przy błędach pojedynczych plików
+            curl $FLAGS -o "${OUT}/${f}" "$url" || {
+              echo "skip ${f}"
+              rm -f "${OUT}/${f}" 2>/dev/null || true
+            }
+          }
+
+          mkdir -p "$OUT"
+
+          if [ -n "${{ steps.ls.outputs.FILES }}" ]; then
+            # Normalny tryb na podstawie /ls
+            while read -r f; do
+              [ -z "$f" ] && continue
+              if [ "$f" = "logs" ]; then
+                # katalog logs – ściągnijmy opcjonalne aliasy
+                dl "logs/wp-debug-latest.txt"
+                dl "logs/php-errors-latest.txt"
+                dl "wp-debug-latest.txt"
+                dl "php-errors-latest.txt"
+              else
+                dl "$f"
+              fi
+            done << 'EOF'
+            ${{ steps.ls.outputs.FILES }}
+            EOF
+          else
+            echo "Fallback (no /ls)"
+            # stałe pliki
+            for f in index.json manifest.json options.json selftest.json; do
+              dl "$f"
+            done
+            # spróbuj paczki files_000..files_030 (błędy ignorujemy)
+            for i in $(seq -w 0 30); do
+              dl "files_${i}.json"
+            done
+            # logi – opcjonalnie, różne ścieżki
+            dl "logs/wp-debug-latest.txt"
+            dl "logs/php-errors-latest.txt"
+            dl "wp-debug-latest.txt"
+            dl "php-errors-latest.txt"
+          fi
 
       - name: Stamp runner metadata
         shell: bash
         run: |
-          set -euo pipefail
+          set -e
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           mkdir -p runner
-          printf '{"status":"ok","started_at":"%s","finished_at":"%s","commit_sha":"%s","summary":"Mirror %s synchronized via REST /ls+get"}\n' \
+          printf '{"status":"ok","started_at":"%s","finished_at":"%s","commit_sha":"%s","summary":"Mirror %s synchronized via REST"}\n' \
             "$NOW" "$NOW" "$GITHUB_SHA" "${{ steps.vars.outputs.SITE_KEY }}" \
             > runner/runner_response.json
           printf '{"logs":[{"ts":"%s","level":"info","step":"mirror","msg":"Synced %s (REST)"}]}\n' \
@@ -101,17 +145,14 @@ jobs:
             jq --arg now "$NOW" '.last_snapshot_at=$now' runner/runner_health.json > runner/_tmp.json || cp runner/runner_health.json runner/_tmp.json
             mv runner/_tmp.json runner/runner_health.json
           else
-            printf '{"php_version":"","wp_version":"","wp_cli":"","server":"","memory_limit":"","disk_free_mb":0,"last_snapshot_at":"%s"}\n' \
-              "$NOW" \
-              > runner/runner_health.json
+            printf '{"php_version":"","wp_version":"","wp_cli":"","server":"","memory_limit":"","disk_free_mb":0,"last_snapshot_at":"%s"}\n' "$NOW" > runner/runner_health.json
           fi
 
       - name: Commit & push
         shell: bash
         run: |
-          set -euo pipefail
           git config user.name  "wtp-snapshot-bot"
           git config user.email "wtp-snapshot-bot@users.noreply.github.com"
-          git add snapshots runner/*.json
-          git commit -m "mirror: sync ${{ steps.vars.outputs.SITE_KEY }} via REST list" || echo "No changes"
-          git push
+          git add snapshots runner/*.json || true
+          git commit -m "mirror: sync ${{ steps.vars.outputs.SITE_KEY }} (robust fallback)" || echo "No changes"
+          git push || true
