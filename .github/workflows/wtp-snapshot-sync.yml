@@ -1,0 +1,92 @@
+name: WTP Snapshot Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      site_key:
+        description: "WTP site_key (folder w uploads/wtp-ro/public)"
+        required: true
+        default: "5Depft8Y9LU0t6Sv"
+      base_url:
+        description: "Bazowy URL do katalogu snapshotu"
+        required: true
+        default: "https://weektoppick.com/wp-content/uploads/wtp-ro/public"
+
+  schedule:
+    - cron: "*/30 * * * *"   # co 30 min (możesz zmienić lub usunąć)
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # potrzeba do commita do repo
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set vars
+        id: vars
+        run: |
+          echo "SITE_KEY=${{ github.event.inputs.site_key || '5Depft8Y9LU0t6Sv' }}" >> $GITHUB_OUTPUT
+          echo "BASE_URL=${{ github.event.inputs.base_url || 'https://weektoppick.com/wp-content/uploads/wtp-ro/public' }}" >> $GITHUB_OUTPUT
+          echo "OUT_DIR=snapshots/${{ github.event.inputs.site_key || '5Depft8Y9LU0t6Sv' }}" >> $GITHUB_OUTPUT
+
+      - name: Create output dir
+        run: |
+          mkdir -p "${{ steps.vars.outputs.OUT_DIR }}"
+
+      - name: Download bundle.json
+        run: |
+          curl -fsSL "${{ steps.vars.outputs.BASE_URL }}/${{ steps.vars.outputs.SITE_KEY }}/bundle.json" \
+            -o "${{ steps.vars.outputs.OUT_DIR }}/bundle.json"
+
+      - name: Download manifest/options/selftest if exist
+        run: |
+          for f in manifest.json options.json selftest.json index.json; do
+            curl -fSL "${{ steps.vars.outputs.BASE_URL }}/${{ steps.vars.outputs.SITE_KEY }}/${f}" \
+              -o "${{ steps.vars.outputs.OUT_DIR }}/${f}" || true
+          done
+
+      - name: Get files_* list from bundle.json
+        id: list
+        run: |
+          FILES=$(jq -r '.files[]' "${{ steps.vars.outputs.OUT_DIR }}/bundle.json")
+          echo "FILES<<EOF" >> $GITHUB_OUTPUT
+          echo "$FILES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Download files_* chunks
+        run: |
+          set -e
+          while read -r fname; do
+            [ -z "$fname" ] && continue
+            echo "Downloading $fname"
+            curl -fsSL "${{ steps.vars.outputs.BASE_URL }}/${{ steps.vars.outputs.SITE_KEY }}/${fname}" \
+              -o "${{ steps.vars.outputs.OUT_DIR }}/${fname}"
+          done << 'EOF'
+          ${{ steps.list.outputs.FILES }}
+          EOF
+
+      - name: Stamp runner metadata
+        run: |
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > runner/runner_response.json <<JSON
+          {"status":"ok","started_at":"$NOW","finished_at":"$NOW","commit_sha":"${GITHUB_SHA}","summary":"Mirror ${{
+            steps.vars.outputs.SITE_KEY }} synchronized."}
+          JSON
+          # dopisz prosty log
+          cat > runner/runner_logs.json <<JSON
+          {"logs":[{"ts":"$NOW","level":"info","step":"mirror","msg":"Synced ${{ steps.vars.outputs.SITE_KEY }}"}]}
+          JSON
+          # zaktualizuj health (ostatni snapshot)
+          jq --arg now "$NOW" '.last_snapshot_at=$now' runner/runner_health.json > runner/runner_health.json.tmp || cp runner/runner_health.json runner/runner_health.json.tmp || true
+          mv runner/runner_health.json.tmp runner/runner_health.json
+
+      - name: Commit & push
+        run: |
+          git config user.name  "wtp-snapshot-bot"
+          git config user.email "wtp-snapshot-bot@users.noreply.github.com"
+          git add snapshots runner/*.json
+          git commit -m "mirror: sync ${{ steps.vars.outputs.SITE_KEY }}" || echo "No changes"
+          git push
