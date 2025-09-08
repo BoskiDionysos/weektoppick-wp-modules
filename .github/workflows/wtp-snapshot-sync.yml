@@ -12,7 +12,7 @@ on:
         required: false
         default: "https://weektoppick.com/wp-json/wtp-ro-open/v1"
   schedule:
-    - cron: "*/30 * * * *"  # usuń, jeśli chcesz tylko ręcznie
+    - cron: "*/30 * * * *"
 
 jobs:
   sync:
@@ -33,7 +33,6 @@ jobs:
         id: vars
         shell: bash
         run: |
-          # wejściowe / domyślne
           SITE_KEY="${{ github.event.inputs.site_key }}"
           REST_BASE="${{ github.event.inputs.rest_base }}"
           [ -z "$SITE_KEY" ]  && SITE_KEY="5Depft8Y9LU0t6Sv"
@@ -42,14 +41,14 @@ jobs:
           OUT_DIR="snapshots/$SITE_KEY"
           CURL_UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36'
           CURL_FLAGS='-fL --retry 5 --retry-delay 2 --connect-timeout 15'
+
           echo "SITE_KEY=$SITE_KEY"   >> "$GITHUB_OUTPUT"
           echo "REST_BASE=$REST_BASE" >> "$GITHUB_OUTPUT"
           echo "OUT_DIR=$OUT_DIR"     >> "$GITHUB_OUTPUT"
           echo "CURL_UA=$CURL_UA"     >> "$GITHUB_OUTPUT"
           echo "CURL_FLAGS=$CURL_FLAGS" >> "$GITHUB_OUTPUT"
 
-      - name: Create output dir
-        run: mkdir -p "${{ steps.vars.outputs.OUT_DIR }}"
+          mkdir -p "$OUT_DIR"
 
       - name: Fetch manifest.json (single source of truth)
         id: manifest
@@ -62,18 +61,16 @@ jobs:
                -A "${{ steps.vars.outputs.CURL_UA }}" \
                -H 'Accept: application/json' \
                "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/manifest.json"
-          echo "Manifest JSON type:"
-          jq -r 'type' "${{ steps.vars.outputs.OUT_DIR }}/manifest.json"
+          echo "Manifest type: $(jq -r 'type' "${{ steps.vars.outputs.OUT_DIR }}/manifest.json")"
 
-      - name: Parse file list from manifest (array OR object)
+      - name: Build list of files from manifest
         id: list
         shell: bash
         run: |
           set -euo pipefail
           M="${{ steps.vars.outputs.OUT_DIR }}/manifest.json"
+          LIST_FILE="${{ steps.vars.outputs.OUT_DIR }}/_files.txt"
 
-          # Główna lista: jeśli manifest to tablica -> elementy;
-          # jeśli obiekt -> pole .files[]
           MAIN_LIST=$(
             jq -r '
               if type=="array" then
@@ -86,7 +83,6 @@ jobs:
             ' "$M"
           )
 
-          # Dodatkowe pliki wymienione w obiekcie (jeśli jest obiektem)
           EXTRAS=$(
             jq -r '
               if type=="object" then
@@ -95,32 +91,20 @@ jobs:
             ' "$M"
           )
 
-          # Stałe „pewniaki”
-          # (manifest.json dodajemy też jawnie — sort -u usunie duplikat)
           {
             echo "$MAIN_LIST"
             echo "$EXTRAS"
             echo "manifest.json"
-          } | awk 'NF' | sort -u > "${{ steps.vars.outputs.OUT_DIR }}/_files.txt"
-
-          if ! [ -s "${{ steps.vars.outputs.OUT_DIR }}/_files.txt" ]; then
-            echo "Manifest nie zawiera listy plików." >&2
-            exit 1
-          fi
+          } | awk 'NF' | sort -u > "$LIST_FILE"
 
           echo "== Files to fetch =="
-          cat "${{ steps.vars.outputs.OUT_DIR }}/_files.txt"
-
-          {
-            echo "FILES<<'EOF'"
-            cat "${{ steps.vars.outputs.OUT_DIR }}/_files.txt"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          cat "$LIST_FILE"
 
       - name: Download files via /get
         shell: bash
         run: |
           set -euo pipefail
+          LIST_FILE="${{ steps.vars.outputs.OUT_DIR }}/_files.txt"
           while IFS= read -r fname; do
             [ -z "$fname" ] && continue
             url="${{ steps.vars.outputs.REST_BASE }}/get?site_key=${{ steps.vars.outputs.SITE_KEY }}&file=${fname}&_b=$(date +%s)"
@@ -128,9 +112,7 @@ jobs:
             curl ${{ steps.vars.outputs.CURL_FLAGS }} \
                  -A "${{ steps.vars.outputs.CURL_UA }}" \
                  "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/${fname}"
-          done <<'EOF'
-          ${{ steps.list.outputs.FILES }}
-          EOF
+          done < "$LIST_FILE"
 
       - name: Stamp runner metadata
         shell: bash
