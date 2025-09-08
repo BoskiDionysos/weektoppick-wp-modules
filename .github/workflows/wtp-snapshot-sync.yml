@@ -24,10 +24,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure jq
+      - name: Ensure tools (jq, curl)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
+          sudo apt-get update -y
+          sudo apt-get install -y jq curl
 
       - name: Set vars
         id: vars
@@ -42,10 +42,13 @@ jobs:
           echo "REST_BASE=$REST_BASE" >> "$GITHUB_OUTPUT"
           echo "OUT_DIR=$OUT_DIR"     >> "$GITHUB_OUTPUT"
 
-      - name: Create output dir
-        run: mkdir -p "${{ steps.vars.outputs.OUT_DIR }}"
+      - name: Prepare output dirs (idempotent)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${{ steps.vars.outputs.OUT_DIR }}" "${{ steps.vars.outputs.OUT_DIR }}/logs"
 
-      - name: Set curl flags (browser-like)
+      - name: Set curl flags (browser-like) + helper
         id: dl
         shell: bash
         run: |
@@ -56,14 +59,14 @@ jobs:
         id: ls
         shell: bash
         run: |
+          set -euo pipefail
           url="${{ steps.vars.outputs.REST_BASE }}/ls?site_key=${{ steps.vars.outputs.SITE_KEY }}"
           echo "GET $url"
           resp="$(curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url")"
           echo "$resp" | jq '.' > "${{ steps.vars.outputs.OUT_DIR }}/ls.json"
-          FILES=$(echo "$resp" | jq -r '.list.dirA // [] | .[]')
-          if [ -z "$FILES" ]; then
-            FILES=$(echo "$resp" | jq -r '.list.dirB // [] | .[]')
-          fi
+
+          # Pliki z /ls (bez pozycji 'logs', która jest katalogiem)
+          FILES=$(echo "$resp" | jq -r '(.list.dirA // .list.dirB // []) | map(select(. != "logs")) | .[]?')
           {
             echo "FILES<<EOF"
             echo "$FILES"
@@ -73,7 +76,7 @@ jobs:
       - name: Download listed files via /get
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
           while read -r fname; do
             [ -z "$fname" ] && continue
             url="${{ steps.vars.outputs.REST_BASE }}/get?site_key=${{ steps.vars.outputs.SITE_KEY }}&file=${fname}&_b=$(date +%s)"
@@ -83,47 +86,49 @@ jobs:
           ${{ steps.ls.outputs.FILES }}
           EOF
 
-      # === NOWE KROKI: snapshot logów ===
-      - name: Write log snapshots (POST /write-logs)
+      # LOGI: te endpointy wymagają ścieżki z katalogiem 'logs/' i URL-encoding.
+      - name: Download logs (wp-debug-latest.txt, php_errors-latest.txt, wp-debug-meta.json)
+        shell: bash
         run: |
           set -euo pipefail
-          BASE="${{ steps.vars.outputs.REST_BASE }}"
-          KEY="${{ steps.vars.outputs.SITE_KEY }}"
-          curl -fLs -X POST "$BASE/write-logs?site_key=$KEY" -o /dev/null
-
-      - name: Fetch latest logs (REST /get)
-        run: |
-          set -euo pipefail
-          BASE="${{ steps.vars.outputs.REST_BASE }}"
-          KEY="${{ steps.vars.outputs.SITE_KEY }}"
-          OUT="${{ steps.vars.outputs.OUT_DIR }}/logs"
-          mkdir -p "$OUT"
-          for f in wp-debug-latest.txt php_errors-latest.txt wp-debug-meta.json; do
-            echo "GET $BASE/get?site_key=$KEY&file=$f"
-            curl -fLs "$BASE/get?site_key=$KEY&file=$f&_b=$(date +%s)" -o "$OUT/$f" || echo "{}" > "$OUT/$f"
+          BASE="${{ steps.vars.outputs.REST_BASE }}/get?site_key=${{ steps.vars.outputs.SITE_KEY }}&_b=$(date +%s)"
+          # Uwaga: file=logs%2F<nazwa>
+          for f in "wp-debug-latest.txt" "php_errors-latest.txt" "wp-debug-meta.json"; do
+            enc="logs%2F${f}"
+            url="${BASE}&file=${enc}"
+            out="${{ steps.vars.outputs.OUT_DIR }}/logs/${f}"
+            echo "GET $url"
+            # pozwól na 400/404 bez przerwania joba – logi mogą nie istnieć
+            curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "$out" || true
           done
 
       - name: Stamp runner metadata
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           mkdir -p runner
-          printf '{"status":"ok","started_at":"%s","finished_at":"%s","commit_sha":"%s","summary":"Mirror %s synchronized via REST /ls+get"}\n' \
+          printf '{"status":"ok","started_at":"%s","finished_at":"%s","commit_sha":"%s","summary":"Mirror %s synchronized via REST /ls+get (with logs)"}\n' \
             "$NOW" "$NOW" "$GITHUB_SHA" "${{ steps.vars.outputs.SITE_KEY }}" \
             > runner/runner_response.json
-          printf '{"logs":[{"ts":"%s","level":"info","step":"mirror","msg":"Synced %s (REST)"}]}\n' \
+          printf '{"logs":[{"ts":"%s","level":"info","step":"mirror","msg":"Synced %s (REST) with logs"}]}\n' \
             "$NOW" "${{ steps.vars.outputs.SITE_KEY }}" \
             > runner/runner_logs.json
-          printf '{"php_version":"","wp_version":"","wp_cli":"","server":"","memory_limit":"","disk_free_mb":0,"last_snapshot_at":"%s"}\n' \
-            "$NOW" \
-            > runner/runner_health.json
+          if [ -f runner/runner_health.json ]; then
+            jq --arg now "$NOW" '.last_snapshot_at=$now' runner/runner_health.json > runner/_tmp.json || cp runner/runner_health.json runner/_tmp.json
+            mv runner/_tmp.json runner/runner_health.json
+          else
+            printf '{"php_version":"","wp_version":"","wp_cli":"","server":"","memory_limit":"","disk_free_mb":0,"last_snapshot_at":"%s"}\n' \
+              "$NOW" \
+              > runner/runner_health.json
+          fi
 
       - name: Commit & push
         shell: bash
         run: |
+          set -euo pipefail
           git config user.name  "wtp-snapshot-bot"
           git config user.email "wtp-snapshot-bot@users.noreply.github.com"
           git add snapshots runner/*.json
-          git commit -m "mirror: sync ${{ steps.vars.outputs.SITE_KEY }} via REST list" || echo "No changes"
+          git commit -m "mirror: sync ${{ steps.vars.outputs.SITE_KEY }} via REST list + logs" || echo "No changes"
           git push
