@@ -1,36 +1,36 @@
-name: WTP Snapshot Sync
+name: WTP Snapshot Sync (manifest-driven)
 
 on:
   workflow_dispatch:
     inputs:
       site_key:
-        description: "WTP site_key (folder w uploads/wtp-ro/public)"
+        description: "WTP site_key (uploads/wtp-ro/public/{site_key})"
         required: false
         default: "5Depft8Y9LU0t6Sv"
       rest_base:
-        description: "Base REST URL (bez końcowego /)"
+        description: "Base REST URL"
         required: false
         default: "https://weektoppick.com/wp-json/wtp-ro-open/v1"
   schedule:
     - cron: "*/30 * * * *"
 
+permissions:
+  contents: write
+
 jobs:
   sync:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure jq
+      - name: Tools
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y jq
+          sudo apt-get install -y jq curl
 
-      - name: Set vars
-        id: vars
+      - name: Vars
+        id: v
         shell: bash
         run: |
           SITE_KEY="${{ github.event.inputs.site_key }}"
@@ -38,99 +38,56 @@ jobs:
           [ -z "$SITE_KEY" ] && SITE_KEY="5Depft8Y9LU0t6Sv"
           [ -z "$REST_BASE" ] && REST_BASE="https://weektoppick.com/wp-json/wtp-ro-open/v1"
           OUT_DIR="snapshots/$SITE_KEY"
-          echo "SITE_KEY=$SITE_KEY"   >> "$GITHUB_OUTPUT"
-          echo "REST_BASE=$REST_BASE" >> "$GITHUB_OUTPUT"
-          echo "OUT_DIR=$OUT_DIR"     >> "$GITHUB_OUTPUT"
+          echo "SITE_KEY=$SITE_KEY"   >> $GITHUB_OUTPUT
+          echo "REST_BASE=$REST_BASE" >> $GITHUB_OUTPUT
+          echo "OUT_DIR=$OUT_DIR"     >> $GITHUB_OUTPUT
 
       - name: Create output dir
-        run: mkdir -p "${{ steps.vars.outputs.OUT_DIR }}"
+        run: mkdir -p "${{ steps.v.outputs.OUT_DIR }}"
 
-      - name: Set curl flags (browser-like)
-        id: dl
-        shell: bash
-        run: |
-          FLAGS='-fLS --retry 5 --retry-delay 2 --connect-timeout 15 -A "Mozilla/5.0" -H "Accept: application/json,text/plain,*/*"'
-          echo "CURL_FLAGS=$FLAGS" >> "$GITHUB_OUTPUT"
-
-      - name: Fetch file list via /ls
-        id: ls
+      - name: Fetch manifest.json (single source of truth)
+        id: mani
         shell: bash
         run: |
           set -euo pipefail
-          url="${{ steps.vars.outputs.REST_BASE }}/ls?site_key=${{ steps.vars.outputs.SITE_KEY }}"
-          echo "GET $url"
-          # zapisz surową odpowiedź, ale nie przerywaj joba przy 500 (obsłużymy poniżej)
-          if ! resp="$(curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url")"; then
-            echo "::error title=REST /ls failed::Nie udało się pobrać listy plików (HTTP!=2xx)"
-            exit 1
-          fi
-          echo "$resp" | jq '.' > "${{ steps.vars.outputs.OUT_DIR }}/ls.json"
-          FILES=$(echo "$resp" | jq -r '.list.dirA // [] | .[]')
-          if [ -z "$FILES" ] || [ "$FILES" = "null" ]; then
-            FILES=$(echo "$resp" | jq -r '.list.dirB // [] | .[]')
-          fi
-          if [ -z "$FILES" ] || [ "$FILES" = "null" ]; then
-            echo "::warning::Brak plików w odpowiedzi /ls – nic do pobrania."
-            FILES=""
-          fi
+          FLAGS='-fL --retry 5 --retry-delay 2 --connect-timeout 20 -A "curl/manifest" -H "Accept: application/json"'
+          URL="${{ steps.v.outputs.REST_BASE }}/get?site_key=${{ steps.v.outputs.SITE_KEY }}&file=manifest.json&_b=$(date +%s)"
+          echo "GET $URL"
+          curl $FLAGS "$URL" -o "${{ steps.v.outputs.OUT_DIR }}/manifest.json"
+          FILES=$(jq -r '.files[]?' "${{ steps.v.outputs.OUT_DIR }}/manifest.json")
+          # dorzuć standardowe meta-jeśli istnieją
+          META="options.json selftest.json"
           {
             echo "FILES<<EOF"
             echo "$FILES"
+            echo "$META"
             echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          } >> $GITHUB_OUTPUT
 
-      - name: Download listed files via /get
-        if: ${{ steps.ls.outputs.FILES != '' }}
+      - name: Download all files from manifest
         shell: bash
         run: |
           set -euo pipefail
-          while IFS= read -r fname; do
-            [ -z "$fname" ] && continue
-            url="${{ steps.vars.outputs.REST_BASE }}/get?site_key=${{ steps.vars.outputs.SITE_KEY }}&file=${fname}&_b=$(date +%s)"
-            echo "GET $url"
-            # nie zrywaj joba na pojedynczym 4xx/5xx – tylko ostrzegaj
-            if ! curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/${fname}"; then
-              echo "::warning::Pominięto ${fname} (HTTP!=2xx)"
-            fi
-          done <<< "${{ steps.ls.outputs.FILES }}"
-
-      # (opcjonalne) spróbuj pobrać 2 aliasy logów – jeśli API je wspiera
-      - name: Try fetch latest logs (best-effort)
-        shell: bash
-        run: |
-          set -euo pipefail
-          for f in wp-debug-latest.txt php-error-latest.txt; do
-            url="${{ steps.vars.outputs.REST_BASE }}/get?site_key=${{ steps.vars.outputs.SITE_KEY }}&file=${f}&_b=$(date +%s)"
-            echo "GET $url"
-            curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/${f}" || \
-              echo "::notice::Brak ${f} (to OK)"
-          done
-
-      - name: Stamp runner metadata
-        shell: bash
-        run: |
-          set -euo pipefail
-          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          mkdir -p runner
-          printf '{"status":"ok","finished_at":"%s","commit_sha":"%s","summary":"Mirror %s synchronized via REST /ls+get"}\n' \
-            "$NOW" "$GITHUB_SHA" "${{ steps.vars.outputs.SITE_KEY }}" \
-            > runner/runner_response.json
-          printf '{"logs":[{"ts":"%s","level":"info","step":"mirror","msg":"Synced %s (REST)"}]}\n' \
-            "$NOW" "${{ steps.vars.outputs.SITE_KEY }}" \
-            > runner/runner_logs.json
-          if [ -f runner/runner_health.json ]; then
-            jq --arg now "$NOW" '.last_snapshot_at=$now' runner/runner_health.json > runner/_tmp.json || cp runner/runner_health.json runner/_tmp.json
-            mv runner/_tmp.json runner/runner_health.json
-          else
-            printf '{"php_version":"","wp_version":"","server":"","last_snapshot_at":"%s"}\n' "$NOW" > runner/runner_health.json
-          fi
+          FLAGS='-fL --retry 5 --retry-delay 2 --connect-timeout 20 -A "curl/files" -H "Accept: application/json"'
+          while read -r f; do
+            [ -z "$f" ] && continue
+            URL="${{ steps.v.outputs.REST_BASE }}/get?site_key=${{ steps.v.outputs.SITE_KEY }}&file=${f}&_b=$(date +%s)"
+            OUT="${{ steps.v.outputs.OUT_DIR }}/${f}"
+            echo "GET $URL"
+            mkdir -p "$(dirname "$OUT")"
+            curl $FLAGS "$URL" -o "$OUT" || echo "::warning::failed $f"
+          done << 'EOF'
+          ${{ steps.mani.outputs.FILES }}
+          EOF
 
       - name: Commit & push
         shell: bash
         run: |
-          set -euo pipefail
+          set -e
           git config user.name  "wtp-snapshot-bot"
           git config user.email "wtp-snapshot-bot@users.noreply.github.com"
-          git add snapshots runner/*.json || true
-          git commit -m "mirror: sync ${{ steps.vars.outputs.SITE_KEY }} via REST list" || echo "No changes"
+          git add "${{ steps.v.outputs.OUT_DIR }}/"
+          git commit -m "mirror: ${{
+            steps.v.outputs.SITE_KEY
+          }} (manifest-driven)" || echo "No changes"
           git push
