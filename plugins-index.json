@@ -1,61 +1,67 @@
 {
     "version": 1,
-    "generated_at": 1757286895,
+    "generated_at": 1757316834,
+    "total_chunks": 10,
     "chunks": [
         {
             "path": "plugins-bundle_000.json",
-            "size": 4977371,
-            "sha1": "9122fa761f1d1d87476c0100baef7099ef0deed7",
+            "size": 4491937,
+            "sha1": "0b5cc21bd6ed34a42acd00e3ff8eb7042330ad78",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_000.json"
         },
         {
             "path": "plugins-bundle_001.json",
-            "size": 4996891,
-            "sha1": "e091331d5b9dfcc6652323d8a5898441e86e7d86",
+            "size": 3916643,
+            "sha1": "0905169813b9d7ed48a0f88c8ca24f7112aac58a",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_001.json"
         },
         {
             "path": "plugins-bundle_002.json",
-            "size": 4708086,
-            "sha1": "35428b361a5888e8bfee6d6a665bb30ede278d93",
+            "size": 4490148,
+            "sha1": "8e5cbe47faeb924fadc0ff89bbdebe8dd232516a",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_002.json"
         },
         {
             "path": "plugins-bundle_003.json",
-            "size": 4975447,
-            "sha1": "0a0008e0b65ab0f6492a073c38f3936408baa43a",
+            "size": 4261981,
+            "sha1": "7287d72886b0cd43f187d5d7986dbdab1dea4f7f",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_003.json"
         },
         {
             "path": "plugins-bundle_004.json",
-            "size": 4465069,
-            "sha1": "a5b909933f35ff0c0eb132b6c09b7314c95a1513",
+            "size": 4457599,
+            "sha1": "fec37bdcc78209432294a231b50b3312d2b6fe92",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_004.json"
         },
         {
             "path": "plugins-bundle_005.json",
-            "size": 4992857,
-            "sha1": "de7ab4f319f93952e638af4caa52e1bc0aa06214",
+            "size": 4318646,
+            "sha1": "cf82f55e5df81148690091a0637f0601ef2073b0",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_005.json"
         },
         {
             "path": "plugins-bundle_006.json",
-            "size": 4992844,
-            "sha1": "6d1d069d15fd9aa69e99707abc52c299ac68a8c1",
+            "size": 4257752,
+            "sha1": "12319a048595c6419a65b8635150d7238e3bed55",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_006.json"
         },
         {
             "path": "plugins-bundle_007.json",
-            "size": 4973121,
-            "sha1": "b0cacf53a8e1e8f6fa72d4dd3f7bfd8a9a3437c7",
+            "size": 4482545,
+            "sha1": "515171eba8cf387dcde4dc3c15ecceb81b5f3c2a",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_007.json"
         },
         {
             "path": "plugins-bundle_008.json",
-            "size": 1051879,
-            "sha1": "2d753da61f5f8f0a9f73d0b3f6a1eb46da977456",
+            "size": 4482095,
+            "sha1": "42c35ba2b55214a464f2126b3b6a7fea60db97d3",
             "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_008.json"
+        },
+        {
+            "path": "plugins-bundle_009.json",
+            "size": 1003825,
+            "sha1": "0e16dd561ddd25faa03d799b54f099384e71fcd7",
+            "raw": "https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/plugins-bundle_009.json"
         }
-    ],
-    "total_chunks": 9
+    ]
 }
