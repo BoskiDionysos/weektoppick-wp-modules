@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       site_key:
-        description: "WTP site_key (folder w uploads/wtp-ro/public)"
+        description: "WTP site_key (uploads/wtp-ro/public/<key>)"
         required: false
         default: "5Depft8Y9LU0t6Sv"
       rest_base:
@@ -12,19 +12,20 @@ on:
         required: false
         default: "https://weektoppick.com/wp-json/wtp-ro-open/v1"
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/30 * * * *"   # watchdog co 30 min
+
+permissions:
+  contents: write
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure tools (jq, curl)
+      - name: Ensure jq & curl
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq curl
@@ -34,26 +35,29 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          SITE_KEY="${{ github.event.inputs.site_key || '5Depft8Y9LU0t6Sv' }}"
-          REST_BASE="${{ github.event.inputs.rest_base || 'https://weektoppick.com/wp-json/wtp-ro-open/v1' }}"
+          SITE_KEY="${{ github.event.inputs.site_key || '' }}"
+          REST_BASE="${{ github.event.inputs.rest_base || '' }}"
+          [ -z "$SITE_KEY" ]  && SITE_KEY="5Depft8Y9LU0t6Sv"
+          [ -z "$REST_BASE" ] && REST_BASE="https://weektoppick.com/wp-json/wtp-ro-open/v1"
           OUT_DIR="snapshots/${SITE_KEY}"
-          LOG_DIR="${OUT_DIR}/logs"
-          echo "SITE_KEY=${SITE_KEY}"   >> "$GITHUB_OUTPUT"
-          echo "REST_BASE=${REST_BASE}" >> "$GITHUB_OUTPUT"
-          echo "OUT_DIR=${OUT_DIR}"     >> "$GITHUB_OUTPUT"
-          echo "LOG_DIR=${LOG_DIR}"     >> "$GITHUB_OUTPUT"
+          RUN_DIR="runner"
+          echo "SITE_KEY=$SITE_KEY"  >> "$GITHUB_OUTPUT"
+          echo "REST_BASE=$REST_BASE" >> "$GITHUB_OUTPUT"
+          echo "OUT_DIR=$OUT_DIR"     >> "$GITHUB_OUTPUT"
+          echo "RUN_DIR=$RUN_DIR"     >> "$GITHUB_OUTPUT"
 
       - name: Prepare dirs
         run: |
+          set -euo pipefail
           mkdir -p "${{ steps.vars.outputs.OUT_DIR }}"
-          mkdir -p "${{ steps.vars.outputs.LOG_DIR }}"
+          mkdir -p "${{ steps.vars.outputs.RUN_DIR }}"
 
       - name: Curl flags
-        id: dl
+        id: curl
         shell: bash
         run: |
-          FLAGS='-fL --retry 5 --retry-delay 2 --connect-timeout 15 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" -H "Accept: application/json,text/plain,*/*"'
-          echo "CURL_FLAGS=$FLAGS" >> "$GITHUB_OUTPUT"
+          FLAGS='-fL --retry 5 --retry-delay 2 --connect-timeout 20 -A "Mozilla/5.0" -H "Accept: application/json,text/plain,*/*"'
+          echo "FLAGS=$FLAGS" >> "$GITHUB_OUTPUT"
 
       - name: Fetch file list via /ls
         id: ls
@@ -62,96 +66,116 @@ jobs:
           set -euo pipefail
           url="${{ steps.vars.outputs.REST_BASE }}/ls?site_key=${{ steps.vars.outputs.SITE_KEY }}"
           echo "GET $url"
-          resp="$(curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url")"
+          resp="$(curl ${{ steps.curl.outputs.FLAGS }} "$url")"
           echo "$resp" | jq '.' > "${{ steps.vars.outputs.OUT_DIR }}/ls.json"
-
-          # Zbierz listę plików z obu koszy (dirA/dirB), usuń duplikaty
-          FILES=$(echo "$resp" | jq -r '((.list.dirA // []) + (.list.dirB // [])) | unique | .[]')
+          # spróbuj A, potem B
+          FILES=$(echo "$resp" | jq -r '.list.dirA // [] | .[]')
+          if [ -z "$FILES" ] || [ "$FILES" = "null" ]; then
+            FILES=$(echo "$resp" | jq -r '.list.dirB // [] | .[]')
+          fi
+          if [ -z "$FILES" ] || [ "$FILES" = "null" ]; then
+            echo "::error::Nie udało się pobrać listy plików (puste .list)"
+            exit 1
+          fi
           {
             echo "FILES<<EOF"
             echo "$FILES"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Download all files via /get (robust)
+      - name: Download files via /get
         shell: bash
         run: |
           set -euo pipefail
           while IFS= read -r fname; do
             [ -z "$fname" ] && continue
             url="${{ steps.vars.outputs.REST_BASE }}/get?site_key=${{ steps.vars.outputs.SITE_KEY }}&file=${fname}&_b=$(date +%s)"
-            dest="${{ steps.vars.outputs.OUT_DIR }}/${fname}"
+            out="${{ steps.vars.outputs.OUT_DIR }}/${fname}"
             echo "GET $url"
-            # Upewnij się, że katalog docelowy istnieje (na wypadek podkatalogów)
-            mkdir -p "$(dirname "$dest")"
-            if curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "$dest"; then
-              echo "✓ saved $fname"
-            else
-              echo "::warning::skip ${fname} (HTTP error)"
-            fi
+            mkdir -p "$(dirname "$out")"
+            curl ${{ steps.curl.outputs.FLAGS }} "$url" -o "$out"
           done << 'EOF'
           ${{ steps.ls.outputs.FILES }}
           EOF
-
-      - name: Extract logs from downloaded set (if present)
-        shell: bash
-        run: |
-          set -euo pipefail
-          SRC="${{ steps.vars.outputs.OUT_DIR }}"
-          DST="${{ steps.vars.outputs.LOG_DIR }}"
-          mkdir -p "$DST"
-
-          # Kandydaci na logi/metadane
-          for f in "wp-debug-latest.txt" "php_errors-latest.txt" "wp-debug-meta.json"; do
-            if [ -f "${SRC}/${f}" ]; then
-              cp -f "${SRC}/${f}" "${DST}/"
-            fi
-          done
-
-          # Dodatkowo — jeśli logi są podkatalogiem "logs/" w snapshot
-          if [ -d "${SRC}/logs" ]; then
-            cp -rf "${SRC}/logs/." "${DST}/" || true
-          fi
-
-          echo "Log files in ${DST}:"
-          ls -la "${DST}" || true
 
       - name: Stamp runner metadata
         shell: bash
         run: |
           set -euo pipefail
           NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          mkdir -p runner
-          printf '{"status":"ok","started_at":"%s","finished_at":"%s","commit_sha":"%s","summary":"Mirror %s + logs via REST"}\n' \
-            "$NOW" "$NOW" "$GITHUB_SHA" "${{ steps.vars.outputs.SITE_KEY }}" \
-            > runner/runner_response.json
-          printf '{"logs":[{"ts":"%s","level":"info","step":"mirror","msg":"Synced %s (REST) with logs"}]}\n' \
-            "$NOW" "${{ steps.vars.outputs.SITE_KEY }}" \
-            > runner/runner_logs.json
-          if [ -f runner/runner_health.json ]; then
-            jq --arg now "$NOW" '.last_snapshot_at=$now' runner/runner_health.json > runner/_tmp.json || cp runner/runner_health.json runner/_tmp.json
-            mv runner/_tmp.json runner/runner_health.json
+
+          # runner_response.json (zawsze nadpisz)
+          jq -n \
+            --arg now "$NOW" \
+            --arg sha "${GITHUB_SHA}" \
+            --arg key "${{ steps.vars.outputs.SITE_KEY }}" \
+            '{status:"ok", started_at:$now, finished_at:$now, commit_sha:$sha, summary:("Mirror "+$key+" synchronized via REST /ls+get")}' \
+            > "${{ steps.vars.outputs.RUN_DIR }}/runner_response.json"
+
+          # runner_logs.json – wstępny szkielet
+          jq -n '{logs:[]}' > "${{ steps.vars.outputs.RUN_DIR }}/runner_logs.json"
+
+          # runner_health.json – aktualizuj/utwórz
+          F="${{ steps.vars.outputs.RUN_DIR }}/runner_health.json"
+          if [ -f "$F" ]; then
+            jq --arg now "$NOW" '.last_snapshot_at=$now' "$F" > "${F}.tmp" || cp "$F" "${F}.tmp"
+            mv "${F}.tmp" "$F"
           else
-            printf '{"php_version":"","wp_version":"","wp_cli":"","server":"","memory_limit":"","disk_free_mb":0,"last_snapshot_at":"%s"}\n' \
-              "$NOW" \
-              > runner/runner_health.json
+            jq -n --arg now "$NOW" \
+              '{php_version:"", wp_version:"", wp_cli:"", server:"", memory_limit:"", disk_free_mb:0, last_snapshot_at:$now}' \
+              > "$F"
           fi
 
-      - name: Upload artifact (snapshots)
-        uses: actions/upload-artifact@v4
-        with:
-          name: wtp-snapshots-${{ steps.vars.outputs.SITE_KEY }}
-          path: |
-            ${{ steps.vars.outputs.OUT_DIR }}/**
-            runner/*.json
-          if-no-files-found: warn
-          retention-days: 7
+      - name: Parse logs → runner_logs.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT_LOG="${{ steps.vars.outputs.RUN_DIR }}/runner_logs.json"
+          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          SITE_DIR="${{ steps.vars.outputs.OUT_DIR }}"
 
-      - name: Upload artifact (logs only)
-        uses: actions/upload-artifact@v4
-        with:
-          name: wtp-logs-${{ steps.vars.outputs.SITE_KEY }}
-          path: |
-            ${{ steps.vars.outputs.LOG_DIR }}/**
-          if-no-files-found: warn
-          retention-days: 14
+          # Funkcja: dołącz linie tekstowe jako JSON
+          append_log () {
+            local src="$1"
+            local file="$2"
+            if [ -s "$file" ]; then
+              echo "parse $file"
+              jq -n --arg ts "$NOW" --arg src "$src" \
+                --slurpfile lines <(tail -n 400 "$file" | jq -R -s 'split("\n")|map(select(length>0))') \
+                '{logs: ($lines[] | {ts:$ts, src:$src, msg:.})}' \
+              > _tmp.json
+              # merge do runner_logs.json
+              jq -s '{logs: (.[0].logs + (.[1].logs // []))}' "$OUT_LOG" _tmp.json > _m.json || cp "$OUT_LOG" _m.json
+              mv _m.json "$OUT_LOG"
+              rm -f _tmp.json
+            fi
+          }
+
+          append_log "wp-debug"        "${SITE_DIR}/wp-debug-latest.txt"
+          append_log "php_errors"      "${SITE_DIR}/php_errors-latest.txt"
+
+          # jeśli jest meta (np. rozmiary)
+          if [ -s "${SITE_DIR}/wp-debug-meta.json" ]; then
+            jq -n --arg ts "$NOW" --arg src "meta" \
+              --argjson meta "$(cat "${SITE_DIR}/wp-debug-meta.json")" \
+              '{logs:[{ts:$ts, src:$src, msg:("meta: "+($meta|tostring))}]}' > _tmp.json
+            jq -s '{logs: (.[0].logs + (.[1].logs // []))}' "$OUT_LOG" _tmp.json > _m.json || cp "$OUT_LOG" _m.json
+            mv _m.json "$OUT_LOG"
+            rm -f _tmp.json
+          fi
+
+      - name: Commit & push (snapshots + runner)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name  "wtp-snapshot-bot"
+          git config user.email "wtp-snapshot-bot@users.noreply.github.com"
+          git add "${{ steps.vars.outputs.OUT_DIR }}" "${{ steps.vars.outputs.RUN_DIR }}"/*.json || true
+          if ! git diff --cached --quiet; then
+            git commit -m "mirror: ${{
+              steps.vars.outputs.SITE_KEY
+            }} synced; logs parsed"
+            git push
+          else
+            echo "No changes."
+          fi
