@@ -26,7 +26,6 @@ jobs:
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
-      # aby móc użyć w if:
       ALLOW_WPCONFIG_DEPLOY: ${{ secrets.ALLOW_WPCONFIG_DEPLOY }}
 
     steps:
@@ -48,15 +47,13 @@ jobs:
                       '$TARGET/wp-content/themes' \
                       '$TARGET/.wtp-bot'"
 
-      # ---------- MU-PLUGINS ----------
       - name: Deploy MU plugins
-        if: ${{ hashFiles('mu-plugins//.php') != '' || hashFiles('mu-plugins/*') != '' }}
+        if: ${{ hashFiles('mu-plugins/') != '' }}
         run: |
           rsync -avz --delete \
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             mu-plugins/ "$USER@$HOST:$TARGET/wp-content/mu-plugins/"
 
-      # ---------- PLUGINS ----------
       - name: Deploy standard plugins
         if: ${{ hashFiles('plugins/') != '' }}
         run: |
@@ -64,7 +61,6 @@ jobs:
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             plugins/ "$USER@$HOST:$TARGET/wp-content/plugins/"
 
-      # ---------- THEMES ----------
       - name: Deploy themes
         if: ${{ hashFiles('themes/') != '' || hashFiles('wp-content/themes/') != '' }}
         run: |
@@ -73,7 +69,6 @@ jobs:
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             "$SRC" "$USER@$HOST:$TARGET/wp-content/themes/"
 
-      # ---------- WP-CONFIG (opcjonalnie) ----------
       - name: Generate & deploy wp-config.php (optional)
         if: ${{ env.ALLOW_WPCONFIG_DEPLOY == 'true' && hashFiles('.wtp/wp-config.tpl.php') != '' }}
         env:
@@ -94,3 +89,8 @@ jobs:
           echo "deploy $(date -u +%FT%TZ)" > .deploy.txt
           rsync -avz -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             .deploy.txt "$USER@$HOST:$TARGET/.wtp-bot/deploy.txt"
+
+      - name: Verify on server (list mu-plugins)
+        run: |
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+            "pwd; ls -la '$TARGET/wp-content/mu-plugins' || true"
