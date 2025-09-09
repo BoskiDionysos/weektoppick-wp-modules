@@ -29,34 +29,72 @@ jobs:
         id: find
         shell: bash
         run: |
+          set -euo pipefail
           shopt -s nullglob
           files=(.wtp/inbox/*.patch)
           if [ ${#files[@]} -eq 0 ]; then
             echo "found=false" >> "$GITHUB_OUTPUT"
-            echo "No patch in this push"
+            echo "No patch in inbox."
             exit 0
           fi
           printf '%s\n' "${files[@]}" > /tmp/patch_list.txt
           echo "found=true" >> "$GITHUB_OUTPUT"
           echo "count=${#files[@]}" >> "$GITHUB_OUTPUT"
+          echo "Patches:"; cat /tmp/patch_list.txt
 
-      - name: Apply patches
+      - name: Apply / skip already-applied
         if: steps.find.outputs.found == 'true'
         shell: bash
         run: |
           set -euo pipefail
+          applied=0
+          skipped=0
+          failed=0
+
+          mkdir -p .wtp/processed
+
           while IFS= read -r p; do
-            echo "Applying: $p"
-            git apply --index "$p"
-            mkdir -p .wtp/processed
+            echo "::group::Processing $p"
+
+            # 1) Czy wejdzie czysto?
+            if git apply --check "$p" >/dev/null 2>&1; then
+              echo "Patch applies cleanly → applying with --index"
+              git apply --index "$p"
+              applied=$((applied+1))
+
+            # 2) Jeśli nie, sprawdź czy to już było (odwraca się czysto)
+            elif git apply -R --check "$p" >/dev/null 2>&1; then
+              echo "Looks already applied (reverse patch checks clean). Skipping."
+              skipped=$((skipped+1))
+
+            else
+              echo "::error::Patch FAILED (neither applies nor reverses cleanly): $p"
+              failed=$((failed+1))
+              echo "::endgroup::"
+              continue
+            fi
+
+            # Przenieś do processed niezależnie od trybu (applied/skipped)
             mv "$p" ".wtp/processed/$(basename "$p")"
+            echo "::endgroup::"
           done < /tmp/patch_list.txt
+
+          echo "applied=$applied" >> "$GITHUB_OUTPUT"
+          echo "skipped=$skipped" >> "$GITHUB_OUTPUT"
+          echo "failed=$failed"  >> "$GITHUB_OUTPUT"
+
+          if [ "$failed" -gt 0 ]; then
+            echo "::warning::$failed patch(es) failed. Review logs."
+          fi
 
       - name: Commit & push
         if: steps.find.outputs.found == 'true'
         shell: bash
         run: |
+          set -euo pipefail
+          git add -A
+          msg="[apply-inbox] applied:${{ steps.apply.outputs.applied }} skipped:${{ steps.apply.outputs.skipped }} failed:${{ steps.apply.outputs.failed }} [skip ci]"
           git config user.name  "wtp-bot"
           git config user.email "wtp-bot@users.noreply.github.com"
-          git commit -m "[apply-inbox] apply ${GITHUB_SHA::7} patches from inbox -> processed [skip ci]" || echo "No changes"
-          git push
+          git commit -m "$msg" || echo "No changes to commit"
+          git push || echo "Nothing to push"
