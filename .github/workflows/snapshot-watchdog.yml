@@ -1,18 +1,17 @@
- name: Snapshot Watchdog (full)
+name: Snapshot Watchdog (full)
 
 on:
-  # Auto po zmianach eksportera/watchdoga — NIE po zapisie stanu (.wtp/state)
   push:
     branches: [ main ]
     paths:
       - 'mu-plugins/wtp-ro-exporter.php'
       - '.github/workflows/snapshot-watchdog.yml'
   schedule:
-    - cron: '*/15 * * * *'     # co 15 min (UTC)
+    - cron: '*/15 * * * *'
   workflow_dispatch: {}
 
 permissions:
-  contents: write     # zapis stanu (.wtp/state/*.json) w repo
+  contents: write
   issues: write
 
 concurrency:
@@ -29,9 +28,8 @@ jobs:
       OPS: ops-snapshot-watchdog
       STATE_DIR: .wtp/state
       STATE_FILE: .wtp/state/snapshot-files.json
-      # progi dla alertów
-      DELTA_HARD_LIMIT: "5"    # jeśli różnica liczby plików > 5 => alert
-      SAMPLE_N: "3"            # ile files_* sprawdzamy przez /get
+      DELTA_HARD_LIMIT: "5"
+      SAMPLE_N: "3"
 
     steps:
       - name: Checkout
@@ -45,7 +43,6 @@ jobs:
           sudo apt-get install -y jq curl
           mkdir -p "$OPS" "$STATE_DIR"
 
-      # ───── /health ───────────────────────────────────────────────────────────────
       - name: GET /health
         id: health
         run: |
@@ -59,7 +56,6 @@ jobs:
           echo "status=$http" >> "$GITHUB_OUTPUT"
           echo "ok_json=$(jq -e 'type==\"object\"' "$OPS/health.json" >/dev/null 2>&1 && echo yes || echo no)" >> "$GITHUB_OUTPUT"
 
-      # ───── /ls (lista plików) ───────────────────────────────────────────────────
       - name: GET /ls
         id: ls
         run: |
@@ -81,10 +77,8 @@ jobs:
           echo "schema_ok=$schema_ok" >> "$GITHUB_OUTPUT"
           echo "total=$total" >> "$GITHUB_OUTPUT"
 
-          # zapisz uporządkowaną listę plików
           jq -r '.files // [] | .[]' "$OPS/ls.json" | sort > "$OPS/files.list"
 
-      # ───── /get index.json ──────────────────────────────────────────────────────
       - name: GET /get (index.json)
         id: get_index
         run: |
@@ -97,7 +91,6 @@ jobs:
           content="$(echo "$body" | head -n-1)"
           printf '%s\n' "$content" > "$OPS/get.index.json" || true
           echo "status=$http" >> "$GITHUB_OUTPUT"
-          # minimalna walidacja schematu index.json jeśli 200
           if [ "$http" = "200" ]; then
             schema_ok=$(jq -e 'has("manifest") and has("options") and has("selftest")' "$OPS/get.index.json" >/dev/null 2>&1 && echo true || echo false)
           else
@@ -105,7 +98,6 @@ jobs:
           fi
           echo "schema_ok=$schema_ok" >> "$GITHUB_OUTPUT"
 
-      # ───── /get SAMPLE_N plików files_*.json (jeśli są) ─────────────────────────
       - name: GET /get sample files_*.json
         id: get_samples
         run: |
@@ -114,10 +106,7 @@ jobs:
           OK=0
           ERR=0
           > "$OPS/samples.txt"
-
-          # wybierz pierwsze N plików pasujących do files_*.json
           mapfile -t picks < <(grep -E '^files_[0-9]{3}\.json$' "$OPS/files.list" | head -n "$SAMPLE_N" || true)
-
           for f in "${picks[@]}"; do
             [ -z "$f" ] && continue
             URL="${BASE}/wp-json/${NS}/get?site_key=${SITE_KEY}&file=${f}"
@@ -135,12 +124,10 @@ jobs:
               ERR=$((ERR+1))
             fi
           done
-
           echo "sampled=$SAMPLED" >> "$GITHUB_OUTPUT"
           echo "ok=$OK" >> "$GITHUB_OUTPUT"
           echo "err=$ERR" >> "$GITHUB_OUTPUT"
 
-      # ───── porównanie z poprzednim stanem (.wtp/state/snapshot-files.json) ──────
       - name: Load previous state (if any)
         id: prev
         run: |
@@ -148,7 +135,6 @@ jobs:
           if [ -f "$STATE_FILE" ]; then
             cp "$STATE_FILE" "$OPS/prev-files.list"
           else
-            # brak stanu — uznajemy za pusty
             : > "$OPS/prev-files.list"
           fi
           echo "has_prev=$( [ -s "$OPS/prev-files.list" ] && echo yes || echo no )" >> "$GITHUB_OUTPUT"
@@ -157,8 +143,6 @@ jobs:
         id: delta
         run: |
           set -euo pipefail
-          # bieżąca lista plików już jest w $OPS/files.list
-          # poprzednia w $OPS/prev-files.list
           comm -13 "$OPS/prev-files.list" "$OPS/files.list" > "$OPS/added.list"  || true
           comm -23 "$OPS/prev-files.list" "$OPS/files.list" > "$OPS/removed.list" || true
           ADDED=$(wc -l < "$OPS/added.list"  | tr -d ' ')
@@ -168,87 +152,95 @@ jobs:
           echo "removed=$REM"   >> "$GITHUB_OUTPUT"
           echo "delta=$DIFF"    >> "$GITHUB_OUTPUT"
 
-      # ───── decyzja (OK / FAIL) ──────────────────────────────────────────────────
-      - name: Decide result
+      # ========= ZAMIANA jq --argfile -> Python (brak zależności od opcji jq) =========
+      - name: Decide result (Python)
         id: decide
+        env:
+          H: ${{ steps.health.outputs.status }}
+          HJSON: ${{ steps.health.outputs.ok_json }}
+          L: ${{ steps.ls.outputs.status }}
+          LOK: ${{ steps.ls.outputs.schema_ok }}
+          T: ${{ steps.ls.outputs.total }}
+          GI: ${{ steps.get_index.outputs.status }}
+          GI_SCHEMA: ${{ steps.get_index.outputs.schema_ok }}
+          SAMP: ${{ steps.get_samples.outputs.sampled }}
+          SOK: ${{ steps.get_samples.outputs.ok }}
+          SERR: ${{ steps.get_samples.outputs.err }}
+          ADDED: ${{ steps.delta.outputs.added }}
+          REMOVED: ${{ steps.delta.outputs.removed }}
+          DELTA: ${{ steps.delta.outputs.delta }}
+          HARD: ${{ env.DELTA_HARD_LIMIT }}
         run: |
-          set -euo pipefail
-          H="${{ steps.health.outputs.status || '0' }}"
-          HJSON="${{ steps.health.outputs.ok_json || 'no' }}"
-          L="${{ steps.ls.outputs.status || '0' }}"
-          LOK="${{ steps.ls.outputs.schema_ok || 'false' }}"
-          T="${{ steps.ls.outputs.total || '0' }}"
-          GI="${{ steps.get_index.outputs.status || '0' }}"
-          GI_SCHEMA="${{ steps.get_index.outputs.schema_ok || 'false' }}"
-          SAMP="${{ steps.get_samples.outputs.sampled || '0' }}"
-          SOK="${{ steps.get_samples.outputs.ok || '0' }}"
-          SERR="${{ steps.get_samples.outputs.err || '0' }}"
-          DELTA="${{ steps.delta.outputs.delta || '0' }}"
-          HARD="${DELTA_HARD_LIMIT}"
+          python3 - << 'PY'
+          import os, json
+          OPS="ops-snapshot-watchdog"
+          # parse env with defaults
+          H=int(os.getenv("H","0") or "0")
+          HJSON=os.getenv("HJSON","no")
+          L=int(os.getenv("L","0") or "0")
+          LOK=os.getenv("LOK","false")=="true"
+          T=int(os.getenv("T","0") or "0")
+          GI=int(os.getenv("GI","0") or "0")
+          GI_SCHEMA=os.getenv("GI_SCHEMA","false")=="true"
+          SAMP=int(os.getenv("SAMP","0") or "0")
+          SOK=int(os.getenv("SOK","0") or "0")
+          SERR=int(os.getenv("SERR","0") or "0")
+          ADDED=int(os.getenv("ADDED","0") or "0")
+          REMOVED=int(os.getenv("REMOVED","0") or "0")
+          DELTA=int(os.getenv("DELTA","0") or "0")
+          HARD=int(os.getenv("HARD","5") or "5")
 
-          status="ok"
-          reason="healthy"
+          def load_json(path):
+            try:
+              with open(path,'r',encoding='utf-8') as f:
+                return json.load(f)
+            except Exception:
+              return None
 
-          if [ "$H" != "200" ] || [ "$HJSON" != "yes" ]; then
+          health = load_json(f"{OPS}/health.json")
+          ls = load_json(f"{OPS}/ls.json")
+
+          status="ok"; reason="healthy"
+          if H!=200 or HJSON!="yes":
             status="fail"; reason="health_bad_http_or_json"
-          elif [ "$L" != "200" ] || [ "$LOK" != "true" ]; then
+          elif L!=200 or not LOK:
             status="fail"; reason="ls_bad_or_schema"
-          elif [ "$T" -eq 0 ]; then
+          elif T==0:
             status="fail"; reason="ls_empty_files"
-          elif [ "$GI" != "200" ] || [ "$GI_SCHEMA" != "true" ]; then
+          elif GI!=200 or not GI_SCHEMA:
             status="fail"; reason="index_bad_http_or_schema"
-          elif [ "$SERR" -gt 0 ]; then
+          elif SERR>0:
             status="fail"; reason="sample_get_errors"
-          elif [ "$DELTA" -gt "$HARD" ]; then
+          elif DELTA>HARD:
             status="fail"; reason="delta_exceeds_limit"
-          fi
 
-          jq -n \
-            --arg status "$status" \
-            --arg reason "$reason" \
-            --argjson total "$T" \
-            --argjson delta "$DELTA" \
-            --argjson added "${{ steps.delta.outputs.added || '0' }}" \
-            --argjson removed "${{ steps.delta.outputs.removed || '0' }}" \
-            --arg health_http "${H}" \
-            --arg health_json "${HJSON}" \
-            --arg ls_http "${L}" \
-            --arg ls_schema "${LOK}" \
-            --arg index_http "${GI}" \
-            --arg index_schema "${GI_SCHEMA}" \
-            --argjson sampled "${SAMP}" \
-            --argjson sample_ok "${SOK}" \
-            --argjson sample_err "${SERR}" \
-            --argfile health "$OPS/health.json" \
-            --argfile ls "$OPS/ls.json" \
-            '{
-              status:$status,
-              reason:$reason,
-              totals:{ files:$total, delta:$delta, added:$added, removed:$removed },
-              checks:{
-                health:{ http:$health_http, ok_json: $health_json },
-                ls:{ http:$ls_http, schema_ok:$ls_schema },
-                index:{ http:$index_http, schema_ok:$index_schema },
-                samples:{ sampled:$sampled, ok:$sample_ok, err:$sample_err }
-              },
-              health:$health,
-              ls:$ls
-            }' > "$OPS/summary.json"
+          summary = {
+            "status": status,
+            "reason": reason,
+            "totals": {"files": T, "delta": DELTA, "added": ADDED, "removed": REMOVED},
+            "checks": {
+              "health": {"http": H, "ok_json": HJSON},
+              "ls": {"http": L, "schema_ok": LOK},
+              "index": {"http": GI, "schema_ok": GI_SCHEMA},
+              "samples": {"sampled": SAMP, "ok": SOK, "err": SERR}
+            },
+            "health": health,
+            "ls": ls
+          }
+          os.makedirs(OPS, exist_ok=True)
+          with open(f"{OPS}/summary.json","w",encoding="utf-8") as f:
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+          print(json.dumps({"write":"ok","status":status,"reason":reason}))
+          # expose fail flag via GITHUB_OUTPUT
+          fail = "true" if status!="ok" else "false"
+          with open(os.environ["GITHUB_OUTPUT"],"a") as out:
+            out.write(f"fail={fail}\n")
+          PY
 
-          cat "$OPS/summary.json"
-
-          if [ "$status" != "ok" ]; then
-            echo "fail=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "fail=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      # ───── zapisz aktualny stan listy plików do repo (nie triggeruje on:push, bo paths są zawężone)
       - name: Persist state (files list) to repo
         if: ${{ steps.decide.outputs.fail == 'false' }}
         run: |
           set -euo pipefail
-          # zapisujemy posortowaną listę do STATE_FILE
           cp "$OPS/files.list" "$STATE_FILE"
           if ! git diff --quiet -- "$STATE_FILE"; then
             git config user.name  "wtp-bot"
