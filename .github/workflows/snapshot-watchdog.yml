@@ -53,8 +53,11 @@ jobs:
           http="$(echo "$body" | tail -n1)"
           payload="$(echo "$body" | head -n-1)"
           printf '%s\n' "$payload" > "$OPS/health.json" || true
+          echo "$payload" | head -c 300 > "$OPS/health.head.txt" || true
           echo "status=$http" >> "$GITHUB_OUTPUT"
-          echo "ok_json=$(jq -e 'type==\"object\"' "$OPS/health.json" >/dev/null 2>&1 && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+          # bezpieczny test JSON (nie przerywa skryptu)
+          jq -e 'type=="object"' "$OPS/health.json" >/dev/null 2>&1 && ok_json=yes || ok_json=no
+          echo "ok_json=$ok_json" >> "$GITHUB_OUTPUT"
 
       - name: GET /ls
         id: ls
@@ -66,18 +69,26 @@ jobs:
           http="$(echo "$body" | tail -n1)"
           payload="$(echo "$body" | head -n-1)"
           printf '%s\n' "$payload" > "$OPS/ls.json" || true
+          echo "$payload" | head -c 300 > "$OPS/ls.head.txt" || true
           echo "status=$http" >> "$GITHUB_OUTPUT"
 
-          schema_ok="false"
+          schema_ok=false
           total=0
-          if [ "$http" = "200" ] && jq -e '.files and (.files|type=="array")' "$OPS/ls.json" >/dev/null 2>&1; then
-            schema_ok="true"
-            total="$(jq '.files|length' "$OPS/ls.json")"
+          if [ "$http" = "200" ]; then
+            if jq -e '.files and (.files|type=="array")' "$OPS/ls.json" >/dev/null 2>&1; then
+              schema_ok=true
+              total="$(jq '.files|length' "$OPS/ls.json" 2>/dev/null || echo 0)"
+            fi
           fi
           echo "schema_ok=$schema_ok" >> "$GITHUB_OUTPUT"
           echo "total=$total" >> "$GITHUB_OUTPUT"
 
-          jq -r '.files // [] | .[]' "$OPS/ls.json" | sort > "$OPS/files.list"
+          # jeżeli JSON poprawny – wylistuj pliki, inaczej pusta lista
+          if [ "$schema_ok" = "true" ]; then
+            jq -r '.files // [] | .[]' "$OPS/ls.json" 2>/dev/null | sort > "$OPS/files.list" || true
+          else
+            : > "$OPS/files.list"
+          fi
 
       - name: GET /get (index.json)
         id: get_index
@@ -90,11 +101,11 @@ jobs:
           http="$(echo "$body" | tail -n1)"
           content="$(echo "$body" | head -n-1)"
           printf '%s\n' "$content" > "$OPS/get.index.json" || true
+          echo "$content" | head -c 300 > "$OPS/get.index.head.txt" || true
           echo "status=$http" >> "$GITHUB_OUTPUT"
+          schema_ok=false
           if [ "$http" = "200" ]; then
-            schema_ok=$(jq -e 'has("manifest") and has("options") and has("selftest")' "$OPS/get.index.json" >/dev/null 2>&1 && echo true || echo false)
-          else
-            schema_ok=false
+            jq -e 'has("manifest") and has("options") and has("selftest")' "$OPS/get.index.json" >/dev/null 2>&1 && schema_ok=true || schema_ok=false
           fi
           echo "schema_ok=$schema_ok" >> "$GITHUB_OUTPUT"
 
@@ -152,7 +163,6 @@ jobs:
           echo "removed=$REM"   >> "$GITHUB_OUTPUT"
           echo "delta=$DIFF"    >> "$GITHUB_OUTPUT"
 
-      # ========= ZAMIANA jq --argfile -> Python (brak zależności od opcji jq) =========
       - name: Decide result (Python)
         id: decide
         env:
@@ -174,7 +184,6 @@ jobs:
           python3 - << 'PY'
           import os, json
           OPS="ops-snapshot-watchdog"
-          # parse env with defaults
           H=int(os.getenv("H","0") or "0")
           HJSON=os.getenv("HJSON","no")
           L=int(os.getenv("L","0") or "0")
@@ -190,15 +199,10 @@ jobs:
           DELTA=int(os.getenv("DELTA","0") or "0")
           HARD=int(os.getenv("HARD","5") or "5")
 
-          def load_json(path):
+          def load(path):
             try:
-              with open(path,'r',encoding='utf-8') as f:
-                return json.load(f)
-            except Exception:
-              return None
-
-          health = load_json(f"{OPS}/health.json")
-          ls = load_json(f"{OPS}/ls.json")
+              with open(path,'r',encoding='utf-8') as f: return json.load(f)
+            except: return None
 
           status="ok"; reason="healthy"
           if H!=200 or HJSON!="yes":
@@ -223,18 +227,12 @@ jobs:
               "ls": {"http": L, "schema_ok": LOK},
               "index": {"http": GI, "schema_ok": GI_SCHEMA},
               "samples": {"sampled": SAMP, "ok": SOK, "err": SERR}
-            },
-            "health": health,
-            "ls": ls
+            }
           }
-          os.makedirs(OPS, exist_ok=True)
           with open(f"{OPS}/summary.json","w",encoding="utf-8") as f:
-            json.dump(summary, f, ensure_ascii=False, indent=2)
-          print(json.dumps({"write":"ok","status":status,"reason":reason}))
-          # expose fail flag via GITHUB_OUTPUT
-          fail = "true" if status!="ok" else "false"
+            json.dump(summary,f,ensure_ascii=False,indent=2)
           with open(os.environ["GITHUB_OUTPUT"],"a") as out:
-            out.write(f"fail={fail}\n")
+            out.write(f"fail={'true' if status!='ok' else 'false'}\n")
           PY
 
       - name: Persist state (files list) to repo
@@ -267,18 +265,11 @@ jobs:
           script: |
             const fs = require('fs');
             let body = 'Snapshot watchdog detected a problem.\n\n';
-            try {
-              const summary = JSON.parse(fs.readFileSync('ops-snapshot-watchdog/summary.json','utf8'));
-              body += '### Summary\njson\n' + JSON.stringify(summary, null, 2).slice(0, 5000) + '\n\n';
-            } catch (e) {
-              body += 'No summary available.\n';
-            }
-            const added = fs.existsSync('ops-snapshot-watchdog/added.list') ? fs.readFileSync('ops-snapshot-watchdog/added.list','utf8') : '';
-            const removed = fs.existsSync('ops-snapshot-watchdog/removed.list') ? fs.readFileSync('ops-snapshot-watchdog/removed.list','utf8') : '';
-            body += '\n### Delta\n';
-            body += '*Added:*\n\n' + added.slice(0,2000) + '\n\n';
-            body += '*Removed:*\n\n' + removed.slice(0,2000) + '\n\n';
-            body += \nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId};
+            function safe(path) { try { return fs.readFileSync(path,'utf8'); } catch(e){ return ''; } }
+            body += '### /health (head)\n\n'+ safe('ops-snapshot-watchdog/health.head.txt') +'\n\n';
+            body += '### /ls (head)\n\n'+ safe('ops-snapshot-watchdog/ls.head.txt') +'\n\n';
+            body += '### Summary\n\n'+ safe('ops-snapshot-watchdog/summary.json').slice(0,5000) +'\n\n';
+            body += '\nRun: ' + ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId};
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
