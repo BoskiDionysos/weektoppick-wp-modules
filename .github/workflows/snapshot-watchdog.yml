@@ -19,7 +19,7 @@ env:
   OPS: ops-snapshot-watchdog
   UA: WTP-Watchdog/1.1 (+https://weektoppick.com)
 
-  # Pliki do sprawdzenia (Kolejność: ważne -> mniej ważne)
+  # Pliki do sprawdzenia (kolejność: ważne -> mniej ważne)
   PROBES: |
     manifest.json
     files_000.json
@@ -27,9 +27,7 @@ env:
     index.json
     bundle.json
 
-  # Zachowanie bramki:
-  # - WATCHDOG_STRICT=false (domyślnie): zalicz, jeśli >=1 plik OK
-  # - WATCHDOG_STRICT=true : zalicz, jeśli >=2 pliki OK
+  # STRONG/RELAXED bramka: ustaw w Secrets repo WATCHDOG_STRICT=true, by wymagać >=2 OK
   WATCHDOG_STRICT: ${{ secrets.WATCHDOG_STRICT }}
 
 jobs:
@@ -80,7 +78,6 @@ jobs:
             code=$(awk 'NR==1{print $2}' "$h" 2>/dev/null || echo "")
             ct=$(awk -F': ' 'BEGIN{IGNORECASE=1} tolower($1)=="content-type"{print tolower($2)}' "$h" 2>/dev/null | tr -d '\r')
 
-            # uznaj za OK tylko: HTTP 200 + parsowalny JSON
             if [ "$code" = "200" ] && jq -e type "$b" >/dev/null 2>&1; then
               valid="y"
               OK=$((OK+1))
@@ -94,23 +91,18 @@ jobs:
             fetch_one "$f"
           done <<< "$PROBES"
 
-          echo "ok=$OK" >> "$GITHUB_OUTPUT"
-
-          # zbuduj próg wg trybu strict
           STRICT="${WATCHDOG_STRICT:-false}"
-          if [ "$STRICT" = "true" ]; then
-            THRESH=2
-          else
-            THRESH=1
-          fi
+          if [ "$STRICT" = "true" ]; then THRESH=2; else THRESH=1; fi
+
+          echo "ok=$OK"           >> "$GITHUB_OUTPUT"
           echo "threshold=$THRESH" >> "$GITHUB_OUTPUT"
 
           if [ "$OK" -ge "$THRESH" ]; then
-            echo "status=ok" >> "$GITHUB_OUTPUT"
+            echo "status=ok"   >> "$GITHUB_OUTPUT"
             echo "reason=at least $OK OK (threshold=$THRESH)" >> "$GITHUB_OUTPUT"
           else
-            echo "status=bad" >> "$GITHUB_OUTPUT"
-            echo "reason=only $OK OK (threshold=$THRESH)" >> "$GITHUB_OUTPUT"
+            echo "status=bad"  >> "$GITHUB_OUTPUT"
+            echo "reason=only $OK OK (threshold=$THRESH)"     >> "$GITHUB_OUTPUT"
           fi
 
       - name: Upload diagnostics
@@ -123,33 +115,40 @@ jobs:
       - name: Create Issue on failure
         if: ${{ steps.probe.outputs.status != 'ok' }}
         uses: actions/github-script@v7
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          STATUS: ${{ steps.probe.outputs.status }}
+          REASON: ${{ steps.probe.outputs.reason }}
+          PROBES_ENV: ${{ env.PROBES }}
         with:
           script: |
             const fs = require('fs');
-            const runUrl = ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId};
-            const status = ${{ steps.probe.outputs.status }}
-            const reason = ${{ steps.probe.outputs.reason }}
-            let body = Watchdog **${status.toUpperCase()}**\n\nReason: ${reason}\n\nRun: ${runUrl}\n\n;
+            const runUrl = process.env.RUN_URL || '';
+            const status = (process.env.STATUS || '').toUpperCase();
+            const reason = process.env.REASON || '';
+            const probes = (process.env.PROBES_ENV || '').split('\n').map(s => s.trim()).filter(Boolean);
+
+            let body = Watchdog **${status}**\n\nReason: ${reason}\n\nRun: ${runUrl}\n\n;
 
             try {
               const summary = fs.readFileSync('ops-snapshot-watchdog/summary.tsv','utf8');
               body += 'Summary (file|code|valid|content-type):\n\n\n' + summary + '\n\n\n';
-            } catch(e){}
+            } catch (e) {}
 
-            const files = (process.env.PROBES || '').trim().split('\n').map(s => s.trim()).filter(Boolean);
-            for (const f of files) {
+            for (const f of probes) {
               try {
                 const h = fs.readFileSync(ops-snapshot-watchdog/headers/${f}.hdr, 'utf8');
                 const b = fs.readFileSync(ops-snapshot-watchdog/bodies/${f}.out, 'utf8');
-                body += ### ${f}\n**Headers (first 600)**\n\n\\\\n${h.slice(0,600)}\n\\\\n;
+                body += ### ${f}\n;
+                body += **Headers (first 600)**\n\n\\\\n${h.slice(0,600)}\n\\\\n;
                 body += **Body (first 1000)**\n\n\\\\n${b.slice(0,1000)}\n\\\\n\n;
-              } catch(e){}
+              } catch (e) {}
             }
 
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: Snapshot watchdog: ${status.toUpperCase()} (${context.runNumber}),
+              title: Snapshot watchdog: ${status} (${context.runNumber}),
               body
             });
 
