@@ -21,7 +21,6 @@ concurrency:
 
 jobs:
   deploy:
-    # jeśli przyszło z workflow_run → tylko po sukcesie i tylko z main
     if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -59,7 +58,6 @@ jobs:
                       '$TARGET/wp-content/themes' \
                       '$TARGET/.wtp-bot'"
 
-      # ---------- MU-PLUGINS ----------
       - name: Deploy MU plugins
         if: ${{ hashFiles('mu-plugins/**') != '' }}
         run: |
@@ -67,7 +65,6 @@ jobs:
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             mu-plugins/ "$USER@$HOST:$TARGET/wp-content/mu-plugins/"
 
-      # ---------- PLUGINS ----------
       - name: Deploy standard plugins
         if: ${{ hashFiles('plugins/**') != '' }}
         run: |
@@ -75,7 +72,6 @@ jobs:
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             plugins/ "$USER@$HOST:$TARGET/wp-content/plugins/"
 
-      # ---------- THEMES ----------
       - name: Deploy themes
         if: ${{ hashFiles('themes/**') != '' || hashFiles('wp-content/themes/**') != '' }}
         run: |
@@ -84,7 +80,6 @@ jobs:
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             "$SRC" "$USER@$HOST:$TARGET/wp-content/themes/"
 
-      # ---------- WP-CONFIG (opcjonalnie) ----------
       - name: Generate & deploy wp-config.php (optional)
         if: ${{ env.ALLOW_WPCONFIG_DEPLOY == 'true' && hashFiles('.wtp/wp-config.tpl.php') != '' }}
         env:
@@ -105,7 +100,6 @@ jobs:
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             wp-config.php "$USER@$HOST:$TARGET/wp-config.php"
 
-      # ---------- MARKER ----------
       - name: Write deploy marker
         run: |
           echo "deploy $(date -u +%FT%TZ)" > .deploy.txt
