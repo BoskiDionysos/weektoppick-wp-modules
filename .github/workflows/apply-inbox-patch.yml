@@ -2,13 +2,14 @@ name: Apply Inbox Patch
 
 on:
   push:
-    # łap wszystko (również zmiany robione z UI), ale filtrujemy w if: później
-    branches: [ "" ]
-  workflow_dispatch: {}
+    branches:
+      - main
+    paths:
+      - '.wtp/inbox/*.patch'
+  workflow_dispatch:
 
 jobs:
   apply:
-    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -19,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Configure Git
+      - name: Git config
         run: |
           git config user.name  "wtp-bot"
           git config user.email "wtp-bot@users.noreply.github.com"
@@ -28,50 +29,45 @@ jobs:
         run: |
           mkdir -p .wtp/inbox .wtp/processed
 
-      - name: Apply patches from inbox (only if any .patch changed)
+      - name: Apply all patches from inbox
         shell: bash
         run: |
           set -euo pipefail
           shopt -s nullglob
 
-          # sprawdź czy w tym commicie dotknięto .wtp/inbox/*.patch
-          echo "Changed files:"
-          git diff --name-only HEAD~1..HEAD || true
-
-          CHANGED_PATCHES=$(git diff --name-only HEAD~1..HEAD | grep -E '^\.wtp/inbox/.+\.patch$' || true)
-          if [ -z "$CHANGED_PATCHES" ]; then
-            echo "No .wtp/inbox/*.patch in this push; exiting 0."
-            exit 0
-          fi
-
           PATCHES=(.wtp/inbox/*.patch)
           if [ ${#PATCHES[@]} -eq 0 ]; then
-            echo "Inbox empty."
+            echo "Inbox empty. Nothing to do."
             exit 0
           fi
+
+          CHANGED=0
 
           for P in "${PATCHES[@]}"; do
             BN="$(basename "$P")"
             echo ">> Applying: $BN"
 
-            # Spróbuj 3-way; jeżeli nic do zmiany – nie traktuj jako błąd
+            # spróbuj 3-way; jeśli już zastosowane / brak zmian – nie traktuj jako błąd
             if git apply --check --3way "$P"; then
               git apply --3way "$P"
-              echo "Applied cleanly: $BN"
+              CHANGED=1
+              echo "Applied: $BN"
             else
-              echo "Nothing to apply or already applied: $BN (continuing)"
+              echo "Nothing to apply or already applied: $BN (ok)"
             fi
 
-            git add -A || true
-            if git diff --cached --quiet; then
-              echo "No changes to commit after $BN"
-            else
-              git commit -m "[apply-inbox] $BN"
-              git push origin HEAD:main
-            fi
-
-            # Archiwizuj, żeby nie zapętlać
-            mv "$P" ".wtp/processed/$BN" || true
+            # przenieś patch do archiwum (żeby nie zapętlać)
+            git mv "$P" ".wtp/processed/$BN"
+            CHANGED=1
           done
 
-          echo "All patches processed."
+          git add -A || true
+
+          if git diff --cached --quiet; then
+            echo "No repo changes to commit."
+            exit 0
+          fi
+
+          git commit -m "[apply-inbox] processed patches"
+          git push origin HEAD:main
+          echo "Done."
