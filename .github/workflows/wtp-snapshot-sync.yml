@@ -2,87 +2,203 @@ name: WTP Snapshot Sync
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
-  workflow_dispatch: {}
+    # co godzinę (dostosuj wg potrzeb)
+    - cron: "13 * * * *"
+  workflow_dispatch:
+    inputs:
+      site_key:
+        description: "WTP site_key"
+        required: true
+        default: "5Depft8Y9LU0t6Sv"
+      base_url:
+        description: "Publiczny URL strony (bez końcowego /)"
+        required: true
+        default: "https://weektoppick.com"
+      fetch_logs:
+        description: "Pobierz też wp-debug/php_errors najnowsze"
+        required: true
+        default: "true"
+        type: boolean
+      clean_before:
+        description: "Czyścić katalog snapshotu przed sync"
+        required: true
+        default: "false"
+        type: boolean
+      commit_message:
+        description: "Nadpisz domyślny komunikat commita"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: snapshot-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-
+    env:
+      SITE_KEY: ${{ inputs.site_key }}
+      BASE_URL: ${{ inputs.base_url }}
+      FETCH_LOGS: ${{ inputs.fetch_logs }}
+      CLEAN_BEFORE: ${{ inputs.clean_before }}
+      OUTDIR: snapshots/${{ inputs.site_key }}
+      TS: ${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Vars
-        id: v
-        run: |
-          echo "SITE_KEY=5Depft8Y9LU0t6Sv" >> $GITHUB_OUTPUT
-          echo "BASE=https://weektoppick.com/wp-json/wtp-ro-open/v1" >> $GITHUB_OUTPUT
-          echo "OUT=snapshots/5Depft8Y9LU0t6Sv" >> $GITHUB_OUTPUT
-
-      - name: Create output dir (idempotent)
-        run: |
-          mkdir -p "${{ steps.v.outputs.OUT }}/logs"
-
-      - name: Probe LS (dir + urls)
-        id: ls
-        shell: bash
+      - name: Prepare output dir
         run: |
           set -euo pipefail
-          URL="${{ steps.v.outputs.BASE }}/ls?site_key=${{ steps.v.outputs.SITE_KEY }}"
-          echo "GET $URL"
-          RESP=$(curl -fsSL --retry 3 --retry-delay 2 "$URL")
-          echo "$RESP" > "${{ steps.v.outputs.OUT }}/ls.json"
-          # wyciągnij public_url jeżeli jest
-          PUB=$(echo "$RESP" | jq -r '.urls.public_url // empty')
-          echo "public_url=$PUB" >> $GITHUB_OUTPUT
-
-      - name: Try manifest.json (primary)
-        id: manifest_try
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -euo pipefail
-          URL="${{ steps.v.outputs.BASE }}/get?site_key=${{ steps.v.outputs.SITE_KEY }}&file=manifest.json"
-          echo "GET $URL"
-          curl -fsSL --retry 3 --retry-delay 2 "$URL" \
-            -o "${{ steps.v.outputs.OUT }}/manifest.json"
-          jq -e 'type=="object"' "${{ steps.v.outputs.OUT }}/manifest.json" >/dev/null
-          echo "ok=true" >> $GITHUB_OUTPUT
-
-      - name: Fallback to index.json (list files_*), if manifest missing
-        if: steps.manifest_try.outcomes.failure
-        shell: bash
-        run: |
-          set -euo pipefail
-          URL="${{ steps.v.outputs.BASE }}/get?site_key=${{ steps.v.outputs.SITE_KEY }}&file=index.json"
-          echo "GET $URL"
-          curl -fsSL --retry 3 --retry-delay 2 "$URL" \
-            -o "${{ steps.v.outputs.OUT }}/index.json"
-          jq -e '.files | type=="array"' "${{ steps.v.outputs.OUT }}/index.json" >/dev/null
-
-      - name: Download file lists (handles both manifest or index)
-        shell: bash
-        run: |
-          set -euo pipefail
-          BASE="${{ steps.v.outputs.BASE }}"
-          SK="${{ steps.v.outputs.SITE_KEY }}"
-          OUT="${{ steps.v.outputs.OUT }}"
-
-          if [ -f "$OUT/manifest.json" ] && jq -e 'has("files")' "$OUT/manifest.json" >/dev/null 2>&1; then
-            FILES=$(jq -r '.files[]' "$OUT/manifest.json")
-          else
-            FILES=$(jq -r '.files[]' "$OUT/index.json")
+          mkdir -p "$OUTDIR"
+          mkdir -p "$OUTDIR/logs"
+          # opcjonalne czyszczenie
+          if [ "${CLEAN_BEFORE}" = "true" ]; then
+            find "$OUTDIR" -mindepth 1 -maxdepth 1 -type f -print -delete || true
+            find "$OUTDIR" -mindepth 1 -maxdepth 1 -type d ! -name logs -print -exec rm -rf {} +
           fi
 
-          for F in $FILES; do
-            echo "Downloading $F"
-            curl -fsSL --retry 3 --retry-delay 2 \
-              "$BASE/get?site_key=$SK&file=$F" -o "$OUT/$F"
+      - name: Probe ls endpoint (discover public URL & listing)
+        id: probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          LS_URL="${BASE_URL}/wp-json/wtp-ro-open/v1/ls?site_key=${SITE_KEY}"
+          echo "GET $LS_URL"
+          LS_JSON="$(curl -fsS "$LS_URL")"
+          echo "$LS_JSON" > "$OUTDIR/ls.json"
+
+          # Wyciągnij publiczny katalog snapshotu
+          PUBLIC_URL="$(echo "$LS_JSON" | jq -r '.urls.public_url')"
+          if [ -z "$PUBLIC_URL" ] || [ "$PUBLIC_URL" = "null" ]; then
+            echo "::error::Brak urls.public_url w odpowiedzi /ls"
+            exit 1
+          fi
+          # pliki widoczne wg serwera (lista A)
+          echo "$LS_JSON" | jq -r '.list.dirA[]' > "$OUTDIR/.dirA.txt"
+
+          echo "public_url=$PUBLIC_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch index/manifest/options/selftest
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          PUBLIC_URL="${{ steps.probe.outputs.public_url }}"
+
+          download() {
+            local file="$1"
+            local url="${PUBLIC_URL%/}/$file"
+            echo "GET $url"
+            curl -fsS "$url" -o "$OUTDIR/$file" || echo "WARN: $file nie istnieje (pomijam)"
+          }
+
+          download index.json
+          download manifest.json
+          download options.json
+          download selftest.json
+          
+          # Zapisz znacznik czasu generacji
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > "$OUTDIR/.synced_at_utc"
+
+      - name: Build list of chunk files (files_*.json)
+        id: list
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILES=""
+          if [ -s "$OUTDIR/manifest.json" ]; then
+            # Preferuj listę z manifest.json jeśli ma pole .files
+            FILES="$(jq -r '.files[]? // empty' "$OUTDIR/manifest.json" || true)"
+          fi
+
+          if [ -z "$FILES" ]; then
+            # Fallback: z listy /ls weź te, które wyglądają jak files_XXX.json
+            FILES="$(grep -E '^files_[0-9]+\.json$' "$OUTDIR/.dirA.txt" || true)"
+          fi
+
+          if [ -z "$FILES" ]; then
+            echo "::warning::Nie znaleziono żadnych files_*.json w manifest ani /ls"
+          else
+            echo "$FILES" > "$OUTDIR/.files.list"
+            echo "Znalezione pliki:"
+            cat "$OUTDIR/.files.list"
+          fi
+
+      - name: Download chunk files
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          PUBLIC_URL="${{ steps.probe.outputs.public_url }}"
+          LIST="$OUTDIR/.files.list"
+
+          if [ -s "$LIST" ]; then
+            while IFS= read -r f; do
+              [ -z "$f" ] && continue
+              url="${PUBLIC_URL%/}/$f"
+              echo "GET $url"
+              curl -fsS "$url" -o "$OUTDIR/$f"
+            done < "$LIST"
+          fi
+
+      - name: Download latest logs (optional)
+        if: env.FETCH_LOGS == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PUBLIC_URL="${{ steps.probe.outputs.public_url }}"
+          for f in wp-debug-latest.txt php_errors-latest.txt wp-debug-meta.json; do
+            url="${PUBLIC_URL%/}/$f"
+            echo "TRY $url"
+            curl -fsS "$url" -o "$OUTDIR/logs/$f" || echo "WARN: $f brak"
           done
 
-          # logi (jeśli są)
-          for L in wp-debug-latest.txt php_errors-latest.txt; do
-            curl -fsS --retry 2 --retry-delay 2 \
-              "$BASE/get?site_key=$SK&file=$L" -o "$OUT/logs/$L" || echo "no $L (ok)"
-          done
+      - name: Write snapshot meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq -n --arg site_key "$SITE_KEY" \
+                --arg base_url "$BASE_URL" \
+                --arg run_id "${{ github.run_id }}" \
+                --arg run_attempt "${{ github.run_attempt }}" \
+                --arg synced_at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+                '{
+                  site_key: $site_key,
+                  base_url: $base_url,
+                  run_id: $run_id,
+                  run_attempt: $run_attempt,
+                  synced_at_utc: $synced_at
+                }' > "$OUTDIR/.meta.json"
+
+      - name: Commit & push (only if changed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name  "wtp-bot"
+          git config user.email "wtp-bot@users.noreply.github.com"
+          git add "$OUTDIR" || true
+
+          if ! git diff --cached --quiet; then
+            MSG="${{ inputs.commit_message }}"
+            if [ -z "$MSG" ]; then
+              MSG="snapshot: ${SITE_KEY} $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            fi
+            git commit -m "$MSG"
+            git push
+            echo "Pushed changes."
+          else
+            echo "Brak zmian — pomijam push."
+          fi
+
+      - name: Upload artifact (snapshot folder)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wtp-snapshot-${{ env.SITE_KEY }}-${{ env.TS }}
+          path: ${{ env.OUTDIR }}
+          if-no-files-found: warn
+          retention-days: 5
