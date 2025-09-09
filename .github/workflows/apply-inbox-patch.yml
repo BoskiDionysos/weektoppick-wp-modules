@@ -2,12 +2,10 @@ name: Apply Inbox Patch
 
 on:
   push:
+    branches: [ main ]
     paths:
       - ".wtp/inbox/*.patch"
-  workflow_dispatch:
-
-permissions:
-  contents: write
+  workflow_dispatch: {}
 
 jobs:
   apply:
@@ -15,40 +13,54 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Ensure tools
+      - name: Configure Git
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y git
-
-      - name: Find first patch in .wtp/inbox
-        id: find
-        run: |
-          set -euo pipefail
-          PATCH="$(ls -1 .wtp/inbox/*.patch 2>/dev/null | head -n1 || true)"
-          if [ -z "$PATCH" ]; then
-            echo "patch=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "patch=$PATCH" >> "$GITHUB_OUTPUT"
-
-      - name: Apply patch
-        if: steps.find.outputs.patch != ''
-        run: |
-          set -euo pipefail
           git config user.name  "wtp-bot"
           git config user.email "wtp-bot@users.noreply.github.com"
 
-          PATCH="${{ steps.find.outputs.patch }}"
-          echo "Applying: $PATCH"
-          git apply --3way --index "$PATCH"
+      - name: Ensure folders
+        run: |
+          mkdir -p .wtp/inbox .wtp/processed
 
-          git commit -m "[apply-inbox] $(basename "$PATCH") [skip ci]"
+      - name: Apply patches
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          PATCHES=(.wtp/inbox/*.patch)
 
-          mkdir -p .wtp/processed
-          mv "$PATCH" ".wtp/processed/$(basename "$PATCH")"
+          if [ ${#PATCHES[@]} -eq 0 ]; then
+            echo "No patches to apply."
+            exit 0
+          fi
 
-          git add .wtp/processed
-          git commit -m "[apply-inbox] archive $(basename "$PATCH") [skip ci]" || true
+          for P in "${PATCHES[@]}"; do
+            echo ">> Applying: $P"
 
-          git push origin HEAD
+            # Spróbuj 3-way; jeśli patch pusty/już zastosowany – nie przerywaj
+            if git apply --check --3way "$P"; then
+              git apply --3way "$P"
+              echo "Applied cleanly: $P"
+            else
+              echo "Patch may be empty or already applied, trying relaxed -3"
+              git apply -3 "$P" || echo "No hunks applied (already in tree?)"
+            fi
+
+            # Zawsze przenieś do processed, by nie zapętlać
+            BN="$(basename "$P")"
+            mv "$P" ".wtp/processed/$BN"
+
+            # Zacommituj TYLKO jeśli są zmiany
+            git add -A || true
+            if git diff --cached --quiet; then
+              echo "No changes to commit after $BN"
+            else
+              git commit -m "[apply-inbox] $BN"
+              git push origin HEAD:main
+            fi
+          done
+
+          echo "All patches processed."
