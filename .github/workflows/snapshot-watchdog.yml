@@ -3,7 +3,7 @@ name: Snapshot Watchdog
 on:
   schedule:
     - cron: "*/30 * * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,10 +18,16 @@ env:
     bundle.json
     index.json
     files_000.json
+    gh-digest.json
+
+concurrency:
+  group: snapshot-watchdog
+  cancel-in-progress: true
 
 jobs:
   watchdog:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,29 +38,23 @@ jobs:
           sudo apt-get install -y jq curl
 
       - name: Prepare folders
-        run: |
-          mkdir -p "$OPS"
+        run: mkdir -p "$OPS"
 
       - name: Fetch & validate JSONs
         id: check
         run: |
           set -euo pipefail
-          STATUS=ok
-          REASON=""
+          STATUS=ok; REASON=""
           while read -r f; do
             [ -z "$f" ] && continue
             URL="${BASE}/wp-json/${NS}/snap?file=${f}"
             OUT="${OPS}/${f}.out"
             echo "GET $URL"
             if ! curl -sS -m 25 "$URL" -o "$OUT"; then
-              STATUS=bad
-              REASON="fetch failed for $f"
-              break
+              STATUS=bad; REASON="fetch failed for $f"; break
             fi
             if ! jq -e type "$OUT" >/dev/null 2>&1; then
-              STATUS=bad
-              REASON="invalid JSON for $f"
-              break
+              STATUS=bad; REASON="invalid JSON for $f"; break
             fi
           done <<< "$FILES"
           echo "status=$STATUS" >> "$GITHUB_OUTPUT"
@@ -77,7 +77,7 @@ jobs:
             const reason = `${{ toJson(steps.check.outputs.reason) }}`;
             const urlRun = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             let body = `Watchdog status: **${status}**\nReason: ${reason}\n\nRun: ${urlRun}\n\n`;
-            for (const f of ['manifest.json','bundle.json','index.json','files_000.json']) {
+            for (const f of ['manifest.json','bundle.json','index.json','files_000.json','gh-digest.json']) {
               try {
                 const p = `ops-snapshot-watchdog/${f}.out`;
                 const txt = fs.readFileSync(p, 'utf8');
