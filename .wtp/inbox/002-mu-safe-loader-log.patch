@@ -1,0 +1,12 @@
+<?php
+/**
+ * MU Safe Loader – Patch Test
+ * Ten fragment został dodany łatką z GitHub Actions.
+ */
+
+$log_file = '/home/u493676300/debug/patch-test.log';
+$log_msg  = date('c') . " – MU Safe Loader patch działa!\n";
+
+if (is_writable(dirname($log_file))) {
+    file_put_contents($log_file, $log_msg, FILE_APPEND);
+}
