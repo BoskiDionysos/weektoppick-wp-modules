@@ -1,0 +1,332 @@
+diff --git a/mu-plugins/wtp-ro-exporter.php b/mu-plugins/wtp-ro-exporter.php
+index 0000000..1111111 100644
+--- a/mu-plugins/wtp-ro-exporter.php
++++ b/mu-plugins/wtp-ro-exporter.php
+@@ -1,210 +1,260 @@
+ <?php
+ /**
+- * Plugin Name: WTP Read-Only Exporter (open)
+- * Description: Stabilne endpointy do snapshotu (lista plików i pobieranie pojedynczych plików) z katalogu uploads/wtp-ro/public/{site_key}/
+- * Version: 1.1.0
++ * Plugin Name: WTP Read-Only Exporter (open)
++ * Description: Stabilne endpointy do snapshotu (lista plików i pobieranie pojedynczych plików) z katalogu uploads/wtp-ro/public/{site_key}/
++ * Version: 1.1.1
+  */
+ if (!defined('ABSPATH')) exit;
+ 
+-/**
+- * Ustawienia i bezpieczne ścieżki.
+- */
+-define('WTP_RO_EXPORTER_NS', 'wtp-ro-open/v1');
+-
+-// domyślny site_key – jeśli nie podany w zapytaniu; zostawiamy Twój obecny jako fallback
+-$wtp_ro_default_site_key = '5Depft8Y9LU0t6Sv';
+-
+-/**
+- * Bazowy katalog snapshotów (poza kontrolą użytkownika; z WP_CONTENT_DIR).
+- */
+-function wtp_ro_exporter_base_dir() {
+-    $dir = WP_CONTENT_DIR . '/uploads/wtp-ro/public/';
+-    return rtrim($dir, '/').'/';
+-}
+-
+-/**
+- * Pomocnicze: normalizacja i walidacja site_key (tylko [A-Za-z0-9]).
+- */
+-function wtp_ro_sanitize_site_key($raw, $fallback) {
+-    $k = is_string($raw) && $raw !== '' ? $raw : $fallback;
+-    $k = preg_replace('[^A-Za-z0-9]', '', $k);
+-    if ($k === '') $k = $fallback;
+-    return $k;
+-}
+-
+-/**
+- * Nagłówki CORS dla naszej przestrzeni nazw (czytelny podgląd z GitHub Actions / curl).
+- */
+-add_filter('rest_pre_serve_request', function ($served, $result, $request, $server) {
+-    $route = $request->get_route();
+-    if (strpos($route, '/'.WTP_RO_EXPORTER_NS.'/') !== false) {
+-        @header('Access-Control-Allow-Origin: *');
+-        @header('Access-Control-Allow-Methods: GET, OPTIONS');
+-        @header('Access-Control-Allow-Headers: *');
+-        @header('Cache-Control: no-cache, no-store, must-revalidate');
+-        @header('Pragma: no-cache');
+-        @header('Expires: 0');
+-    }
+-    return $served;
+-}, 10, 4);
+-
+-/**
+- * Rejestracja endpointów.
+- */
+-add_action('rest_api_init', function () use ($wtp_ro_default_site_key) {
+-    register_rest_route(WTP_RO_EXPORTER_NS, '/ls', [
+-        'methods'  => 'GET',
+-        'permission_callback' => '__return_true',
+-        'callback' => function (\WP_REST_Request $req) use ($wtp_ro_default_site_key) {
+-            $site_key = wtp_ro_sanitize_site_key($req->get_param('site_key'), $wtp_ro_default_site_key);
+-            $base     = wtp_ro_exporter_base_dir();
+-            $root     = realpath($base);
+-            $dir      = realpath($base.$site_key);
+-
+-            // Bezpiecznie sprawdź, że jesteśmy w bazie
+-            if (!$root || !$dir || strpos($dir, $root) !== 0 || !is_dir($dir)) {
+-                // ZWRACAMY POPRAWNY JSON, NIE null
+-                return new \WP_REST_Response([
+-                    'version'      => '1.5.0',
+-                    'generated_at' => time(),
+-                    'url'          => content_url("/uploads/wtp-ro/public/{$site_key}"),
+-                    'files'        => [],
+-                    'manifest'     => 'manifest.json',
+-                    'options'      => 'options.json',
+-                    'selftest'     => 'selftest.json',
+-                ], 200);
+-            }
+-
+-            $list = [];
+-            $dh = opendir($dir);
+-            if ($dh) {
+-                while (($f = readdir($dh)) !== false) {
+-                    if ($f === '.' || $f === '..') continue;
+-                    $real = realpath($dir.'/'.$f);
+-                    if (!$real || strpos($real, $dir) !== 0) continue; // guard
+-                    if (is_file($real)) {
+-                        $list[] = $f;
+-                    }
+-                }
+-                closedir($dh);
+-            }
+-
+-            // Posortuj pliki, by mieć stabilny wynik (przydaje się w CI)
+-            sort($list, SORT_STRING);
+-
+-            // ZWRACAMY strukturalny JSON jakiego oczekuje snapshot job
+-            return new \WP_REST_Response([
+-                'version'      => '1.5.0',
+-                'generated_at' => time(),
+-                'url'          => content_url("/uploads/wtp-ro/public/{$site_key}"),
+-                'files'        => $list,
+-                'manifest'     => 'manifest.json',
+-                'options'      => 'options.json',
+-                'selftest'     => 'selftest.json',
+-            ], 200);
+-        }
+-    ]);
+-
+-    register_rest_route(WTP_RO_EXPORTER_NS, '/get', [
+-        'methods'  => 'GET',
+-        'permission_callback' => '__return_true',
+-        'callback' => function (\WP_REST_Request $req) use ($wtp_ro_default_site_key) {
+-            $site_key = wtp_ro_sanitize_site_key($req->get_param('site_key'), $wtp_ro_default_site_key);
+-            $file     = $req->get_param('file');
+-            if (!is_string($file) || $file === '') {
+-                return new \WP_Error('bad_file', 'Invalid file name', ['status' => 400]);
+-            }
+-
+-            // tylko pliki w formacie [A-Za-z0-9._-]
+-            if (!preg_match('^[A-Za-z0-9._-]+$', $file)) {
+-                return new \WP_Error('bad_file', 'Invalid file name', ['status' => 400]);
+-            }
+-
+-            $base = wtp_ro_exporter_base_dir();
+-            $root = realpath($base);
+-            $dir  = realpath($base.$site_key);
+-            if (!$root || !$dir || strpos($dir, $root) !== 0) {
+-                return new \WP_Error('not_found', 'Base path not found', ['status' => 404]);
+-            }
+-
+-            $path = realpath($dir.'/'.$file);
+-            if (!$path || strpos($path, $dir) !== 0 || !is_file($path)) {
+-                return new \WP_Error('not_found', 'File not found', ['status' => 404]);
+-            }
+-
+-            $data = @file_get_contents($path);
+-            if ($data === false) {
+-                return new \WP_Error('read_error', 'Could not read file', ['status' => 500]);
+-            }
+-
+-            // Ustal prosty content-type na podstawie rozszerzenia
+-            $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+-            $ct  = 'text/plain; charset=UTF-8';
+-            if ($ext === 'json') $ct = 'application/json; charset=UTF-8';
+-            if ($ext === 'txt' ) $ct = 'text/plain; charset=UTF-8';
+-
+-            return new \WP_REST_Response($data, 200, ['Content-Type' => $ct]);
+-        }
+-    ]);
+-
+-    // Prosty healthcheck pluginu (pomocny przy debugowaniu z Actions)
+-    register_rest_route(WTP_RO_EXPORTER_NS, '/health', [
+-        'methods'  => 'GET',
+-        'permission_callback' => '__return_true',
+-        'callback' => function (\WP_REST_Request $req) use ($wtp_ro_default_site_key) {
+-            $site_key = wtp_ro_sanitize_site_key($req->get_param('site_key'), $wtp_ro_default_site_key);
+-            $base = wtp_ro_exporter_base_dir();
+-            $ok   = is_dir($base.$site_key);
+-            return new \WP_REST_Response([
+-                'ok'        => $ok ? true : false,
+-                'site_key'  => $site_key,
+-                'base'      => $base,
+-                'ts'        => time(),
+-            ], 200);
+-        }
+-    ]);
+-});
+-
+-/**
+- * (opcjonalnie) Łagodna ochrona przed notice’ami gdy plugin ładuje się wcześnie.
+- */
+-if (!function_exists('wtp_ro_exporter_loaded_flag')) {
+-    function wtp_ro_exporter_loaded_flag() { return true; }
+-}
++/**
++ * Stałe i konfiguracja
++ */
++define('WTP_RO_EXPORTER_NS', 'wtp-ro-open/v1');
++// domyślny site_key – jeśli nie podany:
++$wtp_ro_default_site_key = '5Depft8Y9LU0t6Sv';
++
++/**
++ * Bazowy katalog snapshotów (poza kontrolą użytkownika; z WP_CONTENT_DIR).
++ */
++function wtp_ro_exporter_base_dir() {
++    $dir = WP_CONTENT_DIR . '/uploads/wtp-ro/public/';
++    return rtrim($dir, '/').'/';
++}
++
++/**
++ * Normalizacja i walidacja site_key (tylko [A-Za-z0-9]).
++ * FIX: poprawiony regex – dodane delimitery /.../
++ */
++function wtp_ro_sanitize_site_key($raw, $fallback) {
++    $k = is_string($raw) && $raw !== '' ? $raw : $fallback;
++    $k = preg_replace('/[^A-Za-z0-9]/', '', $k);
++    if ($k === '') $k = $fallback;
++    return $k;
++}
++
++/**
++ * Wspólne nagłówki dla naszej przestrzeni nazw (CORS i cache-busting).
++ */
++add_filter('rest_pre_serve_request', function ($served, $result, $request, $server) {
++    $route = $request->get_route();
++    if (strpos($route, '/'.WTP_RO_EXPORTER_NS.'/') !== false) {
++        @header('Access-Control-Allow-Origin: *');
++        @header('Access-Control-Allow-Methods: GET, OPTIONS');
++        @header('Access-Control-Allow-Headers: *');
++        @header('Cache-Control: no-cache, no-store, must-revalidate');
++        @header('Pragma: no-cache');
++        @header('Expires: 0');
++    }
++    return $served;
++}, 10, 4);
++
++/**
++ * Rejestracja endpointów
++ */
++add_action('rest_api_init', function () use ($wtp_ro_default_site_key) {
++    // ===== /ls =====
++    register_rest_route(WTP_RO_EXPORTER_NS, '/ls', [
++        'methods'  => 'GET',
++        'permission_callback' => '__return_true',
++        'callback' => function (\WP_REST_Request $req) use ($wtp_ro_default_site_key) {
++            $site_key = wtp_ro_sanitize_site_key($req->get_param('site_key'), $wtp_ro_default_site_key);
++            $base     = wtp_ro_exporter_base_dir();
++            $root     = @realpath($base);
++            $dir      = @realpath($base.$site_key);
++
++            $files = [];
++            if ($root && $dir && strpos($dir, $root) === 0 && is_dir($dir)) {
++                $dh = @opendir($dir);
++                if ($dh) {
++                    while (($f = readdir($dh)) !== false) {
++                        if ($f === '.' || $f === '..') continue;
++                        $rp = @realpath($dir.'/'.$f);
++                        if (!$rp || strpos($rp, $dir) !== 0) continue;
++                        if (is_file($rp)) $files[] = $f;
++                    }
++                    @closedir($dh);
++                }
++                sort($files, SORT_STRING);
++            }
++
++            return new \WP_REST_Response([
++                'version'      => '1.5.1',
++                'generated_at' => time(),
++                'url'          => content_url("/uploads/wtp-ro/public/{$site_key}"),
++                'files'        => $files,
++                'manifest'     => 'manifest.json',
++                'options'      => 'options.json',
++                'selftest'     => 'selftest.json',
++            ], 200);
++        }
++    ]);
++
++    // ===== /get =====
++    register_rest_route(WTP_RO_EXPORTER_NS, '/get', [
++        'methods'  => 'GET',
++        'permission_callback' => '__return_true',
++        'callback' => function (\WP_REST_Request $req) use ($wtp_ro_default_site_key) {
++            $site_key = wtp_ro_sanitize_site_key($req->get_param('site_key'), $wtp_ro_default_site_key);
++            $file     = $req->get_param('file');
++            if (!is_string($file) || $file === '') {
++                return new \WP_Error('bad_file', 'Invalid file name', ['status' => 400]);
++            }
++            // FIX: poprawiony regex – dodane delimitery /.../
++            if (!preg_match('/^[A-Za-z0-9._-]+$/', $file)) {
++                return new \WP_Error('bad_file', 'Invalid file name', ['status' => 400]);
++            }
++
++            $base = wtp_ro_exporter_base_dir();
++            $root = @realpath($base);
++            $dir  = @realpath($base.$site_key);
++            if (!$root || !$dir || strpos($dir, $root) !== 0 || !is_dir($dir)) {
++                return new \WP_Error('not_found', 'Base path not found', ['status' => 404]);
++            }
++
++            $path = @realpath($dir.'/'.$file);
++            if (!$path || strpos($path, $dir) !== 0 || !is_file($path)) {
++                return new \WP_Error('not_found', 'File not found', ['status' => 404]);
++            }
++
++            $data = @file_get_contents($path);
++            if ($data === false) {
++                return new \WP_Error('read_error', 'Could not read file', ['status' => 500]);
++            }
++
++            $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
++            $ct  = 'text/plain; charset=UTF-8';
++            if ($ext === 'json') $ct = 'application/json; charset=UTF-8';
++            if ($ext === 'txt' ) $ct = 'text/plain; charset=UTF-8';
++
++            return new \WP_REST_Response($data, 200, ['Content-Type' => $ct]);
++        }
++    ]);
++
++    // ===== /health =====
++    register_rest_route(WTP_RO_EXPORTER_NS, '/health', [
++        'methods'  => 'GET',
++        'permission_callback' => '__return_true',
++        'callback' => function (\WP_REST_Request $req) use ($wtp_ro_default_site_key) {
++            $site_key = wtp_ro_sanitize_site_key($req->get_param('site_key'), $wtp_ro_default_site_key);
++            $base = wtp_ro_exporter_base_dir();
++            $dir  = $base.$site_key;
++            $ok   = is_dir($dir);
++            $root = @realpath($base);
++            $abs  = @realpath($dir);
++            return new \WP_REST_Response([
++                'ok'        => $ok ? true : false,
++                'site_key'  => $site_key,
++                'base'      => $base,
++                'root'      => $root ?: null,
++                'dir'       => $abs ?: null,
++                'ts'        => time(),
++            ], 200);
++        }
++    ]);
++});
++
++// Flaga „załadowano” – miękkie zabezpieczenie przed notice’ami
++if (!function_exists('wtp_ro_exporter_loaded_flag')) {
++    function wtp_ro_exporter_loaded_flag() { return true; }
++}
