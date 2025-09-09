@@ -1,0 +1,293 @@
+<?php
+/**
+ * Plugin Name: WTP RO Exporter (MU)
+ * Description: Otwarte endpointy snapshotu + logów dla automatyzacji (GH Actions, inspekcje).
+ * Version:     1.1.0
+ * Author:      WTP
+ */
+
+if (!defined('ABSPATH')) { exit; }
+
+/**
+ * Konfiguracja/wzorce
+ */
+const WTP_RO_NS      = 'wtp-ro-open/v1';
+const WTP_RO_SUBDIR  = 'wtp-ro/public'; // pod wp-content/uploads/
+const WTP_RO_SITEKEY_MIN = 8;
+const WTP_RO_SITEKEY_MAX = 40;
+
+/**
+ * Biała lista nazw plików w /public/{site_key}/
+ * (żeby nie pobrać folderu typu "logs" albo czegokolwiek spoza snapshotu)
+ */
+function wtp_ro_allowed_file($fname) {
+    $fname = trim((string)$fname);
+    if ($fname === '') return false;
+
+    static $re = null;
+    if ($re === null) {
+        $parts = [
+            'index\.json',
+            'manifest\.json',
+            'options\.json',
+            'selftest\.json',
+            'bundle\.json',
+
+            // files_000.json ... files_999.json
+            'files_\d{3}\.json',
+
+            // „latest” logi
+            'wp-debug-latest\.txt',
+            'php_errors-latest\.txt',
+            'wp-debug-meta\.json',
+        ];
+        $re = '/^(?:' . implode('|', $parts) . ')$/';
+    }
+    return (bool)preg_match($re, $fname);
+}
+
+/**
+ * Walidacja site_key – alfanumeryczny, rozsądna długość
+ */
+function wtp_ro_sanitize_site_key($raw) {
+    $raw = (string)$raw;
+    $raw = preg_replace('/[^A-Za-z0-9_\-]/', '', $raw);
+    $len = strlen($raw);
+    if ($len < WTP_RO_SITEKEY_MIN || $len > WTP_RO_SITEKEY_MAX) {
+        return '';
+    }
+    return $raw;
+}
+
+/**
+ * Ścieżki bazowe (bez wychodzenia poza uploads/)
+ */
+function wtp_ro_base_dir_for($site_key) {
+    $upload = wp_get_upload_dir();
+    // …/uploads/wtp-ro/public/{site_key}/
+    $path = rtrim($upload['basedir'], '/').'/'.WTP_RO_SUBDIR.'/'.$site_key.'/';
+    $real = realpath($path);
+    // Jeśli nie istnieje, zwróć „planowaną” ścieżkę (tworzyć nie będziemy tu).
+    return $real ?: $path;
+}
+function wtp_ro_public_url_for($site_key) {
+    $upload = wp_get_upload_dir();
+    return rtrim($upload['baseurl'], '/').'/'.WTP_RO_SUBDIR.'/'.$site_key.'/';
+}
+
+/**
+ * Bezpieczne otwarcie pliku w bazie
+ */
+function wtp_ro_safe_read($base_dir, $file) {
+    $base_real = realpath($base_dir);
+    if (!$base_real || !is_dir($base_real)) return [null, 'base_not_found'];
+
+    $target = $base_real . DIRECTORY_SEPARATOR . $file;
+    $real   = realpath($target);
+    if (!$real) return [null, 'not_found'];
+
+    // ochrona przed traversal – realpath musi zaczynać się od base_real
+    if (strpos($real, $base_real) !== 0) return [null, 'forbidden'];
+
+    if (!is_file($real) || !is_readable($real)) return [null, 'unreadable'];
+
+    $data = @file_get_contents($real);
+    if ($data === false) return [null, 'read_error'];
+    return [$data, null];
+}
+
+/**
+ * Prosty headers helper
+ */
+function wtp_ro_headers_text() {
+    header('Content-Type: text/plain; charset=UTF-8');
+    header('Cache-Control: public, max-age=60');
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: GET,POST,OPTIONS');
+}
+function wtp_ro_headers_json() {
+    header('Content-Type: application/json; charset=UTF-8');
+    header('Cache-Control: public, max-age=30');
+    header('Access-Control-Allow-Origin: *');
+    header('Access-Control-Allow-Methods: GET,POST,OPTIONS');
+}
+
+/**
+ * Rejestracja endpointów
+ */
+add_action('rest_api_init', function () {
+
+    // 0) health
+    register_rest_route(WTP_RO_NS, '/ping', [
+        'methods'  => 'GET',
+        'permission_callback' => '__return_true',
+        'callback' => function () {
+            wtp_ro_headers_json();
+            return new WP_REST_Response([
+                'ok' => true,
+                'ts' => gmdate('c'),
+                'php' => PHP_VERSION,
+                'sapi' => PHP_SAPI,
+            ], 200);
+        },
+    ]);
+
+    // 1) ls – listuje dostępne pliki w /public/{site_key}/
+    register_rest_route(WTP_RO_NS, '/ls', [
+        'methods'  => 'GET',
+        'permission_callback' => '__return_true',
+        'callback' => function (WP_REST_Request $req) {
+            $site_key = wtp_ro_sanitize_site_key($req->get_param('site_key'));
+            if (!$site_key) {
+                return new WP_Error('bad_site_key', 'Invalid site_key', ['status' => 400]);
+            }
+            $base_dir = wtp_ro_base_dir_for($site_key);
+            $pub_url  = wtp_ro_public_url_for($site_key);
+
+            $upload = wp_get_upload_dir();
+
+            $list = [];
+            if (is_dir($base_dir)) {
+                $dh = opendir($base_dir);
+                if ($dh) {
+                    while (($f = readdir($dh)) !== false) {
+                        if ($f === '.' || $f === '..') continue;
+                        // lista pokazuje wszystko, ale /get i tak przepuści tylko białą listę
+                        $list[] = $f;
+                    }
+                    closedir($dh);
+                    sort($list);
+                }
+            }
+
+            wtp_ro_headers_json();
+            return new WP_REST_Response([
+                'version'    => '1.6.0',
+                'generated_at' => time(),
+                'upload_dir' => [
+                    'basedir' => $upload['basedir'],
+                    'baseurl' => $upload['baseurl'],
+                    'error'   => $upload['error'],
+                ],
+                'paths' => [
+                    'abs'     => $base_dir,
+                    'public_url' => $pub_url,
+                ],
+                'list' => $list,
+            ], 200);
+        },
+    ]);
+
+    // 2) get – pobiera konkretny plik z białej listy
+    register_rest_route(WTP_RO_NS, '/get', [
+        'methods'  => 'GET',
+        'permission_callback' => '__return_true',
+        'callback' => function (WP_REST_Request $req) {
+            $site_key = wtp_ro_sanitize_site_key($req->get_param('site_key'));
+            $file     = (string)$req->get_param('file');
+
+            if (!$site_key) {
+                return new WP_Error('bad_site_key', 'Invalid site_key', ['status' => 400]);
+            }
+            if (!wtp_ro_allowed_file($file)) {
+                return new WP_Error('bad_file', 'Invalid file name', ['status' => 400]);
+            }
+
+            $base_dir = wtp_ro_base_dir_for($site_key);
+            list($data, $err) = wtp_ro_safe_read($base_dir, $file);
+            if ($err) {
+                return new WP_Error('read_error', $err, ['status' => 404]);
+            }
+
+            // heurystyka: *.json → JSON; *.txt → text/plain
+            if (str_ends_with($file, '.json')) {
+                wtp_ro_headers_json();
+                // próbujemy pokazać jako JSON (ale nie modyfikujemy treści)
+                return new WP_REST_Response(json_decode($data, true) ?? $data, 200);
+            } else {
+                wtp_ro_headers_text();
+                return new WP_REST_Response($data, 200);
+            }
+        },
+    ]);
+
+    // 3) theme-bundle – łączy kilka plików w jednego JSON-a (stringi)
+    register_rest_route(WTP_RO_NS, '/theme-bundle', [
+        'methods'  => 'GET',
+        'permission_callback' => '__return_true',
+        'callback' => function (WP_REST_Request $req) {
+            $site_key = wtp_ro_sanitize_site_key($req->get_param('site_key'));
+            if (!$site_key) {
+                return new WP_Error('bad_site_key', 'Invalid site_key', ['status' => 400]);
+            }
+            $base_dir = wtp_ro_base_dir_for($site_key);
+
+            $wanted = ['manifest.json','index.json','bundle.json'];
+            for ($i = 0; $i <= 16; $i++) {
+                $wanted[] = sprintf('files_%03d.json', $i);
+            }
+
+            $out = [];
+            foreach ($wanted as $f) {
+                if (!wtp_ro_allowed_file($f)) continue; // formalnie przejdzie
+                list($txt, $err) = wtp_ro_safe_read($base_dir, $f);
+                if (!$err) {
+                    $out[$f] = $txt;
+                }
+            }
+
+            wtp_ro_headers_json();
+            return new WP_REST_Response($out, 200);
+        },
+    ]);
+
+    // 4) logs/refresh – skopiuje aktualne logi do public/{site_key}/ (dla GH itp.)
+    register_rest_route(WTP_RO_NS, '/logs/refresh', [
+        'methods'  => ['POST', 'GET'], // GET dla wygody z przeglądarki
+        'permission_callback' => '__return_true',
+        'callback' => function (WP_REST_Request $req) {
+            $site_key = wtp_ro_sanitize_site_key($req->get_param('site_key'));
+            if (!$site_key) {
+                return new WP_Error('bad_site_key', 'Invalid site_key', ['status' => 400]);
+            }
+            $base_dir = wtp_ro_base_dir_for($site_key);
+            if (!is_dir($base_dir)) {
+                @wp_mkdir_p($base_dir);
+            }
+            $base_real = realpath($base_dir);
+            if (!$base_real) {
+                return new WP_Error('no_base', 'Cannot create/access base dir', ['status' => 500]);
+            }
+
+            $wrote = [];
+
+            // 4.1 WP_DEBUG_LOG → wp-debug-latest.txt
+            $wp_debug_path = defined('WP_DEBUG_LOG') ? WP_DEBUG_LOG : '';
+            if (is_string($wp_debug_path) && $wp_debug_path !== '' && is_readable($wp_debug_path)) {
+                $target = $base_real . '/wp-debug-latest.txt';
+                if (@copy($wp_debug_path, $target)) $wrote[] = 'wp-debug-latest.txt';
+            }
+
+            // 4.2 ini error_log → php_errors-latest.txt
+            $ini_log = ini_get('error_log');
+            if (is_string($ini_log) && $ini_log !== '' && is_readable($ini_log)) {
+                $target = $base_real . '/php_errors-latest.txt';
+                if (@copy($ini_log, $target)) $wrote[] = 'php_errors-latest.txt';
+            }
+
+            // 4.3 meta
+            $meta = [
+                'ts' => gmdate('c'),
+                'php' => PHP_VERSION,
+                'sapi' => PHP_SAPI,
+                'wp_debug_log' => is_string($wp_debug_path) ? $wp_debug_path : '',
+                'ini_error_log' => is_string($ini_log) ? $ini_log : '',
+            ];
+            @file_put_contents($base_real.'/wp-debug-meta.json', wp_json_encode($meta, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+            $wrote[] = 'wp-debug-meta.json';
+
+            wtp_ro_headers_json();
+            return new WP_REST_Response(['ok' => true, 'wrote' => $wrote], 200);
+        },
+    ]);
+});
