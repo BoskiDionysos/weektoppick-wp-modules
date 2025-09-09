@@ -1,0 +1,32 @@
+diff --git a/mu-plugins/00-mu-safe-loader.php b/mu-plugins/00-mu-safe-loader.php
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/mu-plugins/00-mu-safe-loader.php
+@@ -0,0 +1,27 @@
++<?php
++/**
++ * MU Safe Loader
++ * 
++ * Zabezpieczenie przed błędami w MU-plugins — ładuje każdy plugin osobno
++ * i izoluje awarie, żeby nie blokowały całego WordPressa.
++ */
++
++if (!defined('ABSPATH')) {
++    exit;
++}
++
++$mu_dir = _DIR_;
++$files = glob($mu_dir . '/*.php');
++
++foreach ($files as $file) {
++    if (basename($file) === basename(_FILE_)) {
++        continue; // pomijamy sam loader
++    }
++    try {
++        include_once $file;
++    } catch (Throwable $e) {
++        error_log("MU Safe Loader: błąd w $file – " . $e->getMessage());
++        // nie zabijamy całego WP
++    }
++}
