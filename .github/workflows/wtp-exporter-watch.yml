@@ -1,0 +1,38 @@
+name: WTP Exporter Watch
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health
+        id: ping
+        run: |
+          set -e
+          URL="https://weektoppick.com/wp-json/wtp-ro-open/v1/health?site_key=5Depft8Y9LU0t6Sv"
+          code=$(curl -s -o /tmp/h.json -w '%{http_code}' "$URL" || true)
+          echo "code=$code" >> $GITHUB_OUTPUT
+          echo "body=$(cat /tmp/h.json | sed 's//\\/g')" >> $GITHUB_OUTPUT
+
+      - name: Open issue if unhealthy
+        if: ${{ steps.ping.outputs.code != '200' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const code = core.getInput('code', {required:false}) || "${{ steps.ping.outputs.code }}";
+            const body = ${{ toJSON(steps.ping.outputs.body) }};
+            const title = Exporter healthcheck failed (${code});
+            const patchHint = [
+              "Wklej poniżej patch w bloku patch ...  i wyślij komentarz.",
+              "Workflow Create Patch From Comment zapisze go do .wtp/inbox i odpali apply+deploy."
+            ].join("\\n");
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body: Code: ${code}\n\nBody:\n\\\\n${body}\n\\\\n\n${patchHint}
+            });
