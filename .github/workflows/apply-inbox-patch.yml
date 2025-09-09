@@ -46,7 +46,6 @@ jobs:
             BN="$(basename "$P")"
             echo ">> Applying: $BN"
 
-            # najpierw spróbuj 3-way dry-run
             if git apply --check --3way "$P"; then
               git apply --3way "$P"
               echo "Applied: $BN"
