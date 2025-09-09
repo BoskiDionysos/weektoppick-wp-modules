@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: WTP Bot <wtp-bot@users.noreply.github.com>
+Date: Tue, 9 Sep 2025 00:00:00 +0000
+Subject: [PATCH] Add MU log plugin to prove patch pipeline works
+
+---
+ mu-plugins/wtp-patch-safe-loader-log.php | 23 +++++++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+ create mode 100644 mu-plugins/wtp-patch-safe-loader-log.php
+
+diff --git a/mu-plugins/wtp-patch-safe-loader-log.php b/mu-plugins/wtp-patch-safe-loader-log.php
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/mu-plugins/wtp-patch-safe-loader-log.php
+@@ -0,0 +1,23 @@
++<?php
++/**
++ * Plugin Name: WTP Patch – MU Log Probe
++ * Description: Minimalny MU-plugin dorzucany łatką; zapisuje wpis do /home/u493676300/debug/patch-test.log
++ * Author: WTP Bot
++ * Version: 0.1.0
++ */
++
++// Ładujemy bardzo wcześnie – mu-plugins są autoload.
++if (!function_exists('wtp_patch_mu_log_probe')) {
++    function wtp_patch_mu_log_probe() {
++        $file = '/home/u493676300/debug/patch-test.log';
++        $line = date('c') . " – MU patch probe OK\n";
++        $dir  = dirname($file);
++        if (!is_dir($dir)) {
++            @mkdir($dir, 0755, true);
++        }
++        if (is_dir($dir) && is_writable($dir)) {
++            @file_put_contents($file, $line, FILE_APPEND);
++        }
++    }
++    wtp_patch_mu_log_probe();
++}
+--
+2.43.0
