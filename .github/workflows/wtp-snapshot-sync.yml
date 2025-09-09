@@ -33,28 +33,63 @@ jobs:
         run: |
           mkdir -p "$OUTDIR/logs" || true
 
-      - name: Fetch manifest.json (single source of truth)
+      - name: Fetch ls.json (health + URLs)
         id: ls
         run: |
           set -euo pipefail
           URL="$BASE/wp-json/wtp-ro-open/v1/ls?site_key=$SITE_KEY"
           echo "GET $URL"
-          curl -fsS "$URL" -o "$OUTDIR/manifest.json"
-          # wypisz listę plików jako output
-          FILES=$(jq -r '.list.dirA[] | select(test("^files_\\\\d{3}\\\\.json$"))' "$OUTDIR/manifest.json")
-          echo "$FILES" | sed 's/^/file=/'
-          echo "count=$(echo "$FILES" | wc -l | xargs)" >> $GITHUB_OUTPUT
+          curl -fsS "$URL" -o "$OUTDIR/ls.json"
+          # pokaż skrót
+          jq '{version, urls, exists}' "$OUTDIR/ls.json" || true
 
-      - name: Download all snapshot chunks
+      - name: Resolve files list & download chunks (robust)
         run: |
           set -euo pipefail
-          while read -r line; do
-            f="${line#file=}"
+
+          LS="$OUTDIR/ls.json"
+          OUT="$OUTDIR"
+
+          # 1) publiczny base URL do paczki
+          PUB=$(jq -r '.urls.public_url? // empty' "$LS")
+          if [ -z "$PUB" ]; then
+            PUB="$BASE/wp-content/uploads/wtp-ro/public/$SITE_KEY/"
+          fi
+          PUB="${PUB%/}/"
+
+          # 2) Spróbuj z list.dirA (typowa ścieżka)
+          FILES=$(jq -r '.list.dirA? // [] | .[] | select(test("^files_\\d{3}\\.json$"))' "$LS")
+
+          # 3) Fallback: weź index.json z publicznego katalogu i czytaj jego "files"
+          if [ -z "$FILES" ]; then
+            echo "No files from .list.dirA – trying public index.json"
+            curl -fsS "${PUB}index.json" -o "$OUT/index.json" || true
+            FILES=$(jq -r '.files[]? | select(test("^files_\\d{3}\\.json$"))' "$OUT/index.json" 2>/dev/null || echo "")
+          fi
+
+          if [ -z "$FILES" ]; then
+            echo "::warning::No snapshot files discovered (both ls.json and index.json empty). Skipping download without failing."
+            exit 0
+          fi
+
+          echo "Will download:"
+          echo "$FILES" | sed 's/^/ - /'
+
+          # Pobieraj preferencyjnie przez REST /get (autoryzuje nazwy), z fallbackiem na publiczny URL
+          while IFS= read -r f; do
             [ -z "$f" ] && continue
             echo "→ $f"
-            curl -fsS "$BASE/wp-json/wtp-ro-open/v1/get?site_key=$SITE_KEY&file=$f" -o "$OUTDIR/$f"
-          done < <(jq -r '.list.dirA[] | select(test("^files_\\d{3}\\.json$")) | "file="+.' "$OUTDIR/manifest.json")
+            if ! curl -fsS "$BASE/wp-json/wtp-ro-open/v1/get?site_key=$SITE_KEY&file=$f" -o "$OUT/$f"; then
+              echo "REST get failed for $f – trying direct public URL"
+              curl -fsS "${PUB}${f}" -o "$OUT/$f"
+            fi
+          done <<< "$FILES"
 
+          # Pliki pomocnicze (best-effort)
+          for f in index.json bundle.json options.json selftest.json; do
+            curl -fsS "$BASE/wp-json/wtp-ro-open/v1/get?site_key=$SITE_KEY&file=$f" -o "$OUT/$f" || \
+            curl -fsS "${PUB}${f}" -o "$OUT/$f" || true
+          done
           # pobierz pliki główne, o ile istnieją
           for f in index.json bundle.json options.json selftest.json; do
             curl -fsS "$BASE/wp-json/wtp-ro-open/v1/get?site_key=$SITE_KEY&file=$f" -o "$OUTDIR/$f" || true
