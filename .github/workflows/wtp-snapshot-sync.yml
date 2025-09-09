@@ -53,9 +53,8 @@ jobs:
         id: c
         shell: bash
         run: |
-          echo 'CURL_FLAGS=-fL --retry 4 --retry-delay 2 --connect-timeout 20 -A "Mozilla/5.0" -H "Accept: application/json,text/plain,*/*"' >> "$GITHUB_OUTPUT"
+          echo 'CURL_FLAGS=-fL --retry 4 --retry-delay 2 --connect-timeout 20 -A "Mozilla/5.0" -H "Accept: application/json,text/plain,/"' >> "$GITHUB_OUTPUT"
 
-      # --- NOWOŚĆ: odpal świeży dump configów ---
       - name: Trigger config dump (redacted)
         shell: bash
         run: |
@@ -75,13 +74,14 @@ jobs:
           echo "GET $URL"
           RESP="$(curl ${{ steps.c.outputs.CURL_FLAGS }} "$URL")"
           echo "$RESP" | jq '.' > "${{ steps.v.outputs.OUT_DIR }}/ls.json"
-          # prefer dirA, fallback dirB
+
           FILES=$(echo "$RESP" | jq -r '.list.dirA // [] | .[]')
           if [ -z "$FILES" ]; then
             FILES=$(echo "$RESP" | jq -r '.list.dirB // [] | .[]')
           fi
+
           {
-            echo "FILES<<'EOF'"
+            echo "FILES<<EOF"
             echo "$FILES"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
@@ -92,7 +92,7 @@ jobs:
           set -euo pipefail
           while read -r f; do
             [ -z "$f" ] && continue
-            # pomiń katalogi (logs, config) i puste wpisy
+            # pomiń katalogi (logs, config)
             if [ "$f" = "logs" ] || [ "$f" = "config" ]; then
               echo "skip dir $f"
               continue
@@ -102,7 +102,7 @@ jobs:
             echo "GET $URL -> $OUT"
             mkdir -p "$(dirname "$OUT")" || true
             curl ${{ steps.c.outputs.CURL_FLAGS }} "$URL" -o "$OUT"
-          done << 'EOF'
+          done << EOF
           ${{ steps.ls.outputs.FILES }}
           EOF
 
@@ -126,6 +126,7 @@ jobs:
             URL="${{ steps.v.outputs.REST_BASE }}/get?site_key=${{ steps.v.outputs.SITE_KEY }}&file=${f}&_b=$(date +%s)"
             OUT="${{ steps.v.outputs.OUT_DIR }}/logs/${f}"
             echo "GET $URL -> $OUT"
+            mkdir -p "$(dirname "$OUT")" || true
             curl ${{ steps.c.outputs.CURL_FLAGS }} "$URL" -o "$OUT" || true
           done
 
