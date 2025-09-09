@@ -1,0 +1,152 @@
+*** Begin Patch
+*** Update File: mu-plugins/wtp-ro-exporter.php
+@@
+ <?php
+ /**
+  * Plugin Name: WTP Read-Only Exporter (open)
+  * Description: Stabilne endpointy do snapshotu (lista plików i pobieranie pojedynczych plików) z katalogu uploads/wtp-ro/public/{site_key}/
+- * Version: 1.1.0
++ * Version: 1.1.1
+  */
+ if (!defined('ABSPATH')) exit;
+ 
++// --- Twarda ochrona przed przypadkowym outputem (notices, spacje, BOM) ---
++if (!function_exists('wtp_ro_exporter_ob_guard_start')) {
++    function wtp_ro_exporter_ob_guard_start() {
++        if (PHP_SAPI !== 'cli') {
++            @ob_end_clean();
++            ob_start();
++        }
++    }
++}
++if (!function_exists('wtp_ro_exporter_ob_guard_clean')) {
++    function wtp_ro_exporter_ob_guard_clean() {
++        if (ob_get_level() > 0) {
++            @ob_end_clean();
++        }
++    }
++}
++
+ /**
+  * Ustawienia i bezpieczne ścieżki.
+  */
+ define('WTP_RO_EXPORTER_NS', 'wtp-ro-open/v1');
+@@
+ add_action('rest_api_init', function () use ($wtp_ro_default_site_key) {
+     register_rest_route(WTP_RO_EXPORTER_NS, '/ls', [
+         'methods'  => 'GET',
+         'permission_callback' => '__return_true',
+         'callback' => function (\WP_REST_Request $req) use ($wtp_ro_default_site_key) {
++            wtp_ro_exporter_ob_guard_start();
+             $site_key = wtp_ro_sanitize_site_key($req->get_param('site_key'), $wtp_ro_default_site_key);
+             $base     = wtp_ro_exporter_base_dir();
+             $root     = realpath($base);
+             $dir      = realpath($base.$site_key);
+ 
+             // Bezpiecznie sprawdź, że jesteśmy w bazie
+             if (!$root || !$dir || strpos($dir, $root) !== 0 || !is_dir($dir)) {
+-                // ZWRACAMY POPRAWNY JSON, NIE null
+-                return new \WP_REST_Response([
++                $payload = [
+                     'version'      => '1.5.0',
+                     'generated_at' => time(),
+                     'url'          => content_url("/uploads/wtp-ro/public/{$site_key}"),
+                     'files'        => [],
+                     'manifest'     => 'manifest.json',
+                     'options'      => 'options.json',
+                     'selftest'     => 'selftest.json',
+-                ], 200);
++                ];
++                wtp_ro_exporter_ob_guard_clean();
++                return new \WP_REST_Response($payload, 200, ['Content-Type' => 'application/json; charset=UTF-8']);
+             }
+ 
+             $list = [];
+             $dh = opendir($dir);
+             if ($dh) {
+@@
+             // Posortuj pliki, by mieć stabilny wynik (przydaje się w CI)
+             sort($list, SORT_STRING);
+ 
+-            // ZWRACAMY strukturalny JSON jakiego oczekuje snapshot job
+-            return new \WP_REST_Response([
++            $payload = [
+                 'version'      => '1.5.0',
+                 'generated_at' => time(),
+                 'url'          => content_url("/uploads/wtp-ro/public/{$site_key}"),
+                 'files'        => $list,
+                 'manifest'     => 'manifest.json',
+                 'options'      => 'options.json',
+                 'selftest'     => 'selftest.json',
+-            ], 200);
++            ];
++            wtp_ro_exporter_ob_guard_clean();
++            return new \WP_REST_Response($payload, 200, ['Content-Type' => 'application/json; charset=UTF-8']);
+         }
+     ]);
+ 
+     register_rest_route(WTP_RO_EXPORTER_NS, '/get', [
+         'methods'  => 'GET',
+         'permission_callback' => '__return_true',
+         'callback' => function (\WP_REST_Request $req) use ($wtp_ro_default_site_key) {
++            wtp_ro_exporter_ob_guard_start();
+             $site_key = wtp_ro_sanitize_site_key($req->get_param('site_key'), $wtp_ro_default_site_key);
+             $file     = $req->get_param('file');
+             if (!is_string($file) || $file === '') {
++                wtp_ro_exporter_ob_guard_clean();
+                 return new \WP_Error('bad_file', 'Invalid file name', ['status' => 400]);
+             }
+ 
+             // tylko pliki w formacie [A-Za-z0-9._-]
+             if (!preg_match('^[A-Za-z0-9._-]+$', $file)) {
++                wtp_ro_exporter_ob_guard_clean();
+                 return new \WP_Error('bad_file', 'Invalid file name', ['status' => 400]);
+             }
+@@
+             $path = realpath($dir.'/'.$file);
+             if (!$path || strpos($path, $dir) !== 0 || !is_file($path)) {
++                wtp_ro_exporter_ob_guard_clean();
+                 return new \WP_Error('not_found', 'File not found', ['status' => 404]);
+             }
+ 
+             $data = @file_get_contents($path);
+             if ($data === false) {
++                wtp_ro_exporter_ob_guard_clean();
+                 return new \WP_Error('read_error', 'Could not read file', ['status' => 500]);
+             }
+ 
+             // Ustal prosty content-type na podstawie rozszerzenia
+             $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
+             $ct  = 'text/plain; charset=UTF-8';
+             if ($ext === 'json') $ct = 'application/json; charset=UTF-8';
+             if ($ext === 'txt' ) $ct = 'text/plain; charset=UTF-8';
+ 
+-            return new \WP_REST_Response($data, 200, ['Content-Type' => $ct]);
++            wtp_ro_exporter_ob_guard_clean();
++            return new \WP_REST_Response($data, 200, ['Content-Type' => $ct]);
+         }
+     ]);
+ 
+     // Prosty healthcheck pluginu (pomocny przy debugowaniu z Actions)
+     register_rest_route(WTP_RO_EXPORTER_NS, '/health', [
+         'methods'  => 'GET',
+         'permission_callback' => '__return_true',
+         'callback' => function (\WP_REST_Request $req) use ($wtp_ro_default_site_key) {
++            wtp_ro_exporter_ob_guard_start();
+             $site_key = wtp_ro_sanitize_site_key($req->get_param('site_key'), $wtp_ro_default_site_key);
+             $base = wtp_ro_exporter_base_dir();
+             $ok   = is_dir($base.$site_key);
+-            return new \WP_REST_Response([
++            $payload = [
+                 'ok'        => $ok ? true : false,
+                 'site_key'  => $site_key,
+                 'base'      => $base,
+                 'ts'        => time(),
+-            ], 200);
++            ];
++            wtp_ro_exporter_ob_guard_clean();
++            return new \WP_REST_Response($payload, 200, ['Content-Type' => 'application/json; charset=UTF-8']);
+         }
+     ]);
+ });
+*** End Patch
