@@ -1,0 +1,93 @@
+*** Begin Patch
+*** Update File: .github/workflows/deploy-site.yml
+@@
+-name: Deploy Site (MU, plugins, themes, wp-config)
++name: Deploy Site (MU, themes, wp-config • plugins=fallback only)
+ 
+ on:
+   push:
+     branches: [ main ]
+     paths:
+       - 'mu-plugins/'
+-      - 'plugins/'
+       - 'themes/'
+       - 'wp-content/themes/'
+       - '.wtp/wp-config.tpl.php'
+       - '.github/workflows/deploy-site.yml'
+   workflow_dispatch: {}
+@@
+   deploy:
+     runs-on: ubuntu-latest
+     timeout-minutes: 30
+     env:
+       # połączenie
+       HOST:   ${{ secrets.DEPLOY_HOST }}
+       PORT:   ${{ secrets.DEPLOY_PORT }}
+       USER:   ${{ secrets.DEPLOY_USER }}
+       PASS:   ${{ secrets.DEPLOY_PASS }}
+       TARGET: ${{ secrets.DEPLOY_TARGET }}
+       # „wyniesiony” sekret, żeby użyć go w if:
+       ALLOW_WPCONFIG_DEPLOY: ${{ secrets.ALLOW_WPCONFIG_DEPLOY }}
++      # Fallback dla plugins – default: false (uruchom tylko świadomie)
++      RSYNC_PLUGINS_FALLBACK: ${{ secrets.RSYNC_PLUGINS_FALLBACK }}
+ 
+     steps:
+       - name: Checkout
+         uses: actions/checkout@v4
+         with:
+           fetch-depth: 0
+@@
+       - name: Create target folders (first connect)
+         run: |
+           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+             "mkdir -p '$TARGET/wp-content/mu-plugins' \
+                       '$TARGET/wp-content/plugins' \
+                       '$TARGET/wp-content/themes' \
+                       '$TARGET/.wtp-bot'"
+ 
+-      - name: Deploy MU plugins
++      # ===================== MU-PLUGINS (zwykły tor rsync) =====================
++      - name: Deploy MU plugins
+         if: ${{ hashFiles('mu-plugins/') != '' }}
+         run: |
+           rsync -avz --delete \
+             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
+             mu-plugins/ "$USER@$HOST:$TARGET/wp-content/mu-plugins/"
+ 
+-      - name: Deploy standard plugins
+-        if: ${{ hashFiles('plugins/') != '' }}
++      # ===================== PLUGINS (FALLBACK ONLY) =====================
++      # Normalny tor dla plugins to "Agent Push" (manifest + /install).
++      # Ten krok jest awaryjny (np. bridge offline). Włącz go tylko ustawiając
++      # sekret RSYNC_PLUGINS_FALLBACK=true. Domyślnie NIE działa.
++      - name: Deploy standard plugins (FALLBACK)
++        if: ${{ env.RSYNC_PLUGINS_FALLBACK == 'true' && hashFiles('plugins/') != '' }}
+         run: |
+           rsync -avz --delete \
+             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
+             plugins/ "$USER@$HOST:$TARGET/wp-content/plugins/"
++      - name: Skip note (plugins fallback disabled)
++        if: ${{ env.RSYNC_PLUGINS_FALLBACK != 'true' }}
++        run: |
++          echo "Plugins rsync fallback is disabled (RSYNC_PLUGINS_FALLBACK!=true) – using Agent Push as primary."
+ 
+       - name: Deploy themes
+         if: ${{ hashFiles('themes/') != '' || hashFiles('wp-content/themes/') != '' }}
+         run: |
+           if [ -d "themes" ]; then SRC="themes/"; else SRC="wp-content/themes/"; fi
+@@
+       - name: Generate & deploy wp-config.php (optional)
+         if: ${{ env.ALLOW_WPCONFIG_DEPLOY == 'true' && hashFiles('.wtp/wp-config.tpl.php') != '' }}
+         env:
+           WTP_AGENT_TOKEN:  ${{ secrets.WTP_AGENT_TOKEN }}
+           WTP_GH_SYNC_PAT:  ${{ secrets.WTP_GH_SYNC_PAT }}
+           WTP_GH_SECRET:    ${{ secrets.WTP_GH_SECRET }}
+           WTP_BRIDGE_KEY:   ${{ secrets.WTP_BRIDGE_KEY }}
+           WTP_BRIDGE_HMAC:  ${{ secrets.WTP_BRIDGE_HMAC }}
+           RUNNER_URL:       ${{ secrets.RUNNER_URL }}
+         run: |
+           python3 -c "import os,re,io; s=io.open('.wtp/wp-config.tpl.php','r',encoding='utf-8').read(); s=re.sub(r'\{\{(\w+)\}\}', lambda m: os.environ.get(m.group(1),'') , s); io.open('wp-config.php','w',encoding='utf-8').write(s)"
+           rsync -avz \
+             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
+             wp-config.php "$USER@$HOST:$TARGET/wp-config.php"
+*** End Patch
