@@ -27,7 +27,6 @@ jobs:
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
-      # flaga do opcjonalnego generowania wp-config.php z szablonu
       ALLOW_WPCONFIG_DEPLOY: ${{ secrets.ALLOW_WPCONFIG_DEPLOY }}
 
     steps:
@@ -36,45 +35,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Verify required secrets
-        shell: bash
-        run: |
-          set -euo pipefail
-          missing=0
-          for var in HOST PORT USER PASS TARGET; do
-            if [ -z "${!var:-}" ]; then
-              echo "::error::Missing secret: DEPLOY_${var}"
-              missing=1
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-
       - name: Install tools
-        shell: bash
         run: |
-          set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y rsync sshpass
 
       - name: Create target folders (first connect)
-        shell: bash
         run: |
-          set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
-            "mkdir -p \
-              '$TARGET/wp-content/mu-plugins' \
-              '$TARGET/wp-content/plugins' \
-              '$TARGET/wp-content/themes' \
-              '$TARGET/.wtp-bot'"
+            "mkdir -p '$TARGET/wp-content/mu-plugins' \
+                      '$TARGET/wp-content/plugins' \
+                      '$TARGET/wp-content/themes' \
+                      '$TARGET/.wtp-bot'"
 
       # ---------- MU-PLUGINS ----------
       - name: Deploy MU plugins
         if: ${{ hashFiles('mu-plugins/') != '' }}
-        shell: bash
         run: |
-          set -euo pipefail
           rsync -avz --delete \
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             mu-plugins/ "$USER@$HOST:$TARGET/wp-content/mu-plugins/"
@@ -82,9 +59,7 @@ jobs:
       # ---------- PLUGINS ----------
       - name: Deploy standard plugins
         if: ${{ hashFiles('plugins/') != '' }}
-        shell: bash
         run: |
-          set -euo pipefail
           rsync -avz --delete \
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             plugins/ "$USER@$HOST:$TARGET/wp-content/plugins/"
@@ -92,9 +67,7 @@ jobs:
       # ---------- THEMES ----------
       - name: Deploy themes
         if: ${{ hashFiles('themes/') != '' || hashFiles('wp-content/themes/') != '' }}
-        shell: bash
         run: |
-          set -euo pipefail
           if [ -d "themes" ]; then SRC="themes/"; else SRC="wp-content/themes/"; fi
           rsync -avz --delete \
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
@@ -110,29 +83,21 @@ jobs:
           WTP_BRIDGE_KEY:   ${{ secrets.WTP_BRIDGE_KEY }}
           WTP_BRIDGE_HMAC:  ${{ secrets.WTP_BRIDGE_HMAC }}
           RUNNER_URL:       ${{ secrets.RUNNER_URL }}
-        shell: bash
         run: |
-          set -euo pipefail
-          python3 - <<'PY'
-import os, re, io, sys
-tpl_path = '.wtp/wp-config.tpl.php'
-out_path = 'wp-config.php'
-s = io.open(tpl_path, 'r', encoding='utf-8').read()
-def repl(m):
-  return os.environ.get(m.group(1), '')
-s = re.sub(r'\{\{(\w+)\}\}', repl, s)
-io.open(out_path, 'w', encoding='utf-8').write(s)
-print("Generated wp-config.php")
-PY
+          python3 - <<'PYCODE'
+          import os, re, io
+          tpl = io.open('.wtp/wp-config.tpl.php','r',encoding='utf-8').read()
+          rendered = re.sub(r'\{\{(\w+)\}\}', lambda m: os.environ.get(m.group(1),''), tpl)
+          io.open('wp-config.php','w',encoding='utf-8').write(rendered)
+          PYCODE
+
           rsync -avz \
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             wp-config.php "$USER@$HOST:$TARGET/wp-config.php"
 
+      # ---------- MARKER ----------
       - name: Write deploy marker
-        shell: bash
         run: |
-          set -euo pipefail
           echo "deploy $(date -u +%FT%TZ)" > .deploy.txt
-          rsync -avz \
-            -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
+          rsync -avz -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             .deploy.txt "$USER@$HOST:$TARGET/.wtp-bot/deploy.txt"
