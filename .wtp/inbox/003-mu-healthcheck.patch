@@ -1,0 +1,97 @@
+diff --git a/mu-plugins/wtp-mu-health.php b/mu-plugins/wtp-mu-health.php
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/mu-plugins/wtp-mu-health.php
+@@ -0,0 +1,95 @@
++<?php
++/**
++ * Plugin Name: WTP MU Healthcheck
++ * Description: Minimalny MU-plugin do weryfikacji deployu: zapis do pliku i REST ping.
++ * Version: 0.1.0
++ */
++
++if (!defined('ABSPATH')) { return; }
++
++// Ścieżka do pliku dowodowego poza public_html:
++if (!defined('WTP_MU_HEALTH_FILE')) {
++    define('WTP_MU_HEALTH_FILE', '/home/u493676300/debug/mu-health.txt');
++}
++
++/**
++ * Zapisz "heartbeat" do pliku i do error_log (raz na 60s, żeby nie mielić dysku).
++ */
++function wtp_mu_health_write() {
++    $when = gmdate('c');
++    $where = is_admin() ? 'admin' : 'front';
++    $uri = isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : '';
++    $line = "[$when] wtp-mu-health hit: {$where} {$uri}";
++
++    // Throttle: max 1 wpis na 60s (transient działa od WP init wzwyż).
++    if (function_exists('get_transient') && function_exists('set_transient')) {
++        if (get_transient('wtp_mu_health_written')) {
++            return;
++        }
++        set_transient('wtp_mu_health_written', 1, 60);
++    }
++
++    // Plik
++    @file_put_contents(WTP_MU_HEALTH_FILE, $line . PHP_EOL, FILE_APPEND);
++    // PHP error_log (Hostinger przekieruje to do Twojego pliku błędów)
++    @error_log('[wtp-mu-health] ' . $line);
++}
++add_action('muplugins_loaded', 'wtp_mu_health_write', 1);
++
++/**
++ * REST: /wp-json/wtp-health/v1/ping?token=...
++ * Wymaga tokenu WTP_AGENT_TOKEN z wp-config (albo ENV), żeby nie był publiczny.
++ */
++add_action('rest_api_init', function () {
++    register_rest_route('wtp-health/v1', '/ping', [
++        'methods'  => 'GET',
++        'permission_callback' => function ($req) {
++            $t = $req->get_param('token');
++            $expected = null;
++            if (defined('WTP_AGENT_TOKEN')) {
++                $expected = WTP_AGENT_TOKEN;
++            } elseif (!empty($_ENV['WTP_AGENT_TOKEN'])) {
++                $expected = $_ENV['WTP_AGENT_TOKEN'];
++            } elseif (!empty($_SERVER['WTP_AGENT_TOKEN'])) {
++                $expected = $_SERVER['WTP_AGENT_TOKEN'];
++            } elseif (getenv('WTP_AGENT_TOKEN')) {
++                $expected = getenv('WTP_AGENT_TOKEN');
++            }
++            return $expected && hash_equals((string)$expected, (string)$t);
++        },
++        'callback' => function () {
++            $ts = gmdate('c');
++            $ok = @file_put_contents(WTP_MU_HEALTH_FILE, "[{$ts}] REST ping" . PHP_EOL, FILE_APPEND) !== false;
++            @error_log('[wtp-mu-health] REST ping ' . ($ok ? 'OK' : 'FAIL'));
++            return new WP_REST_Response([
++                'ok'    => true,
++                'wrote' => $ok,
++                'ts'    => $ts,
++            ], 200);
++        },
++    ]);
++});
++
++```
+
+*Co się stanie:*
+- Push -> apply-inbox-patch przerzuci patch do .wtp/processed/ i zcommituje zmiany (plik MU wejdzie do repo).
+- Ten sam push uruchomi deploy-site i wrzuci plik na serwer.
+
+---
+
+# 2) Jak sprawdzić, że działa (bez ręcznej edycji na serwerze)
+
+Po zielonym deployu zrób dwa szybkie testy:
+
+*A. Plik na dysku*
+- Otwórz stronę główną *raz* (lub /wp-admin).
+- Wejdź w */home/u493676300/debug/* i sprawdź, czy jest:
+  - mu-health.txt — powinien mieć świeży timestamp (UTC) i linijkę wtp-mu-health hit.
+
+*B. REST ping (z tokenem)*
+- Wejdź w przeglądarce (zamień TOKEN na Twój WTP_AGENT_TOKEN z wp-config.php):
