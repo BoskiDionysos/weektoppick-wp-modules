@@ -2,11 +2,10 @@ name: Apply Inbox Patch
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
     paths:
       - '.wtp/inbox/*.patch'
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   apply:
@@ -29,7 +28,7 @@ jobs:
         run: |
           mkdir -p .wtp/inbox .wtp/processed
 
-      - name: Apply all patches from inbox
+      - name: Apply all patches from inbox (idempotent)
         shell: bash
         run: |
           set -euo pipefail
@@ -41,28 +40,29 @@ jobs:
             exit 0
           fi
 
-          CHANGED=0
-
           for P in "${PATCHES[@]}"; do
             BN="$(basename "$P")"
             echo ">> Applying: $BN"
 
-            # spróbuj 3-way; jeśli już zastosowane / brak zmian – nie traktuj jako błąd
+            # spróbuj 3-way; jeśli brak zmian/already applied – nie traktuj jako błąd
             if git apply --check --3way "$P"; then
               git apply --3way "$P"
-              CHANGED=1
               echo "Applied: $BN"
             else
               echo "Nothing to apply or already applied: $BN (ok)"
             fi
 
-            # przenieś patch do archiwum (żeby nie zapętlać)
-            git mv "$P" ".wtp/processed/$BN"
-            CHANGED=1
+            # archiwizacja do .wtp/processed z nadpisaniem jeżeli istnieje
+            TARGET=".wtp/processed/$BN"
+            if [ -e "$TARGET" ]; then
+              echo "Processed already has $BN – replacing."
+              git rm -f "$TARGET" 2>/dev/null || rm -f "$TARGET" || true
+            fi
+            git mv "$P" "$TARGET"
           done
 
+          # commit tylko jeśli cokolwiek się zmieniło (aplikacja łatki lub przeniesienia)
           git add -A || true
-
           if git diff --cached --quiet; then
             echo "No repo changes to commit."
             exit 0
