@@ -11,20 +11,17 @@ permissions:
 
 env:
   BASE: https://weektoppick.com
-  NS: wtp-ro-open/v1
-  SITE_KEY: 5Depft8Y9LU0t6Sv
+  NS: wtp-ro/v1
   OPS: ops-snapshot-watchdog
-  STATE_DIR: .wtp/state
-  STATE_FILE: .wtp/state/snapshot-files.txt
-  DELTA_HARD_LIMIT: "5"
-  SAMPLE_N: "3"
-  # Jeśli ustawisz w sekretach WATCHDOG_BLOCK=true to watchdog będzie failował przy dużej delcie
-  WATCHDOG_BLOCK: ${{ secrets.WATCHDOG_BLOCK }}
+  FILES: |
+    manifest.json
+    bundle.json
+    index.json
+    files_000.json
 
 jobs:
   watchdog:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,167 +34,56 @@ jobs:
       - name: Prepare folders
         run: |
           mkdir -p "$OPS"
-          mkdir -p "$STATE_DIR"
 
-      - name: Hit /health, /ls
-        id: ping
+      - name: Fetch & validate JSONs
+        id: check
         run: |
           set -euo pipefail
-          H_URL="${BASE}/wp-json/${NS}/health?site_key=${SITE_KEY}"
-          L_URL="${BASE}/wp-json/${NS}/ls?site_key=${SITE_KEY}"
-          echo "GET $H_URL"
-          curl -sS "$H_URL" -o "${OPS}/health.json" || true
-          echo "GET $L_URL"
-          curl -sS "$L_URL" -o "${OPS}/ls.json" || true
-
-          # Wyciągnij status OK z health (gdy JSON poprawny)
-          OK=false
-          if jq -e '.ok' "${OPS}/health.json" >/dev/null 2>&1; then
-            OK=$(jq -r '.ok|tostring' "${OPS}/health.json")
-          fi
-
-          # Policz pliki z ls (gdy JSON poprawny)
-          COUNT=0
-          if jq -e '.files' "${OPS}/ls.json" >/dev/null 2>&1; then
-            COUNT=$(jq -r '.files|length' "${OPS}/ls.json")
-          fi
-
-          echo "ok=${OK}"           >> "$GITHUB_OUTPUT"
-          echo "count=${COUNT}"     >> "$GITHUB_OUTPUT"
-
-      - name: Seed state on first run (no fail)
-        if: ${{ !hashFiles(env.STATE_FILE) }}
-        run: |
-          set -euo pipefail
-          if jq -e '.files' "${OPS}/ls.json" >/dev/null 2>&1; then
-            jq -r '.files[]' "${OPS}/ls.json" | sort > "${STATE_FILE}"
-            echo "Seeded baseline at ${STATE_FILE}"
-          else
-            echo "No valid /ls JSON to seed baseline; continuing (watchdog will handle below)."
-          fi
-
-      - name: Compare with previous state
-        id: diff
-        run: |
-          set -euo pipefail
-          # Zapisz aktualną listę plików (jeśli możliwe)
-          CURRENT="${OPS}/files.current.txt"
-          if jq -e '.files' "${OPS}/ls.json" >/dev/null 2>&1; then
-            jq -r '.files[]' "${OPS}/ls.json" | sort > "$CURRENT"
-          else
-            # brak poprawnego ls – traktuj jak błąd endpointu
-            echo "current_ok=false" >> "$GITHUB_OUTPUT"
-            echo "added=0"          >> "$GITHUB_OUTPUT"
-            echo "removed=0"        >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "current_ok=true" >> "$GITHUB_OUTPUT"
-
-          # Jeśli nie ma poprzedniego stanu – nic nie porównujemy (był seed wyżej)
-          if [ ! -s "${STATE_FILE}" ]; then
-            echo "No previous baseline; skipping diff."
-            echo "added=0"   >> "$GITHUB_OUTPUT"
-            echo "removed=0" >> "$GITHUB_OUTPUT"
-            cp "$CURRENT" "${STATE_FILE}"
-            exit 0
-          fi
-
-          PREV="${OPS}/files.prev.txt"
-          cp "${STATE_FILE}" "$PREV"
-
-          ADDED="${OPS}/files.added.txt"
-          REMOVED="${OPS}/files.removed.txt"
-
-          comm -13 "$PREV" "$CURRENT" > "$ADDED" || true
-          comm -23 "$PREV" "$CURRENT" > "$REMOVED" || true
-
-          A=$(wc -l < "$ADDED" | tr -d ' ')
-          R=$(wc -l < "$REMOVED" | tr -d ' ')
-          echo "added=${A}"   >> "$GITHUB_OUTPUT"
-          echo "removed=${R}" >> "$GITHUB_OUTPUT"
-
-      - name: Sample GET checks
-        if: ${{ steps.diff.outputs.current_ok == 'true' }}
-        run: |
-          set -euo pipefail
-          # Zrób próbki GET
-          head -n "${SAMPLE_N}" "${OPS}/files.current.txt" | while read -r f; do
-            [ -z "$f" ] && continue
-            URL="${BASE}/wp-json/${NS}/get?site_key=${SITE_KEY}&file=${f}"
-            echo "GET $URL"
-            curl -sS "$URL" -o "${OPS}/get_${f}.out" || true
-          done
-
-      - name: Decide & update baseline
-        id: decide
-        run: |
-          set -euo pipefail
-          OK="${{ steps.ping.outputs.ok }}"
-          COUNT="${{ steps.ping.outputs.count }}"
-          ADDED="${{ steps.diff.outputs.added }}"
-          REMOVED="${{ steps.diff.outputs.removed }}"
-          LIMIT="${DELTA_HARD_LIMIT}"
-
-          echo "Endpoint ok=${OK}, files=${COUNT}, added=${ADDED}, removed=${REMOVED}, limit=${LIMIT}"
-
-          STATUS="ok"
+          STATUS=ok
           REASON=""
-
-          if [ "${OK}" != "true" ]; then
-            STATUS="bad"
-            REASON="health not ok or endpoint error"
-          elif [ "${COUNT}" = "0" ]; then
-            STATUS="bad"
-            REASON="ls empty or unreadable"
-          else
-            DELTA=$(( ADDED + REMOVED ))
-            if [ "$DELTA" -gt "$LIMIT" ]; then
-              STATUS="warn"
-              REASON="large delta ${DELTA} > ${LIMIT}"
+          while read -r f; do
+            [ -z "$f" ] && continue
+            URL="${BASE}/wp-json/${NS}/snap?file=${f}"
+            OUT="${OPS}/${f}.out"
+            echo "GET $URL"
+            if ! curl -sS -m 25 "$URL" -o "$OUT"; then
+              STATUS=bad
+              REASON="fetch failed for $f"
+              break
             fi
-          fi
-
-          echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
-          echo "reason=${REASON}" >> "$GITHUB_OUTPUT"
-
-          # jeśli wszystko wygląda ok lub tylko delta duża — aktualizujemy baseline
-          if [ -s "${OPS}/files.current.txt" ] && { [ "$STATUS" = "ok" ] || [ "$STATUS" = "warn" ]; }; then
-            cp "${OPS}/files.current.txt" "${STATE_FILE}"
-            echo "Baseline updated."
-          fi
+            if ! jq -e type "$OUT" >/dev/null 2>&1; then
+              STATUS=bad
+              REASON="invalid JSON for $f"
+              break
+            fi
+          done <<< "$FILES"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-watchdog-${{ github.run_id }}
-          path: |
-            ops-snapshot-watchdog/**
-            .wtp/state/**
+          path: ops-snapshot-watchdog/**
           retention-days: 7
 
-      - name: Create Issue on failure/warn
-        if: ${{ steps.decide.outputs.status != 'ok' }}
+      - name: Create Issue on failure
+        if: ${{ steps.check.outputs.status != 'ok' }}
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const status = '${{ steps.decide.outputs.status }}';
-            const reason = `${{ toJson(steps.decide.outputs.reason) }}`;
-            const added  = '${{ steps.diff.outputs.added }}';
-            const removed= '${{ steps.diff.outputs.removed }}';
+            const status = '${{ steps.check.outputs.status }}';
+            const reason = `${{ toJson(steps.check.outputs.reason) }}`;
             const urlRun = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-
-            let body = `Watchdog status: **${status}**\nReason: ${reason}\nAdded: ${added}, Removed: ${removed}\n\nRun: ${urlRun}\n\n`;
-            try {
-              const h = fs.readFileSync('ops-snapshot-watchdog/health.json', 'utf8');
-              body += `**health.json** (first 1KB):\n\n\`\`\`json\n${h.slice(0,1000)}\n\`\`\`\n\n`;
-            } catch (e) {}
-            try {
-              const l = fs.readFileSync('ops-snapshot-watchdog/ls.json', 'utf8');
-              body += `**ls.json** (first 2KB):\n\n\`\`\`json\n${l.slice(0,2000)}\n\`\`\`\n\n`;
-            } catch (e) {}
-
+            let body = `Watchdog status: **${status}**\nReason: ${reason}\n\nRun: ${urlRun}\n\n`;
+            for (const f of ['manifest.json','bundle.json','index.json','files_000.json']) {
+              try {
+                const p = `ops-snapshot-watchdog/${f}.out`;
+                const txt = fs.readFileSync(p, 'utf8');
+                body += `**${f}** (first 1KB):\n\n\`\`\`json\n${txt.slice(0,1000)}\n\`\`\`\n\n`;
+              } catch(e){}
+            }
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -208,14 +94,9 @@ jobs:
       - name: Final gate
         run: |
           set -euo pipefail
-          STATUS="${{ steps.decide.outputs.status }}"
-          BLOCK="${WATCHDOG_BLOCK:-false}"
-          if [ "$STATUS" = "bad" ]; then
-            echo "::error::Snapshot watchdog failed (endpoint problem)."
+          STATUS="${{ steps.check.outputs.status }}"
+          if [ "$STATUS" != "ok" ]; then
+            echo "::error::Snapshot watchdog failed (endpoint/content problem)."
             exit 1
           fi
-          if [ "$STATUS" = "warn" ] && [ "$BLOCK" = "true" ]; then
-            echo "::error::Snapshot watchdog failed (excessive delta)."
-            exit 1
-          fi
-          echo "Watchdog OK (status=${STATUS}, block=${BLOCK})."
+          echo "Watchdog OK."
