@@ -1,0 +1,35 @@
+diff --git a/mu-plugins/00-mu-safe-loader.php b/mu-plugins/00-mu-safe-loader.php
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/mu-plugins/00-mu-safe-loader.php
+@@ -0,0 +1,50 @@
+<?php
+/**
+ * MU Safe Loader
+ * Przywrócona wersja bazowa (pełny plik).
+ */
+if (!defined('ABSPATH')) exit;
+
+// Autoload MU plugins w bezpieczny sposób.
+$mu_dir = _DIR_;
+$loader_log = WP_CONTENT_DIR . '/uploads/wtp-ro/mu-loader.log';
+
+// Log start
+file_put_contents($loader_log, "[".date('c')."] MU Safe Loader init\n", FILE_APPEND);
+
+// Przejdź po plikach
+$files = scandir($mu_dir);
+foreach ($files as $f) {
+    if ($f === basename(_FILE_)) continue;
+    if (substr($f, -4) !== '.php') continue;
+    $path = $mu_dir . '/' . $f;
+    if (is_file($path)) {
+        try {
+            include_once $path;
+            file_put_contents($loader_log, "[".date('c')."] Loaded: $f\n", FILE_APPEND);
+        } catch (Throwable $e) {
+            file_put_contents($loader_log, "[".date('c')."] ERROR in $f: ".$e->getMessage()."\n", FILE_APPEND);
+        }
+    }
+}
