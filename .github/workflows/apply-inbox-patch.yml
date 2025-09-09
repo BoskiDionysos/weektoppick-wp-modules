@@ -3,97 +3,69 @@ name: Apply Inbox Patch
 on:
   push:
     paths:
-      - '.wtp/inbox//*.patch'
-      - '.wtp/inbox//*.diff'
+      - ".wtp/inbox/.patch"
+      - ".github/workflows/apply-inbox-patch.yml"
   workflow_dispatch:
 
 permissions:
   contents: write
-  pull-requests: write
 
 jobs:
   apply:
+    name: Apply patch files from .wtp/inbox
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout (full history)
         uses: actions/checkout@v4
         with:
-          # pobierz pełną historię do poprawnego nakładania łat
           fetch-depth: 0
 
-      - name: Find newest patch in inbox
-        id: pick
+      - name: Configure git
+        run: |
+          git config user.name  "wtp-bot"
+          git config user.email "wtp-bot@users.noreply.github.com"
+
+      - name: Find patches
+        id: find
+        shell: bash
         run: |
           set -euo pipefail
-          f=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} \
-                | grep -E '^\.wtp/inbox/.*\.(patch|diff)$' \
-                | tail -n1 || true)
-          if [ -z "$f" ]; then
-            echo "No patch in this push"; exit 1
+          shopt -s nullglob
+          files=(.wtp/inbox/*.patch)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "found=0" >> "$GITHUB_OUTPUT"
+            echo "No patches found in this commit. Skipping."
+            exit 0
           fi
-          echo "PATCH=$f" >> $GITHUB_OUTPUT
-          bname="wtp/apply/$(basename "$f" | sed 's/\.[^.]*$//')"
-          echo "BRANCH=$bname" >> $GITHUB_OUTPUT
-          echo "Picked: $f -> $bname"
+          printf "%s\n" "${files[@]}" > patch_list.txt
+          echo "found=${#files[@]}" >> "$GITHUB_OUTPUT"
+          echo "list<<EOF" >> "$GITHUB_OUTPUT"
+          cat patch_list.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          cat patch_list.txt
 
-      - name: Create branch
-        run: |
-          git checkout -b "${{ steps.pick.outputs.BRANCH }}"
-
-      - name: Try apply patch
-        id: apply
+      - name: Apply patches
+        if: steps.find.outputs.found != '0'
+        shell: bash
         run: |
           set -euo pipefail
-          file="${{ steps.pick.outputs.PATCH }}"
-          echo "Applying $file"
-          # spróbuj 'git apply' (diff), jeśli się nie uda, spróbuj 'git am' (mbox)
-          if git apply --index "$file"; then
-            echo "method=apply" >> $GITHUB_OUTPUT
-          else
-            echo "git apply failed, trying git am…"
-            if git am "$file"; then
-              echo "method=am" >> $GITHUB_OUTPUT
-            else
-              echo "::error::Patch failed to apply"
-              git checkout -
-              exit 2
-            fi
-          fi
+          while read -r p; do
+            echo "::group::Applying $p"
+            git apply --index --reject "$p"
+            echo "::endgroup::"
+          done < patch_list.txt
 
-      - name: Commit (if needed)
+      - name: Commit & push changes
+        if: steps.find.outputs.found != '0'
+        shell: bash
         run: |
-          set -e
+          set -euo pipefail
           if ! git diff --cached --quiet; then
-            msg="apply: $(basename "${{ steps.pick.outputs.PATCH }}")"
+            msg="apply-inbox: $(wc -l < patch_list.txt) patch(es)"
             git commit -m "$msg"
+            git push
+            echo "Committed and pushed."
+          else
+            echo "Nothing to commit after applying patches."
           fi
-
-      - name: Push branch
-        run: |
-          git push -u origin "${{ steps.pick.outputs.BRANCH }}"
-
-      - name: Open PR
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { BRANCH, PATCH } = process.env;
-            const title = Apply patch: ${PATCH.split('/').pop()};
-            const body = [
-              This PR was created automatically by workflow **Apply Inbox Patch**.,
-              ``,
-              - Branch: \${BRANCH}\``,
-              - Patch: \${PATCH}\``,
-            ].join('\n');
-            const pr = await github.rest.pulls.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              head: BRANCH,
-              base: "main",
-              title,
-              body
-            });
-            core.notice(PR opened: #${pr.data.number});
-        env:
-          BRANCH: ${{ steps.pick.outputs.BRANCH }}
-          PATCH:  ${{ steps.pick.outputs.PATCH }}
