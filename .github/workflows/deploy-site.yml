@@ -11,12 +11,14 @@ on:
       - 'wp-content/themes/**'
       - '.wtp/wp-config.tpl.php'
       - '.github/workflows/deploy-site.yml'
+
   workflow_run:
     workflows:
       - Apply Inbox Patch
       - Create Patch From Comment
     types:
       - completed
+
   workflow_dispatch:
 
 concurrency:
@@ -25,7 +27,6 @@ concurrency:
 
 jobs:
   deploy:
-    # dla workflow_run uruchamiaj tylko po sukcesie i tylko z main
     if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -71,16 +72,16 @@ jobs:
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             mu-plugins/ "$USER@$HOST:$TARGET/wp-content/mu-plugins/"
 
-      # ---------- PLUGINS (z ochroną wybranych) ----------
+      # ---------- PLUGINS (protect selected) ----------
       - name: Deploy standard plugins (protect selected)
         if: ${{ hashFiles('plugins/**') != '' }}
         env:
-          PROTECT_PLUGINS: "wordfence/ translatepress-multilingual/ cookie-law-info/"
+          PROTECT_PLUGINS: "wordfence translatepress-multilingual cookie-law-info"
         run: |
           set -euo pipefail
           RULES=$(mktemp)
           for p in $PROTECT_PLUGINS; do
-            echo "--filter=protect $p" >> "$RULES"
+            echo "--filter='protect /$p/'" >> "$RULES"
           done
           echo "Protecting plugins on server:"
           cat "$RULES" | sed 's/^/  /'
@@ -89,17 +90,17 @@ jobs:
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             plugins/ "$USER@$HOST:$TARGET/wp-content/plugins/"
 
-      # ---------- THEMES (z ochroną wybranych) ----------
+      # ---------- THEMES (protect selected) ----------
       - name: Deploy themes (protect selected)
         if: ${{ hashFiles('themes/**') != '' || hashFiles('wp-content/themes/**') != '' }}
         env:
-          PROTECT_THEMES: "wtp-core-theme/ twentytwentyfive/ astra/ hello-elementor/"
+          PROTECT_THEMES: "wtp-core-theme twentytwentyfive astra hello-elementor"
         run: |
           set -euo pipefail
           if [ -d "themes" ]; then SRC="themes/"; elif [ -d "wp-content/themes" ]; then SRC="wp-content/themes/"; else echo "No themes directory in repo"; exit 0; fi
           RULES=$(mktemp)
           for t in $PROTECT_THEMES; do
-            echo "--filter=protect $t" >> "$RULES"
+            echo "--filter='protect /$t/'" >> "$RULES"
           done
           echo "Protecting themes on server:"
           cat "$RULES" | sed 's/^/  /'
@@ -108,7 +109,7 @@ jobs:
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             "$SRC" "$USER@$HOST:$TARGET/wp-content/themes/"
 
-      # ---------- WP-CONFIG (opcjonalnie) ----------
+      # ---------- WP-CONFIG (optional) ----------
       - name: Generate & deploy wp-config.php (optional)
         if: ${{ env.ALLOW_WPCONFIG_DEPLOY == 'true' && hashFiles('.wtp/wp-config.tpl.php') != '' }}
         env:
