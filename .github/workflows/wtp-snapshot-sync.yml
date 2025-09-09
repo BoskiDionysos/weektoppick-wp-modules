@@ -1,181 +1,119 @@
-name: Snapshot Watchdog
+name: WTP Snapshot Sync
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/30 * * * *"   # co 30 min (UTC)
   workflow_dispatch:
-
-permissions:
-  contents: write
-  issues: write
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/wtp-snapshot-sync.yml"
 
 concurrency:
-  group: snapshot-watchdog
+  group: wtp-snapshot-sync
   cancel-in-progress: true
 
-env:
-  BASE: https://weektoppick.com
-  NS: wtp-ro/v1
-  OPS: ops-snapshot-watchdog
-  UA: WTP-Watchdog/1.0 (+https://weektoppick.com)
-
-  # Pliki: index.json traktujemy jako OPCJONALNY.
-  REQUIRED: |
-    manifest.json
-    files_000.json
-    gh-digest.json
-  OPTIONAL: |
-    index.json
-    bundle.json
-
 jobs:
-  watchdog:
+  sync:
     runs-on: ubuntu-latest
+    env:
+      BASE: https://weektoppick.com
+      NS: wtp-ro/v1
+      SITE_KEY: 5Depft8Y9LU0t6Sv
+      OUTDIR: snapshots/5Depft8Y9LU0t6Sv
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure tools
+      - name: Tools
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq curl
 
       - name: Prepare folders
         run: |
-          mkdir -p "$OPS/headers" "$OPS/bodies"
+          mkdir -p "$OUTDIR/logs"
 
-      - name: Fetch & validate (required)
-        id: req
-        shell: bash
+      # --- Kluczowa zmiana: żadnego /open/ls. Zaczynamy od index.json przez SNAP proxy. ---
+      - name: Fetch index.json via SNAP
+        id: idx
         run: |
           set -euo pipefail
-          STATUS=ok
-          REASON=""
-          OK_COUNT=0
-          FAIL_COUNT=0
-
-          fetch_one () {
-            local f="$1"
-            local url="${BASE}/wp-json/${NS}/snap?file=${f}"
-            local h="${OPS}/headers/${f}.hdr"
-            local b="${OPS}/bodies/${f}.json"
-
-            echo "GET $url"
-            if ! curl -A "$UA" -fsS --show-error \
-                 --retry 2 --retry-delay 2 --retry-connrefused \
-                 --connect-timeout 10 --max-time 30 \
-                 -D "$h" "$url" -o "$b"; then
-              echo "::error::curl failed for $f"
-              return 1
-            fi
-
-            local code ct
-            code=$(awk 'NR==1{print $2}' "$h")
-            ct=$(awk -F': ' 'BEGIN{IGNORECASE=1} tolower($1)=="content-type"{print tolower($2)}' "$h" | tr -d '\r')
-
-            if [ "${code:-}" != "200" ]; then
-              echo "::error::HTTP ${code:-?} for $f"
-              return 1
-            fi
-
-            if ! jq -e type "$b" >/dev/null 2>&1; then
-              echo "::error::invalid JSON for $f"
-              return 1
-            fi
-
-            # success
-            return 0
-          }
-
-          # Najpierw REQUIRED
-          while read -r f; do
-            [ -z "$f" ] && continue
-            if fetch_one "$f"; then
-              OK_COUNT=$((OK_COUNT+1))
-            else
-              FAIL_COUNT=$((FAIL_COUNT+1))
-            fi
-          done <<< "$REQUIRED"
-
-          # Zasada: musimy mieć co najmniej 2 trafienia wśród REQUIRED
-          if [ "$OK_COUNT -ge 2" ]; then
-            echo "required_ok=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "required_ok=false" >> "$GITHUB_OUTPUT"
-            STATUS=bad
-            REASON="required set insufficient (ok=$OK_COUNT, fail=$FAIL_COUNT)"
-          fi
-
-          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
-          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
-
-      - name: Fetch & validate (optional, non-blocking)
-        if: ${{ steps.req.outputs.required_ok == 'true' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          fetch_opt () {
-            local f="$1"
-            local url="${BASE}/wp-json/${NS}/snap?file=${f}"
-            local h="${OPS}/headers/${f}.hdr"
-            local b="${OPS}/bodies/${f}.json"
-            echo "GET $url"
-            if curl -A "$UA" -fsS --show-error \
-                 --retry 2 --retry-delay 2 --retry-connrefused \
-                 --connect-timeout 10 --max-time 30 \
-                 -D "$h" "$url" -o "$b"; then
-              jq -e type "$b" >/dev/null 2>&1 || echo "::warning::optional invalid JSON for $f"
-            else
-              echo "::warning::optional fetch failed for $f"
-            fi
-          }
-          while read -r f; do
-            [ -z "$f" ] && continue
-            fetch_opt "$f"
-          done <<< "$OPTIONAL"
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: snapshot-watchdog-${{ github.run_id }}
-          path: ops-snapshot-watchdog/**
-          retention-days: 7
-
-      - name: Create Issue on failure
-        if: ${{ steps.req.outputs.status != 'ok' }}
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const status = '${{ steps.req.outputs.status }}';
-            const reason = `${{ toJson(steps.req.outputs.reason) }}`;
-            const urlRun = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const files = ['manifest.json','files_000.json','gh-digest.json','index.json','bundle.json'];
-            let body = `Watchdog **${status.toUpperCase()}**\n\nReason: ${reason}\n\nRun: ${urlRun}\n\n`;
-
-            for (const f of files) {
-              try {
-                const h = fs.readFileSync(`ops-snapshot-watchdog/headers/${f}.hdr`, 'utf8');
-                const b = fs.readFileSync(`ops-snapshot-watchdog/bodies/${f}.json`, 'utf8');
-                body += `### ${f}\n`;
-                body += `**Headers (first 600 chars)**\n\n\`\`\`\n${h.slice(0,600)}\n\`\`\`\n`;
-                body += `**Body (first 1000 chars)**\n\n\`\`\`json\n${b.slice(0,1000)}\n\`\`\`\n\n`;
-              } catch (e) {}
-            }
-
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: `Snapshot watchdog: ${status.toUpperCase()} (${context.runNumber})`,
-              body
-            });
-
-      - name: Final gate
-        run: |
-          set -euo pipefail
-          if [ "${{ steps.req.outputs.status }}" != "ok" ]; then
-            echo "::error::Snapshot watchdog failed (endpoint/content problem)."
+          URL="$BASE/wp-json/$NS/snap?file=index.json"
+          echo "GET $URL"
+          if ! curl -fsS "$URL" -o "$OUTDIR/index.json"; then
+            echo "::error::Cannot fetch index.json via SNAP proxy"
             exit 1
           fi
-          echo "Watchdog OK."
+          # szybki podgląd
+          jq '{generated_at, files: (.files|length)}' "$OUTDIR/index.json" || true
+
+      - name: Resolve files list from index.json
+        id: list
+        run: |
+          set -euo pipefail
+          FILES=$(jq -r '.files[]? | select(test("^files_\\d{3}\\.json$"))' "$OUTDIR/index.json")
+          if [ -z "$FILES" ]; then
+            echo "::warning::No files_XXX.json listed in index.json; falling back to first shard guess"
+            FILES="files_000.json"
+          fi
+          printf '%s\n' "$FILES" > "$OUTDIR/_files.list"
+          echo "Planned downloads:"
+          sed 's/^/ - /' "$OUTDIR/_files.list"
+
+      - name: Download shards via SNAP
+        run: |
+          set -euo pipefail
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            URL="$BASE/wp-json/$NS/snap?file=${f}"
+            echo "GET $URL"
+            curl -fsS "$URL" -o "$OUTDIR/$f"
+            # sanity: musi być poprawny JSON
+            jq -e type "$OUTDIR/$f" >/dev/null
+          done < "$OUTDIR/_files.list"
+
+      - name: Download core metas via SNAP (best-effort)
+        run: |
+          set -euo pipefail
+          for f in manifest.json bundle.json options.json selftest.json; do
+            URL="$BASE/wp-json/$NS/snap?file=${f}"
+            echo "GET $URL"
+            curl -fsS "$URL" -o "$OUTDIR/$f" || true
+          done
+
+      # --- Logi: zostawiamy jak było, ale tolerujemy błędy (best-effort) ---
+      - name: Request fresh logs (/emit-logs)
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST "$BASE/wp-json/wtp-ro-open/v1/emit-logs?site_key=$SITE_KEY" -o /dev/null || true
+
+      - name: Fetch wp-debug + php_errors (best-effort)
+        run: |
+          set -euo pipefail
+          for f in wp-debug-latest.txt php_errors-latest.txt wp-debug-meta.json; do
+            curl -fsS "$BASE/wp-json/wtp-ro-open/v1/get?site_key=$SITE_KEY&file=$f" -o "$OUTDIR/logs/$f" || true
+          done
+
+      - name: Commit snapshot (if changed)
+        run: |
+          set -e
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git config user.name  "wtp-bot"
+            git config user.email "wtp-bot@users.noreply.github.com"
+            git commit -m "snapshot: ${SITE_KEY} $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            git push origin HEAD:main
+          fi
+
+      - name: Upload artifact (for quick download)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wtp-snapshot-${{ env.SITE_KEY }}
+          path: ${{ env.OUTDIR }}/**
+          if-no-files-found: warn
+          retention-days: 7
