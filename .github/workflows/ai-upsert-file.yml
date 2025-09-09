@@ -1,0 +1,91 @@
+name: AI Upsert File
+
+on:
+  repository_dispatch:
+    types: [ai-upsert-file]   # wywołujemy eventem 'ai-upsert-file'
+  workflow_dispatch: {}        # opcjonalnie: ręczne odpalenie z UI
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  upsert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read payload
+        id: payload
+        run: |
+          # repository_dispatch -> context.event.client_payload.*
+          # workflow_dispatch -> inputs (jeśli chcesz dodać inputs — tu korzystamy z dispatch)
+          {
+            echo "path<<EOF"
+            echo "${{ github.event.client_payload.path }}"
+            echo "EOF"
+            echo "content_b64<<EOF"
+            echo "${{ github.event.client_payload.content_b64 }}"
+            echo "EOF"
+            echo "message<<EOF"
+            echo "${{ github.event.client_payload.message }}"
+            echo "EOF"
+            echo "branch=${{ github.event.client_payload.branch || 'main' }}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Upsert via Contents API
+        env:
+          GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT || secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO:  ${{ github.event.repository.name }}
+          PATH:  ${{ steps.payload.outputs.path }}
+          MSG:   ${{ steps.payload.outputs.message }}
+          B64:   ${{ steps.payload.outputs.content_b64 }}
+          BR:    ${{ steps.payload.outputs.branch }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${PATH:-}" ] || [ -z "${B64:-}" ] || [ -z "${MSG:-}" ]; then
+            echo "::error::Missing path/content_b64/message in client_payload"
+            exit 1
+          fi
+
+          API="https://api.github.com/repos/${OWNER}/${REPO}/contents/${PATH}"
+
+          # Spróbuj pobrać sha (jeśli plik istnieje)
+          SHA=""
+          if curl -sS -H "Authorization: Bearer ${GH_TOKEN}" \
+                    -H "Accept: application/vnd.github+json" \
+                    "${API}?ref=${BR}" | jq -e 'has("sha")' >/dev/null 2>&1; then
+            SHA=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" \
+                         -H "Accept: application/vnd.github+json" \
+                         "${API}?ref=${BR}" | jq -r '.sha')
+          fi
+
+          # Złóż body do PUT
+          if [ -n "$SHA" ]; then
+            BODY=$(jq -n --arg msg "$MSG" --arg content "$B64" --arg br "$BR" --arg sha "$SHA" \
+              '{message:$msg, content:$content, branch:$br, sha:$sha}')
+          else
+            BODY=$(jq -n --arg msg "$MSG" --arg content "$B64" --arg br "$BR" \
+              '{message:$msg, content:$content, branch:$br}')
+          fi
+
+          # PUT (create/update)
+          curl -sS -X PUT "$API" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -d "$BODY" | tee /tmp/upsert.json
+
+          # Lekka walidacja
+          if ! jq -e 'has("content") or has("commit")' /tmp/upsert.json >/dev/null 2>&1; then
+            echo "::error::Upsert failed"; cat /tmp/upsert.json; exit 1
+          fi
+
+      - name: Summary
+        run: |
+          echo "✅ AI file upsert finished."
