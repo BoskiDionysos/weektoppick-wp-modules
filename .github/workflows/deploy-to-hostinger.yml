@@ -1,0 +1,69 @@
+# .github/workflows/deploy-to-hostinger.yml
+
+name: Deploy to Hostinger (SFTP, changed files only)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'mu-plugins/'
+      - 'plugins/'
+      - 'themes/'
+      - 'wp-content/'
+      - '!snapshots/'
+      - '!server-sync/'
+      - '!ops/'
+      - '!.wtp/'
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: List changed files vs previous commit
+        id: diff
+        run: |
+          set -euo pipefail
+          BASE_SHA=$(git rev-parse HEAD~1 || echo "")
+          if [ -z "$BASE_SHA" ]; then
+            git ls-files > changed.txt
+          else
+            git diff --name-only "$BASE_SHA"...HEAD > changed.txt
+          fi
+          echo "Changed files:"
+          cat changed.txt
+
+      - name: Filter deployable files
+        run: |
+          awk '
+            $0 ~ /^(mu-plugins|plugins|themes|wp-content)\// {print}
+          ' changed.txt > deploy.txt
+          echo "To deploy:"
+          cat deploy.txt || true
+
+      - name: Stop if nothing to deploy
+        run: |
+          if [ ! -s deploy.txt ]; then
+            echo "No deployable changes."
+            exit 0
+          fi
+
+      - name: Upload changed files via SFTP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SFTP_HOST }}       
+          username: ${{ secrets.SFTP_USER }}    
+          password: ${{ secrets.SFTP_PASS }}    
+          port: ${{ secrets.SFTP_PORT }}        
+          target: /home/u493676300/domains/weektoppick.com/public_html
+          source: |
+            $(cat deploy.txt)
+          strip_components: 0
+          overwrite: true
