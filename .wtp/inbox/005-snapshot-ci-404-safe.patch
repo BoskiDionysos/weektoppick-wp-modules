@@ -1,0 +1,56 @@
+diff --git a/.github/workflows/wtp-snapshot-sync.yml b/.github/workflows/wtp-snapshot-sync.yml
+index 1111111..2222222 100644
+--- a/.github/workflows/wtp-snapshot-sync.yml
++++ b/.github/workflows/wtp-snapshot-sync.yml
+@@ -1,6 +1,6 @@
+ name: WTP Snapshot Sync
+ on:
+-  workflow_dispatch:
++  workflow_dispatch:
+     inputs:
+       site_key:
+         description: "WTP site_key (folder w uploads/wtp-ro/public)"
+@@ -45,15 +45,34 @@ jobs:
+           FLAGS='-fL --retry 5 --retry-delay 2 --connect-timeout 15 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" -H "Accept: application/json,text/plain,*/*"'
+           echo "CURL_FLAGS=$FLAGS" >> "$GITHUB_OUTPUT"
+ 
+-      - name: Fetch file list via /ls
++      - name: Health check (optional)
+         id: ls
+         shell: bash
+         run: |
+-          url="${{ steps.vars.outputs.REST_BASE }}/ls?site_key=${{ steps.vars.outputs.SITE_KEY }}"
+-          echo "GET $url"
+-          resp="$(curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url")"
+-          echo "$resp" | jq '.' > "${{ steps.vars.outputs.OUT_DIR }}/ls.json"
+-          FILES=$(echo "$resp" | jq -r '.list.dirA // [] | .[]')
++          BASE="${{ steps.vars.outputs.REST_BASE }}"
++          KEY="${{ steps.vars.outputs.SITE_KEY }}"
++          mkdir -p "${{ steps.vars.outputs.OUT_DIR }}"
++          health_url="${BASE}/health?site_key=${KEY}"
++          echo "GET $health_url"
++          curl ${{ steps.dl.outputs.CURL_FLAGS }} "$health_url" -o "${{ steps.vars.outputs.OUT_DIR }}/health.json" || true
++
++          url="${BASE}/ls?site_key=${KEY}"
++          echo "GET $url"
++          # Nie zabijaj joba na 404 – zapisz pusty manifest i idź dalej.
++          if ! resp="$(curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url")"; then
++            echo '{"version":"1.5.0","files":[],"manifest":"manifest.json","options":"options.json","selftest":"selftest.json"}' > "${{ steps.vars.outputs.OUT_DIR }}/ls.json"
++            {
++              echo "FILES<<EOF"
++              echo ""
++              echo "EOF"
++            } >> "$GITHUB_OUTPUT"
++            exit 0
++          fi
++          echo "$resp" | jq '.' > "${{ steps.vars.outputs.OUT_DIR }}/ls.json"
++          # Nowa struktura: pliki w polu .files (array)
++          FILES=$(echo "$resp" | jq -r '.files // [] | .[]')
+           if [ -z "$FILES" ]; then
+-            FILES=$(echo "$resp" | jq -r '.list.dirB // [] | .[]')
++            # bardzo stary format – zachowaj kompatybilność
++            FILES=$(echo "$resp" | jq -r '.list.dirA // [] | .[]')
++            [ -z "$FILES" ] && FILES=$(echo "$resp" | jq -r '.list.dirB // [] | .[]')
+           fi
+           {
+             echo "FILES<<EOF"
