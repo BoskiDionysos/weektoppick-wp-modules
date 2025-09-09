@@ -27,7 +27,7 @@ jobs:
       SITE_KEY: 5Depft8Y9LU0t6Sv
       OPS: ops-snapshot-watchdog
       STATE_DIR: .wtp/state
-      STATE_FILE: .wtp/state/snapshot-files.json
+      STATE_FILE: .wtp/state/snapshot-files.txt
       DELTA_HARD_LIMIT: "5"
       SAMPLE_N: "3"
 
@@ -40,7 +40,7 @@ jobs:
       - name: Tools & dirs
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y jq curl
+          sudo apt-get install -y curl
           mkdir -p "$OPS" "$STATE_DIR"
 
       - name: GET /health
@@ -52,10 +52,13 @@ jobs:
           body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
           http="$(echo "$body" | tail -n1)"
           payload="$(echo "$body" | head -n-1)"
-          printf '%s\n' "$payload" > "$OPS/health.json" || true
-          echo "$payload" | head -c 300 > "$OPS/health.head.txt" || true
+          printf '%s\n' "$payload" > "$OPS/health.txt" || true
           echo "status=$http" >> "$GITHUB_OUTPUT"
-          jq -e 'type=="object"' "$OPS/health.json" >/dev/null 2>&1 && ok_json=yes || ok_json=no
+          # prosty test „czy to wygląda jak JSON” (bez jq)
+          case "$payload" in
+            \{|\[) ok_json=yes ;;
+            *)       ok_json=no ;;
+          esac
           echo "ok_json=$ok_json" >> "$GITHUB_OUTPUT"
 
       - name: GET /ls
@@ -67,26 +70,22 @@ jobs:
           body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
           http="$(echo "$body" | tail -n1)"
           payload="$(echo "$body" | head -n-1)"
-          printf '%s\n' "$payload" > "$OPS/ls.json" || true
-          echo "$payload" | head -c 300 > "$OPS/ls.head.txt" || true
+          printf '%s\n' "$payload" > "$OPS/ls.txt" || true
           echo "status=$http" >> "$GITHUB_OUTPUT"
 
-          schema_ok=false
-          total=0
+          # wyciągnięcie listy plików bez jq: prosta heurystyka (JSON array of strings)
+          : > "$OPS/files.list"
           if [ "$http" = "200" ]; then
-            if jq -e '.files and (.files|type=="array")' "$OPS/ls.json" >/dev/null 2>&1; then
-              schema_ok=true
-              total="$(jq '.files|length' "$OPS/ls.json" 2>/dev/null || echo 0)"
-            fi
+            # spróbuj zgrepować "files_XXX.json" i kluczowe znane nazwy
+            echo "$payload" | tr '","' '\n\n' | sed 's/[{}[\] ]//g' \
+              | grep -E '^(files_[0-9]{3}\.json|index\.json|manifest\.json|options\.json|selftest\.json)$' \
+              | sort -u > "$OPS/files.list" || true
           fi
+          TOTAL=$(wc -l < "$OPS/files.list" | tr -d ' ')
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+          schema_ok=no
+          [ "$http" = "200" ] && [ "$TOTAL" -gt 0 ] && schema_ok=yes
           echo "schema_ok=$schema_ok" >> "$GITHUB_OUTPUT"
-          echo "total=$total" >> "$GITHUB_OUTPUT"
-
-          if [ "$schema_ok" = "true" ]; then
-            jq -r '.files // [] | .[]' "$OPS/ls.json" 2>/dev/null | sort > "$OPS/files.list" || true
-          else
-            : > "$OPS/files.list"
-          fi
 
       - name: GET /get (index.json)
         id: get_index
@@ -98,24 +97,22 @@ jobs:
           body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
           http="$(echo "$body" | tail -n1)"
           content="$(echo "$body" | head -n-1)"
-          printf '%s\n' "$content" > "$OPS/get.index.json" || true
-          echo "$content" | head -c 300 > "$OPS/get.index.head.txt" || true
+          printf '%s\n' "$content" > "$OPS/get.index.txt" || true
           echo "status=$http" >> "$GITHUB_OUTPUT"
-          schema_ok=false
-          if [ "$http" = "200" ]; then
-            jq -e 'has("manifest") and has("options") and has("selftest")' "$OPS/get.index.json" >/dev/null 2>&1 && schema_ok=true || schema_ok=false
-          fi
+          # heurystyka „czy ma klucze manifest/options/selftest”
+          case "$content" in
+            manifest|options|selftest) schema_ok=yes ;;
+            *)                                schema_ok=no ;;
+          esac
           echo "schema_ok=$schema_ok" >> "$GITHUB_OUTPUT"
 
       - name: GET /get sample files_*.json
         id: get_samples
         run: |
           set -euo pipefail
-          SAMPLED=0
-          OK=0
-          ERR=0
+          SAMPLED=0; OK=0; ERR=0
           > "$OPS/samples.txt"
-          mapfile -t picks < <(grep -E '^files_[0-9]{3}\.json$' "$OPS/files.list" | head -n "$SAMPLE_N" || true)
+          mapfile -t picks < <(grep -E '^files_[0-9]{3}\.json$' "$OPS/files.list" | head -n "${SAMPLE_N}" || true)
           for f in "${picks[@]}"; do
             [ -z "$f" ] && continue
             URL="${BASE}/wp-json/${NS}/get?site_key=${SITE_KEY}&file=${f}"
@@ -123,15 +120,12 @@ jobs:
             body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
             http="$(echo "$body" | tail -n1)"
             content="$(echo "$body" | head -n-1)"
-            printf '%s\n' "$content" > "$OPS/get.$f" || true
+            printf '%s\n' "$content" > "$OPS/get.$f.txt" || true
             SAMPLED=$((SAMPLED+1))
-            if [ "$http" = "200" ] && jq -e 'type=="object" or type=="array"' "$OPS/get.$f" >/dev/null 2>&1; then
-              echo "[OK] $f ($http)" >> "$OPS/samples.txt"
-              OK=$((OK+1))
-            else
-              echo "[ERR] $f (http=$http, json?=$(jq -e . "$OPS/get.$f" >/dev/null 2>&1 && echo yes || echo no))" >> "$OPS/samples.txt"
-              ERR=$((ERR+1))
-            fi
+            case "$http:$content" in
+              200:\{|200:\[ ) echo "[OK] $f ($http)" >> "$OPS/samples.txt"; OK=$((OK+1)) ;;
+              * )               echo "[ERR] $f (http=$http)" >> "$OPS/samples.txt"; ERR=$((ERR+1)) ;;
+            esac
           done
           echo "sampled=$SAMPLED" >> "$GITHUB_OUTPUT"
           echo "ok=$OK" >> "$GITHUB_OUTPUT"
@@ -141,20 +135,18 @@ jobs:
         id: prev
         run: |
           set -euo pipefail
-          if [ -f "$STATE_FILE" ]; then
-            cp "$STATE_FILE" "$OPS/prev-files.list"
-          else
-            : > "$OPS/prev-files.list"
-          fi
+          if [ -f "$STATE_FILE" ]; then cp "$STATE_FILE" "$OPS/prev-files.list"; else : > "$OPS/prev-files.list"; fi
           echo "has_prev=$( [ -s "$OPS/prev-files.list" ] && echo yes || echo no )" >> "$GITHUB_OUTPUT"
 
       - name: Compute delta
         id: delta
         run: |
           set -euo pipefail
+          sort -u "$OPS/prev-files.list" -o "$OPS/prev-files.list" || true
+          sort -u "$OPS/files.list" -o "$OPS/files.list" || true
           comm -13 "$OPS/prev-files.list" "$OPS/files.list" > "$OPS/added.list"  || true
           comm -23 "$OPS/prev-files.list" "$OPS/files.list" > "$OPS/removed.list" || true
-          ADDED=$(wc -l < "$OPS/added.list"  | tr -d ' ')
+          ADDED=$(wc -l < "$OPS/added.list" | tr -d ' ')
           REM=$(wc -l < "$OPS/removed.list" | tr -d ' ')
           DIFF=$((ADDED + REM))
           echo "added=$ADDED"   >> "$GITHUB_OUTPUT"
@@ -178,17 +170,18 @@ jobs:
           REMOVED: ${{ steps.delta.outputs.removed }}
           DELTA: ${{ steps.delta.outputs.delta }}
           HARD: ${{ env.DELTA_HARD_LIMIT }}
+          OPS: ${{ env.OPS }}
         run: |
           python3 - << 'PY'
-          import os, json
-          OPS="ops-snapshot-watchdog"
+          import os, json, pathlib
+          OPS=os.environ["OPS"]
           H=int(os.getenv("H","0") or "0")
           HJSON=os.getenv("HJSON","no")
           L=int(os.getenv("L","0") or "0")
-          LOK=os.getenv("LOK","false")=="true"
+          LOK=os.getenv("LOK","no")=="yes"
           T=int(os.getenv("T","0") or "0")
           GI=int(os.getenv("GI","0") or "0")
-          GI_SCHEMA=os.getenv("GI_SCHEMA","false")=="true"
+          GI_SCHEMA=os.getenv("GI_SCHEMA","no")=="yes"
           SAMP=int(os.getenv("SAMP","0") or "0")
           SOK=int(os.getenv("SOK","0") or "0")
           SERR=int(os.getenv("SERR","0") or "0")
@@ -222,6 +215,7 @@ jobs:
               "samples": {"sampled": SAMP, "ok": SOK, "err": SERR}
             }
           }
+          pathlib.Path(OPS).mkdir(parents=True, exist_ok=True)
           with open(f"{OPS}/summary.json","w",encoding="utf-8") as f:
             json.dump(summary,f,ensure_ascii=False,indent=2)
           with open(os.environ["GITHUB_OUTPUT"],"a") as out:
@@ -251,7 +245,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Create Issue on failure (curl)
+      - name: Create Issue on failure (no-jq)
         if: ${{ steps.decide.outputs.fail == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -260,21 +254,44 @@ jobs:
           owner="${GITHUB_REPOSITORY%/*}"
           repo="${GITHUB_REPOSITORY#*/}"
           title="❌ Snapshot Watchdog failed ($(date -u +%FT%TZ))"
-          health_head="$(cat ops-snapshot-watchdog/health.head.txt 2>/dev/null || true)"
-          ls_head="$(cat ops-snapshot-watchdog/ls.head.txt 2>/dev/null || true)"
-          summary="$(cat ops-snapshot-watchdog/summary.json 2>/dev/null || true)"
-          body=$(
-            printf "Snapshot watchdog detected a problem.\n\n### /health (head)\n\\\\n%s\n\\\\n### /ls (head)\n\\\\n%s\n\\\\n### Summary\n\\\\n%s\n\\\\nRun: %s/%s/%s/actions/runs/%s" \
-              "$health_head" "$ls_head" "$summary" \
-              "$GITHUB_SERVER_URL" "$owner" "$repo" "$GITHUB_RUN_ID" \
-            | jq -Rs .
+          health_head="$(head -c 1000 ops-snapshot-watchdog/health.txt 2>/dev/null || true)"
+          ls_head="$(head -c 1000 ops-snapshot-watchdog/ls.txt 2>/dev/null || true)"
+          summary="$(cat ops-snapshot-watchdog/summary.json 2>/dev/null || echo '{}')"
+
+          python3 - "$owner" "$repo" "$title" "$GITHUB_SERVER_URL" "$GITHUB_RUN_ID" <<'PY'
+          import sys, json, os, urllib.request
+          owner, repo, title, server_url, run_id = sys.argv[1:6]
+          health = os.environ.get("health_head","")
+          ls = os.environ.get("ls_head","")
+          try:
+            with open("ops-snapshot-watchdog/summary.json","r",encoding="utf-8") as f:
+              summary = f.read()
+          except:
+            summary = "{}"
+          body = (
+            "Snapshot watchdog detected a problem.\n\n"
+            "### /health (head)\n\n"+health+"\n\n"
+            "### /ls (head)\n\n"+ls+"\n\n"
+            "### Summary\n\n"+summary+"\n\n"
+            f"Run: {server_url}/{owner}/{repo}/actions/runs/{run_id}"
           )
-          json=$(jq -n --arg title "$title" --arg body "$(printf %s "$body" | jq -r .)" '{title:$title, body:$body}')
-          curl -sS -X POST \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${owner}/${repo}/issues" \
-            -d "$json" >/dev/null || true
+          payload = json.dumps({"title": title, "body": body}).encode("utf-8")
+          req = urllib.request.Request(
+            f"https://api.github.com/repos/{owner}/{repo}/issues",
+            data=payload,
+            headers={
+              "Authorization": f"Bearer {os.environ.get('GH_TOKEN','')}",
+              "Accept": "application/vnd.github+json",
+              "Content-Type": "application/json"
+            },
+            method="POST"
+          )
+          try:
+            with urllib.request.urlopen(req) as r:
+              r.read()
+          except Exception as e:
+            print("Issue create failed:", e)
+          PY
 
       - name: Fail job if watchdog failed
         if: ${{ steps.decide.outputs.fail == 'true' }}
