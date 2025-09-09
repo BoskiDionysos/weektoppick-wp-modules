@@ -1,4 +1,4 @@
-name: Deploy site (plugins, themes, mu-plugins, configs, optional wp-config)
+name: Deploy Site (MU, plugins, themes, wp-config)
 
 on:
   push:
@@ -7,13 +7,10 @@ on:
       - 'mu-plugins/'
       - 'plugins/'
       - 'themes/'
-      - '.wtp/deploy/'
+      - 'wp-content/themes/'
       - '.wtp/wp-config.tpl.php'
-      - '.htaccess'
-      - '.user.ini'
-  workflow_run:
-    workflows: ["Apply Inbox Patch"]
-    types: [completed]
+      - '.github/workflows/deploy-site.yml'
+  workflow_dispatch: {}
 
 concurrency:
   group: deploy-site
@@ -21,145 +18,85 @@ concurrency:
 
 jobs:
   deploy:
-    if: |
-      github.event_name == 'push' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
-    timeout-minutes: 25
-
+    timeout-minutes: 30
     env:
-      DEPLOY_HOST:   ${{ secrets.DEPLOY_HOST }}
-      DEPLOY_PORT:   ${{ secrets.DEPLOY_PORT }}
-      DEPLOY_USER:   ${{ secrets.DEPLOY_USER }}
-      DEPLOY_PASS:   ${{ secrets.DEPLOY_PASS }}
-      DEPLOY_TARGET: ${{ secrets.DEPLOY_TARGET }}
-
+      HOST:  ${{ secrets.DEPLOY_HOST }}
+      PORT:  ${{ secrets.DEPLOY_PORT }}
+      USER:  ${{ secrets.DEPLOY_USER }}
+      PASS:  ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      # Ustaw w Secrets na "true" jeśli chcesz generować i wysyłać wp-config.php z szablonu
       ALLOW_WPCONFIG_DEPLOY: ${{ secrets.ALLOW_WPCONFIG_DEPLOY }}
-
-      WP_DB_NAME:      ${{ secrets.WP_DB_NAME }}
-      WP_DB_USER:      ${{ secrets.WP_DB_USER }}
-      WP_DB_PASSWORD:  ${{ secrets.WP_DB_PASSWORD }}
-      WP_DB_HOST:      ${{ secrets.WP_DB_HOST }}
-      WP_TABLE_PREFIX: ${{ secrets.WP_TABLE_PREFIX }}
-      WP_HOME_URL:     ${{ secrets.WP_HOME_URL }}
-      WP_SITEURL:      ${{ secrets.WP_SITEURL }}
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Ensure tools
+      - name: Install tools
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y rsync moreutils curl tar
+          sudo apt-get install -y rsync sshpass
 
-      - name: Decide wp-config rendering
-        id: wc
-        shell: bash
+      - name: Create target folders (first connect)
         run: |
-          set -euo pipefail
-          WANT="no"
-          if [ -f ".wtp/wp-config.tpl.php" ] && [ "${ALLOW_WPCONFIG_DEPLOY:-}" = "true" ]; then
-            WANT="yes"
-          fi
-          echo "want=${WANT}" >> "$GITHUB_OUTPUT"
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+            "mkdir -p '$TARGET/wp-content/mu-plugins' \
+                      '$TARGET/wp-content/plugins' \
+                      '$TARGET/wp-content/themes' \
+                      '$TARGET/.wtp-bot'"
 
-      - name: Generate salts (only if rendering wp-config)
-        if: steps.wc.outputs.want == 'yes'
-        id: salts
-        shell: bash
+      - name: Deploy MU plugins
+        if: ${{ hashFiles('mu-plugins/') != '' }}
         run: |
-          set -euo pipefail
-          curl -fsSL https://api.wordpress.org/secret-key/1.1/salt/ > .wtp/.salts.php
-          echo "ok=1" >> "$GITHUB_OUTPUT"
+          rsync -avz --delete \
+            -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
+            mu-plugins/ "$USER@$HOST:$TARGET/wp-content/mu-plugins/"
 
-      - name: Render wp-config.php from template
-        if: steps.wc.outputs.want == 'yes'
-        shell: bash
+      - name: Deploy standard plugins
+        if: ${{ hashFiles('plugins/') != '' }}
         run: |
-          set -euo pipefail
-          mkdir -p .wtp/.bundle
-          export WP_DB_NAME WP_DB_USER WP_DB_PASSWORD WP_DB_HOST WP_TABLE_PREFIX WP_HOME_URL WP_SITEURL
-          envsubst < .wtp/wp-config.tpl.php > .wtp/.bundle/wp-config.php
-          if [ -f .wtp/.salts.php ]; then
-            printf "\n/* --- AUTO-SALTS --- */\n" >> .wtp/.bundle/wp-config.php
-            cat .wtp/.salts.php >> .wtp/.bundle/wp-config.php
-          fi
+          rsync -avz --delete \
+            -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
+            plugins/ "$USER@$HOST:$TARGET/wp-content/plugins/"
 
-      - name: Build deploy bundle (dynamic set)
-        id: bundle
-        shell: bash
+      - name: Deploy themes
+        if: ${{ hashFiles('themes/') != '' || hashFiles('wp-content/themes/') != '' }}
         run: |
-          set -euo pipefail
-          mkdir -p .wtp/.bundle
-          FILES=()
-          for p in mu-plugins plugins themes .wtp/deploy .htaccess .user.ini; do
-            [ -e "$p" ] && FILES+=("$p")
-          done
-          [ -f ".wtp/.bundle/wp-config.php" ] && FILES+=(".wtp/.bundle/wp-config.php")
-          if [ ${#FILES[@]} -eq 0 ]; then
-            echo "No deployable files found. Exiting."
-            echo "has_bundle=no" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          tar -czf .wtp/.bundle/site-deploy.tgz "${FILES[@]}"
-          echo "has_bundle=yes" >> "$GITHUB_OUTPUT"
-          echo "bundle=.wtp/.bundle/site-deploy.tgz" >> "$GITHUB_OUTPUT"
+          if [ -d "themes" ]; then SRC="themes/"; else SRC="wp-content/themes/"; fi
+          rsync -avz --delete \
+            -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
+            "$SRC" "$USER@$HOST:$TARGET/wp-content/themes/"
 
-      - name: Upload bundle to server
-        if: steps.bundle.outputs.has_bundle == 'yes'
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host:     ${{ env.DEPLOY_HOST }}
-          port:     ${{ env.DEPLOY_PORT }}
-          username: ${{ env.DEPLOY_USER }}
-          password: ${{ env.DEPLOY_PASS }}
-          source:   "${{ steps.bundle.outputs.bundle }}"
-          target:   "~/.wtp-bot/"
-
-      - name: Unpack & sync to WordPress paths
-        if: steps.bundle.outputs.has_bundle == 'yes'
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host:     ${{ env.DEPLOY_HOST }}
-          port:     ${{ env.DEPLOY_PORT }}
-          username: ${{ env.DEPLOY_USER }}
-          password: ${{ env.DEPLOY_PASS }}
-          script: |
-            set -euo pipefail
-
-            ROOT="${DEPLOY_TARGET}"
-            PUB="${DEPLOY_TARGET}/public_html"
-
-            mkdir -p "$HOME/.wtp-bot"
-            mkdir -p "$PUB/wp-content/mu-plugins" "$PUB/wp-content/plugins" "$PUB/wp-content/themes"
-
-            tar -xzf "$HOME/.wtp-bot/site-deploy.tgz" -C "$HOME/.wtp-bot"
-
-            [ -d "$HOME/.wtp-bot/mu-plugins" ] && rsync -a --delete "$HOME/.wtp-bot/mu-plugins/" "$PUB/wp-content/mu-plugins/"
-            [ -d "$HOME/.wtp-bot/plugins"    ] && rsync -a "$HOME/.wtp-bot/plugins/"         "$PUB/wp-content/plugins/"
-            [ -d "$HOME/.wtp-bot/themes"     ] && rsync -a "$HOME/.wtp-bot/themes/"          "$PUB/wp-content/themes/"
-            [ -d "$HOME/.wtp-bot/.wtp/deploy" ] && rsync -a "$HOME/.wtp-bot/.wtp/deploy/" "$PUB/.wtp-bot/"
-
-            [ -f "$HOME/.wtp-bot/.htaccess" ] && mv -f "$HOME/.wtp-bot/.htaccess" "$PUB/.htaccess"
-            [ -f "$HOME/.wtp-bot/.user.ini" ] && mv -f "$HOME/.wtp-bot/.user.ini" "$PUB/.user.ini"
-
-            if [ -f "$HOME/.wtp-bot/.wtp/.bundle/wp-config.php" ]; then
-              mv -f "$HOME/.wtp-bot/.wtp/.bundle/wp-config.php" "$PUB/wp-config.php"
-            fi
-
-            mkdir -p "$PUB/.wtp-bot"
-            date -u +"%Y-%m-%dT%H:%M:%SZ" > "$PUB/.wtp-bot/deploy-ok.txt"
-
-      - name: Set HOME_URL for smoke test
-        if: steps.bundle.outputs.has_bundle == 'yes'
-        shell: bash
+      - name: Generate & deploy wp-config.php (optional)
+        if: ${{ env.ALLOW_WPCONFIG_DEPLOY == 'true' && hashFiles('.wtp/wp-config.tpl.php') != '' }}
+        env:
+          # te sekrety mogą być użyte w szablonie {{NAZWA}}
+          WTP_AGENT_TOKEN:  ${{ secrets.WTP_AGENT_TOKEN }}
+          WTP_GH_SYNC_PAT:  ${{ secrets.WTP_GH_SYNC_PAT }}
+          WTP_GH_SECRET:    ${{ secrets.WTP_GH_SECRET }}
+          WTP_BRIDGE_KEY:   ${{ secrets.WTP_BRIDGE_KEY }}
+          WTP_BRIDGE_HMAC:  ${{ secrets.WTP_BRIDGE_HMAC }}
+          RUNNER_URL:       ${{ secrets.RUNNER_URL }}
         run: |
-          echo "HOME_URL=${WP_HOME_URL:-https://weektoppick.com}" >> "$GITHUB_ENV"
+          python3 - <<'PY'
+import os, re, io
+tpl = ".wtp/wp-config.tpl.php"
+out = "wp-config.php"
+s = io.open(tpl, "r", encoding="utf-8").read()
+def repl(m):
+    return os.environ.get(m.group(1), "")
+s = re.sub(r"\{\{(\w+)\}\}", repl, s)
+io.open(out, "w", encoding="utf-8").write(s)
+print("Generated", out)
+PY
+          rsync -avz \
+            -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
+            wp-config.php "$USER@$HOST:$TARGET/wp-config.php"
 
-      - name: Smoke test (WP REST root)
-        if: steps.bundle.outputs.has_bundle == 'yes'
+      - name: Write deploy marker
         run: |
-          curl -fsS "$HOME_URL/wp-json/" >/dev/null
+          echo "deploy $(date -u +%FT%TZ)" > .deploy.txt
+          rsync -avz -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
+            .deploy.txt "$USER@$HOST:$TARGET/.wtp-bot/deploy.txt"
