@@ -27,6 +27,7 @@ concurrency:
 
 jobs:
   deploy:
+    # dla workflow_run: tylko po sukcesie i tylko z main
     if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -76,17 +77,21 @@ jobs:
       - name: Deploy standard plugins (protect selected)
         if: ${{ hashFiles('plugins/**') != '' }}
         env:
+          # podaj katalogi pluginów, które masz tylko na serwerze (bez końcowego ukośnika)
           PROTECT_PLUGINS: "wordfence translatepress-multilingual cookie-law-info"
         run: |
           set -euo pipefail
-          RULES=$(mktemp)
+          FILTERS=()
           for p in $PROTECT_PLUGINS; do
-            echo "--filter='protect /$p/'" >> "$RULES"
+            # każda reguła jako JEDEN argument (zawiera spację): "--filter=protect /nazwa/"
+            FILTERS+=("--filter=protect /$p/")
           done
+
           echo "Protecting plugins on server:"
-          cat "$RULES" | sed 's/^/  /'
+          printf '  %s\n' "${FILTERS[@]}"
+
           rsync -avz --delete \
-            $(cat "$RULES") \
+            "${FILTERS[@]}" \
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             plugins/ "$USER@$HOST:$TARGET/wp-content/plugins/"
 
@@ -94,18 +99,22 @@ jobs:
       - name: Deploy themes (protect selected)
         if: ${{ hashFiles('themes/**') != '' || hashFiles('wp-content/themes/**') != '' }}
         env:
+          # podaj katalogi motywów, które masz tylko na serwerze (bez końcowego ukośnika)
           PROTECT_THEMES: "wtp-core-theme twentytwentyfive astra hello-elementor"
         run: |
           set -euo pipefail
           if [ -d "themes" ]; then SRC="themes/"; elif [ -d "wp-content/themes" ]; then SRC="wp-content/themes/"; else echo "No themes directory in repo"; exit 0; fi
-          RULES=$(mktemp)
+
+          FILTERS=()
           for t in $PROTECT_THEMES; do
-            echo "--filter='protect /$t/'" >> "$RULES"
+            FILTERS+=("--filter=protect /$t/")
           done
+
           echo "Protecting themes on server:"
-          cat "$RULES" | sed 's/^/  /'
+          printf '  %s\n' "${FILTERS[@]}"
+
           rsync -avz --delete \
-            $(cat "$RULES") \
+            "${FILTERS[@]}" \
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             "$SRC" "$USER@$HOST:$TARGET/wp-content/themes/"
 
