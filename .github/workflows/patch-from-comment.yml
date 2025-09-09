@@ -30,9 +30,7 @@ jobs:
             const fs = require('fs');
             const body = context.payload.comment.body || '';
 
-            // 1) fenced ```patch ...``` lub ```diff ...```
             const fenced = body.match(/```(?:patch|diff)\s+([\s\S]*?)```/i);
-            // 2) fallback: wiadomość zaczynająca się od "# patch"
             const head = body.startsWith('# patch') ? body.replace(/^# patch\s*/i, '') : null;
 
             const patch = (fenced && fenced[1]) ? fenced[1].trim() : (head ? head.trim() : '');
