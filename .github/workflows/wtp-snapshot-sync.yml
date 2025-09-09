@@ -36,22 +36,19 @@ jobs:
           set -euo pipefail
           SITE_KEY="${{ github.event.inputs.site_key }}"
           REST_BASE="${{ github.event.inputs.rest_base }}"
-          [ -z "${SITE_KEY}" ] && SITE_KEY="5Depft8Y9LU0t6Sv"
-          [ -z "${REST_BASE}" ] && REST_BASE="https://weektoppick.com/wp-json/wtp-ro-open/v1"
+          [ -z "${SITE_KEY:-}" ] && SITE_KEY="5Depft8Y9LU0t6Sv"
+          [ -z "${REST_BASE:-}" ] && REST_BASE="https://weektoppick.com/wp-json/wtp-ro-open/v1"
           OUT_DIR="snapshots/${SITE_KEY}"
-          {
-            echo "SITE_KEY=${SITE_KEY}"
-            echo "REST_BASE=${REST_BASE}"
-            echo "OUT_DIR=${OUT_DIR}"
-          } >> "$GITHUB_OUTPUT"
+          echo "SITE_KEY=${SITE_KEY}"   >> "$GITHUB_OUTPUT"
+          echo "REST_BASE=${REST_BASE}" >> "$GITHUB_OUTPUT"
+          echo "OUT_DIR=${OUT_DIR}"     >> "$GITHUB_OUTPUT"
 
       - name: Prepare output dirs (idempotent)
         shell: bash
         run: |
           set -euo pipefail
-          OUT="${{ steps.vars.outputs.OUT_DIR }}"
-          mkdir -p "${OUT}" || true
-          mkdir -p "${OUT}/logs" || true
+          mkdir -p "${{ steps.vars.outputs.OUT_DIR }}" || true
+          mkdir -p "${{ steps.vars.outputs.OUT_DIR }}/logs" || true
 
       - name: Set curl flags (browser-like)
         id: dl
@@ -60,54 +57,41 @@ jobs:
           FLAGS='-fL --retry 5 --retry-delay 2 --connect-timeout 20 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -H "Accept: application/json,text/plain,*/*"'
           echo "CURL_FLAGS=${FLAGS}" >> "$GITHUB_OUTPUT"
 
-      - name: Fetch file list via /ls
-        id: ls
+      - name: Fetch /ls and save list
         shell: bash
         run: |
           set -euo pipefail
-          url="${{ steps.vars.outputs.REST_BASE }}/ls?site_key=${{ steps.vars.outputs.SITE_KEY }}"
-          echo "GET $url"
-          resp="$(curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url")"
-          # zapisz surowe ls.json
-          echo "$resp" | jq '.' > "${{ steps.vars.outputs.OUT_DIR }}/ls.json"
-          # wyciągnij listę plików; pomiń wpis 'logs' (to katalog)
-          FILES=$(echo "$resp" | jq -r '
-            (.list.dirA // .list.dirB // []) 
-            | map(select(. != "logs")) 
-            | .[]
-          ')
-          if [ -z "${FILES}" ]; then
-            echo "::error::Brak listy plików w /ls (puste)."
-            exit 1
+          OUT="${{ steps.vars.outputs.OUT_DIR }}"
+          BASE="${{ steps.vars.outputs.REST_BASE }}"
+          KEY="${{ steps.vars.outputs.SITE_KEY }}"
+          URL="${BASE}/ls?site_key=${KEY}"
+          echo "GET ${URL}"
+          RESP="$(curl ${{ steps.dl.outputs.CURL_FLAGS }} "$URL")"
+          echo "$RESP" | jq '.' > "${OUT}/ls.json"
+          # Wyciągnij listę plików, pomiń katalog 'logs'
+          echo "$RESP" | jq -r '(.list.dirA // .list.dirB // []) | map(select(. != "logs")) | .[]' > "${OUT}/files.list"
+          if ! [ -s "${OUT}/files.list" ]; then
+            echo "::error::Brak plików do pobrania (lista pusta)"; exit 1
           fi
-          {
-            echo "FILES<<__WTP_EOF__"
-            echo "$FILES"
-            echo "__WTP_EOF__"
-          } >> "$GITHUB_OUTPUT"
 
       - name: Download files via /get
         shell: bash
         run: |
           set -euo pipefail
+          OUT="${{ steps.vars.outputs.OUT_DIR }}"
+          BASE="${{ steps.vars.outputs.REST_BASE }}"
+          KEY="${{ steps.vars.outputs.SITE_KEY }}"
           while IFS= read -r fname; do
             [ -z "$fname" ] && continue
-            # bezpieczeństwo: jeśli w ls pojawi się katalog, omiń
-            if [ "$fname" = "logs" ]; then
-              continue
-            fi
-            # utwórz podkatalog, jeśli jest (tu raczej pliki w katalogu gł.)
+            # przygotuj podkatalog jeśli potrzeba
             subdir="$(dirname "$fname")"
             if [ "$subdir" != "." ]; then
-              mkdir -p "${{ steps.vars.outputs.OUT_DIR }}/${subdir}" || true
+              mkdir -p "${OUT}/${subdir}" || true
             fi
-            # budowa URL (tu nazwy są proste, bez spacji – nie kodujemy)
-            url="${{ steps.vars.outputs.REST_BASE }}/get?site_key=${{ steps.vars.outputs.SITE_KEY }}&file=${fname}&_b=$(date +%s)"
-            echo "GET $url"
-            curl ${{ steps.dl.outputs.CURL_FLAGS }} "$url" -o "${{ steps.vars.outputs.OUT_DIR }}/${fname}"
-          done << '__WTP_EOF__'
-          ${{ steps.ls.outputs.FILES }}
-__WTP_EOF__
+            URL="${BASE}/get?site_key=${KEY}&file=${fname}&_b=$(date +%s)"
+            echo "GET ${URL}"
+            curl ${{ steps.dl.outputs.CURL_FLAGS }} "$URL" -o "${OUT}/${fname}"
+          done < "${OUT}/files.list"
 
       - name: Stamp runner metadata (idempotent)
         shell: bash
