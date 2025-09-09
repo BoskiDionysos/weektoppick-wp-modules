@@ -18,6 +18,7 @@
   },
   "list": {
     "dirA": [
+      "config",
       "files_000.json",
       "files_001.json",
       "files_002.json",
@@ -49,6 +50,7 @@
       "wp-debug-meta.json"
     ],
     "dirB": [
+      "config",
       "files_000.json",
       "files_001.json",
       "files_002.json",
