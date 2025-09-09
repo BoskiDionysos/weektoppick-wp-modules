@@ -4,7 +4,8 @@ on:
   push:
     branches: [ main ]
     paths:
-      - '.wtp/inbox/.patch'
+      - '.wtp/inbox/*.patch'
+      - '.wtp/inbox/**/*.patch'
   workflow_dispatch: {}
 
 permissions:
