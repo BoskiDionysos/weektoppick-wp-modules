@@ -55,7 +55,6 @@ jobs:
           printf '%s\n' "$payload" > "$OPS/health.json" || true
           echo "$payload" | head -c 300 > "$OPS/health.head.txt" || true
           echo "status=$http" >> "$GITHUB_OUTPUT"
-          # bezpieczny test JSON (nie przerywa skryptu)
           jq -e 'type=="object"' "$OPS/health.json" >/dev/null 2>&1 && ok_json=yes || ok_json=no
           echo "ok_json=$ok_json" >> "$GITHUB_OUTPUT"
 
@@ -83,7 +82,6 @@ jobs:
           echo "schema_ok=$schema_ok" >> "$GITHUB_OUTPUT"
           echo "total=$total" >> "$GITHUB_OUTPUT"
 
-          # jeżeli JSON poprawny – wylistuj pliki, inaczej pusta lista
           if [ "$schema_ok" = "true" ]; then
             jq -r '.files // [] | .[]' "$OPS/ls.json" 2>/dev/null | sort > "$OPS/files.list" || true
           else
@@ -199,11 +197,6 @@ jobs:
           DELTA=int(os.getenv("DELTA","0") or "0")
           HARD=int(os.getenv("HARD","5") or "5")
 
-          def load(path):
-            try:
-              with open(path,'r',encoding='utf-8') as f: return json.load(f)
-            except: return None
-
           status="ok"; reason="healthy"
           if H!=200 or HJSON!="yes":
             status="fail"; reason="health_bad_http_or_json"
@@ -258,27 +251,33 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Create Issue on failure
+      - name: Create Issue on failure (curl)
         if: ${{ steps.decide.outputs.fail == 'true' }}
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            let body = 'Snapshot watchdog detected a problem.\n\n';
-            function safe(path) { try { return fs.readFileSync(path,'utf8'); } catch(e){ return ''; } }
-            body += '### /health (head)\n\n'+ safe('ops-snapshot-watchdog/health.head.txt') +'\n\n';
-            body += '### /ls (head)\n\n'+ safe('ops-snapshot-watchdog/ls.head.txt') +'\n\n';
-            body += '### Summary\n\n'+ safe('ops-snapshot-watchdog/summary.json').slice(0,5000) +'\n\n';
-            body += '\nRun: ' + ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId};
-            await github.rest.issues.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              title: ❌ Snapshot Watchdog failed (${new Date().toISOString()}),
-              body
-            });
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%/*}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          title="❌ Snapshot Watchdog failed ($(date -u +%FT%TZ))"
+          health_head="$(cat ops-snapshot-watchdog/health.head.txt 2>/dev/null || true)"
+          ls_head="$(cat ops-snapshot-watchdog/ls.head.txt 2>/dev/null || true)"
+          summary="$(cat ops-snapshot-watchdog/summary.json 2>/dev/null || true)"
+          body=$(
+            printf "Snapshot watchdog detected a problem.\n\n### /health (head)\n\\\\n%s\n\\\\n### /ls (head)\n\\\\n%s\n\\\\n### Summary\n\\\\n%s\n\\\\nRun: %s/%s/%s/actions/runs/%s" \
+              "$health_head" "$ls_head" "$summary" \
+              "$GITHUB_SERVER_URL" "$owner" "$repo" "$GITHUB_RUN_ID" \
+            | jq -Rs .
+          )
+          json=$(jq -n --arg title "$title" --arg body "$(printf %s "$body" | jq -r .)" '{title:$title, body:$body}')
+          curl -sS -X POST \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${owner}/${repo}/issues" \
+            -d "$json" >/dev/null || true
 
       - name: Fail job if watchdog failed
         if: ${{ steps.decide.outputs.fail == 'true' }}
         run: |
-          echo "::error::Snapshot watchdog failed (see artifacts and issue)."
+          echo "::error::Snapshot watchdog failed (see artifacts and created issue)."
           exit 1
