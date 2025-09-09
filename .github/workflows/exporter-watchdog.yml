@@ -1,12 +1,18 @@
 name: Exporter Watchdog
 
 on:
-  schedule:
-    - cron: "*/30 * * * *"   # co 30 min (UTC)
-  workflow_dispatch: {}       # ręczny start
   push:
+    branches: [ main ]
     paths:
-      - ".github/workflows/exporter-watchdog.yml"
+      - 'mu-plugins/wtp-ro-exporter.php'
+      - '.github/workflows/exporter-watchdog.yml'
+  schedule:
+    - cron: '*/15 * * * *'   # co 15 min (UTC)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
 
 concurrency:
   group: exporter-watchdog
@@ -15,144 +21,145 @@ concurrency:
 jobs:
   check:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
-
     env:
-      # Bazowy URL WP; gdy brak secreta — domyślnie prod
-      BASE_URL: ${{ secrets.RUNNER_URL || 'https://weektoppick.com' }}
-      SITE_KEY: "5Depft8Y9LU0t6Sv"
-      ROUTE: "/wp-json/wtp-ro-open/v1/health"
-
+      BASE: https://weektoppick.com
+      NS: wtp-ro-open/v1
+      SITE_KEY: 5Depft8Y9LU0t6Sv
+      OPS: ops-watchdog
     steps:
-      - name: Show parameters
+      - name: Prepare tools & dirs
         run: |
-          echo "BASE_URL=${BASE_URL}"
-          echo "SITE_KEY=${SITE_KEY}"
-          echo "ROUTE=${ROUTE}"
+          sudo apt-get update -y
+          sudo apt-get install -y jq curl
+          mkdir -p "$OPS"
 
-      - name: Probe exporter /health
-        id: probe
-        shell: bash
+      - name: Health check
+        id: health
         run: |
           set -euo pipefail
-          URL="${BASE_URL%/}${ROUTE}?site_key=${SITE_KEY}"
+          URL="${BASE}/wp-json/${NS}/health?site_key=${SITE_KEY}"
           echo "GET $URL"
+          code=0
+          body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
+          http="$(echo "$body" | tail -n1)"
+          payload="$(echo "$body" | head -n-1)"
+          printf '%s\n' "$payload" > "$OPS/health.json" || true
+          echo "status=$http" >> "$GITHUB_OUTPUT"
+          echo "payload=$(echo "$payload" | tr -d '\n' | cut -c1-500)" >> "$GITHUB_OUTPUT"
 
-          BODY_FILE="$(mktemp)"
-          # zwróć sam kod HTTP do zmiennej; treść do BODY_FILE
-          HTTP=$(curl -sS -L --retry 2 --max-time 25 \
-                  -H "Accept: application/json" \
-                  -o "$BODY_FILE" -w '%{http_code}' "$URL" || echo "000")
-
-          # domyślnie FAIL
-          OK=false
-          if [ "$HTTP" = "200" ]; then
-            if jq -e '.ok == true' "$BODY_FILE" >/dev/null 2>&1; then
-              OK=true
-            fi
+      - name: List files
+        id: ls
+        run: |
+          set -euo pipefail
+          URL="${BASE}/wp-json/${NS}/ls?site_key=${SITE_KEY}"
+          echo "GET $URL"
+          body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
+          http="$(echo "$body" | tail -n1)"
+          payload="$(echo "$body" | head -n-1)"
+          printf '%s\n' "$payload" > "$OPS/ls.json" || true
+          echo "status=$http" >> "$GITHUB_OUTPUT"
+          # bezpieczna walidacja struktury (nie przerywamy joba)
+          if [ "$http" = "200" ] && jq -e '.files and (.files|type=="array")' "$OPS/ls.json" >/dev/null 2>&1; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            # zapisz pierwszy plik do testu /get
+            first="$(jq -r '.files[0] // empty' "$OPS/ls.json")"
+            echo "first_file=$first" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "first_file=" >> "$GITHUB_OUTPUT"
           fi
 
-          PREVIEW="$(head -c 2000 "$BODY_FILE" | sed -e 's/\r//g')"
-          echo "HTTP=$HTTP"
-          echo "OK=$OK"
-          echo "Response preview (first 2KB):"
-          echo "-----------------------------"
-          echo "$PREVIEW"
-          echo "-----------------------------"
+      - name: Get sample file (index.json preferred)
+        id: get
+        run: |
+          set -euo pipefail
+          pick="index.json"
+          if [ -n "${{ steps.ls.outputs.first_file }}" ]; then
+            pick="${{ steps.ls.outputs.first_file }}"
+          fi
+          URL="${BASE}/wp-json/${NS}/get?site_key=${SITE_KEY}&file=${pick}"
+          echo "GET $URL"
+          body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
+          http="$(echo "$body" | tail -n1)"
+          content="$(echo "$body" | head -n-1)"
+          # zapisz surową odpowiedź (może być JSON lub text/plain)
+          printf '%s\n' "$content" > "$OPS/get.sample"
+          echo "status=$http" >> "$GITHUB_OUTPUT"
+          echo "file=$pick" >> "$GITHUB_OUTPUT"
 
-          {
-            echo "http=$HTTP"
-            echo "ok=$OK"
-          } >> "$GITHUB_OUTPUT"
+      - name: Decide result and summarize
+        id: decide
+        run: |
+          set -euo pipefail
+          HSTAT="${{ steps.health.outputs.status || '0' }}"
+          LSTAT="${{ steps.ls.outputs.status || '0' }}"
+          LOK="${{ steps.ls.outputs.ok || 'false' }}"
+          GSTAT="${{ steps.get.outputs.status || '0' }}"
+          FILE="${{ steps.get.outputs.file || '' }}"
 
-          # Zapisz podgląd do artefaktu (użyje go github-script)
-          mkdir -p .wtp-watchdog
-          echo "$PREVIEW" > .wtp-watchdog/health-preview.txt
+          echo "health=$HSTAT, ls=$LSTAT (ok=$LOK), get=$GSTAT ($FILE)"
 
-      - name: Upload preview artifact
+          status="ok"
+          reason="healthy"
+          if [ "$HSTAT" != "200" ]; then
+            status="fail"; reason="health_http_$HSTAT"
+          elif [ "$LSTAT" != "200" ] || [ "$LOK" != "true" ]; then
+            status="fail"; reason="ls_bad_or_schema"
+          elif [ "$GSTAT" != "200" ]; then
+            status="fail"; reason="get_http_$GSTAT"
+          fi
+
+          jq -n --arg status "$status" --arg reason "$reason" \
+                --argfile health "$OPS/health.json" \
+                --argfile ls "$OPS/ls.json" \
+                --arg sample_file "$FILE" \
+                '{status:$status, reason:$reason, sample_file:$sample_file, health:$health, ls:$ls}' \
+                > "$OPS/summary.json"
+
+          cat "$OPS/summary.json"
+
+          if [ "$status" != "ok" ]; then
+            echo "fail=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            echo "fail=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload watchdog artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: exporter-health-preview
-          path: .wtp-watchdog/health-preview.txt
-          if-no-files-found: ignore
-          retention-days: 3
+          name: exporter-watchdog
+          path: ops-watchdog/**
+          if-no-files-found: warn
+          retention-days: 7
 
-      - name: Open/Update issue on failure
-        if: ${{ steps.probe.outputs.ok != 'true' }}
+      - name: Create Issue on failure
+        if: ${{ steps.decide.outputs.fail == 'true' }}
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const { owner, repo } = context.repo;
-
-            const TITLE = "❌ Exporter watchdog alert";
-            const http = core.getInput('HTTP', { required:false }) || process.env.HTTP || '';
-            const ok = core.getInput('OK', { required:false }) || process.env.OK || '';
-            let preview = '';
-            try { preview = fs.readFileSync('.wtp-watchdog/health-preview.txt', 'utf8'); } catch(e) {}
-
-            // Znajdź istniejące otwarte issue o tym tytule
-            const issues = await github.paginate(
-              github.rest.issues.listForRepo,
-              { owner, repo, state: "open" }
-            );
-            let ticket = issues.find(i => i.title === TITLE);
-
-            const body = [
-              Time (UTC): ${new Date().toISOString()},
-              HTTP: ${process.env.HTTP || 'n/a'},
-              ok: ${process.env.OK || 'false'},
-              URL: ${process.env.BASE_URL}/${process.env.ROUTE.replace(/^\\//,'')}?site_key=${process.env.SITE_KEY},
-              "",
-              "Response preview (first 2KB):",
-              "",
-              preview || "(no body)",
-              "",
-              "",
-              Run: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}
-            ].join("\n");
-
-            if (!ticket) {
-              // utwórz nowe
-              await github.rest.issues.create({
-                owner, repo,
-                title: TITLE,
-                body
-              });
-            } else {
-              // dopisz komentarz do istniejącego
-              await github.rest.issues.createComment({
-                owner, repo, issue_number: ticket.number, body
-              });
+            const path = 'ops-watchdog/summary.json';
+            let summary = {};
+            try {
+              summary = JSON.parse(fs.readFileSync(path, 'utf8'));
+            } catch(e) {
+              summary = {status:'fail', reason:'summary_read_error'};
             }
-        env:
-          HTTP: ${{ steps.probe.outputs.http }}
-          OK:   ${{ steps.probe.outputs.ok }}
-          BASE_URL: ${{ env.BASE_URL }}
-          ROUTE: ${{ env.ROUTE }}
-          SITE_KEY: ${{ env.SITE_KEY }}
+            const title = ❌ Exporter Watchdog: ${summary.reason || 'unknown'};
+            let body = 'Exporter watchdog detected a problem.\n\n';
+            body += '### Summary\n';
+            body += 'json\n' + JSON.stringify(summary, null, 2).slice(0, 4000) + '\n\n';
+            body += \nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId};
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body
+            });
 
-      - name: Auto-close alert when healthy
-        if: ${{ steps.probe.outputs.ok == 'true' }}
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            const TITLE = "❌ Exporter watchdog alert";
-            const issues = await github.paginate(
-              github.rest.issues.listForRepo,
-              { owner, repo, state: "open" }
-            );
-            for (const i of issues) {
-              if (i.title === TITLE) {
-                await github.rest.issues.createComment({
-                  owner, repo, issue_number: i.number,
-                  body: ✅ Healthy again at ${new Date().toISOString()}.
-                });
-                await github.rest.issues.update({
-                  owner, repo, issue_number: i.number, state: "closed"
-                });
-              }
-            }
+      - name: Fail job if watchdog failed
+        if: ${{ steps.decide.outputs.fail == 'true' }}
+        run: |
+          echo "::error::Exporter watchdog failed (see artifacts and issue)."
+          exit 1
