@@ -21,11 +21,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      # połączenie
       HOST:   ${{ secrets.DEPLOY_HOST }}
       PORT:   ${{ secrets.DEPLOY_PORT }}
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
+      # „wyniesiony” sekret, żeby użyć go w if:
+      ALLOW_WPCONFIG_DEPLOY: ${{ secrets.ALLOW_WPCONFIG_DEPLOY }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -68,7 +72,7 @@ jobs:
             "$SRC" "$USER@$HOST:$TARGET/wp-content/themes/"
 
       - name: Generate & deploy wp-config.php (optional)
-        if: ${{ secrets.ALLOW_WPCONFIG_DEPLOY == 'true' && hashFiles('.wtp/wp-config.tpl.php') != '' }}
+        if: ${{ env.ALLOW_WPCONFIG_DEPLOY == 'true' && hashFiles('.wtp/wp-config.tpl.php') != '' }}
         env:
           WTP_AGENT_TOKEN:  ${{ secrets.WTP_AGENT_TOKEN }}
           WTP_GH_SYNC_PAT:  ${{ secrets.WTP_GH_SYNC_PAT }}
