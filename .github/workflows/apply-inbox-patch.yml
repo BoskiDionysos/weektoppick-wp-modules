@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - '.wtp/inbox/*.patch'
+      - '.wtp/inbox/'
   workflow_dispatch: {}
 
 jobs:
@@ -28,7 +28,7 @@ jobs:
         run: |
           mkdir -p .wtp/inbox .wtp/processed
 
-      - name: Apply all patches from inbox (idempotent)
+      - name: Apply all patches from inbox (timestamped archive)
         shell: bash
         run: |
           set -euo pipefail
@@ -40,34 +40,54 @@ jobs:
             exit 0
           fi
 
+          changes=0
+          ts() { date -u +%Y%m%dT%H%M%SZ; }
+
           for P in "${PATCHES[@]}"; do
             BN="$(basename "$P")"
-            echo ">> Applying: $BN"
+            BASE="${BN%.patch}"
+            STAMP="$(ts)"
 
-            # spróbuj 3-way; jeśli brak zmian/already applied – nie traktuj jako błąd
-            if git apply --check --3way "$P"; then
-              git apply --3way "$P"
-              echo "Applied: $BN"
+            echo ">> Processing: $BN"
+
+            status="skipped"
+            # najpierw sprawdź, czy patch da się zastosować 3-way
+            if git apply --check --3way "$P" 2>/dev/null; then
+              # zastosuj
+              if git apply --3way "$P"; then
+                status="applied"
+                changes=1
+                echo "   Applied: $BN"
+              else
+                status="failed"
+                echo "   WARN: apply failed at runtime: $BN"
+              fi
             else
-              echo "Nothing to apply or already applied: $BN (ok)"
+              # jeśli --check nie przeszło, może już w repo (brak zmian) – to OK
+              status="skipped"
+              echo "   No changes (already applied?): $BN"
             fi
 
-            # archiwizacja do .wtp/processed z nadpisaniem jeżeli istnieje
-            TARGET=".wtp/processed/$BN"
-            if [ -e "$TARGET" ]; then
-              echo "Processed already has $BN – replacing."
-              git rm -f "$TARGET" 2>/dev/null || rm -f "$TARGET" || true
+            # przenieś do processed z TSTAMP i statusem – bez kolizji
+            DEST=".wtp/processed/${BASE}-${status}-${STAMP}.patch"
+            # jeśli plik już istnieje (teoretycznie nie powinien), dopnij losowy sufiks
+            if [ -e "$DEST" ]; then
+              DEST=".wtp/processed/${BASE}-${status}-${STAMP}-$(openssl rand -hex 3).patch"
             fi
-            git mv "$P" "$TARGET"
+
+            git rm -f --cached --quiet "$P" 2>/dev/null || true   # na wypadek staged
+            mv "$P" "$DEST"
+            git add "$DEST" || true
           done
 
-          # commit tylko jeśli cokolwiek się zmieniło (aplikacja łatki lub przeniesienia)
-          git add -A || true
-          if git diff --cached --quiet; then
+          # Commit tylko jeśli są zmiany w drzewie
+          if ! git diff --cached --quiet; then
+            git commit -m "[apply-inbox] processed patches ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+            git push origin HEAD:main
+            echo "Pushed processed patches."
+          else
             echo "No repo changes to commit."
-            exit 0
           fi
 
-          git commit -m "[apply-inbox] processed patches"
-          git push origin HEAD:main
-          echo "Done."
+          # Nie zabijaj joba, jeśli żaden patch nie wniósł zmian — to normalne
+          exit 0
