@@ -21,13 +21,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      HOST:  ${{ secrets.DEPLOY_HOST }}
-      PORT:  ${{ secrets.DEPLOY_PORT }}
-      USER:  ${{ secrets.DEPLOY_USER }}
-      PASS:  ${{ secrets.DEPLOY_PASS }}
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
-      # Ustaw w Secrets na "true" jeśli chcesz generować i wysyłać wp-config.php z szablonu
-      ALLOW_WPCONFIG_DEPLOY: ${{ secrets.ALLOW_WPCONFIG_DEPLOY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -70,9 +68,8 @@ jobs:
             "$SRC" "$USER@$HOST:$TARGET/wp-content/themes/"
 
       - name: Generate & deploy wp-config.php (optional)
-        if: ${{ env.ALLOW_WPCONFIG_DEPLOY == 'true' && hashFiles('.wtp/wp-config.tpl.php') != '' }}
+        if: ${{ secrets.ALLOW_WPCONFIG_DEPLOY == 'true' && hashFiles('.wtp/wp-config.tpl.php') != '' }}
         env:
-          # te sekrety mogą być użyte w szablonie {{NAZWA}}
           WTP_AGENT_TOKEN:  ${{ secrets.WTP_AGENT_TOKEN }}
           WTP_GH_SYNC_PAT:  ${{ secrets.WTP_GH_SYNC_PAT }}
           WTP_GH_SECRET:    ${{ secrets.WTP_GH_SECRET }}
@@ -80,17 +77,7 @@ jobs:
           WTP_BRIDGE_HMAC:  ${{ secrets.WTP_BRIDGE_HMAC }}
           RUNNER_URL:       ${{ secrets.RUNNER_URL }}
         run: |
-          python3 - <<'PY'
-import os, re, io
-tpl = ".wtp/wp-config.tpl.php"
-out = "wp-config.php"
-s = io.open(tpl, "r", encoding="utf-8").read()
-def repl(m):
-    return os.environ.get(m.group(1), "")
-s = re.sub(r"\{\{(\w+)\}\}", repl, s)
-io.open(out, "w", encoding="utf-8").write(s)
-print("Generated", out)
-PY
+          python3 -c "import os,re,io; s=io.open('.wtp/wp-config.tpl.php','r',encoding='utf-8').read(); s=re.sub(r'\{\{(\w+)\}\}', lambda m: os.environ.get(m.group(1),'') , s); io.open('wp-config.php','w',encoding='utf-8').write(s)"
           rsync -avz \
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             wp-config.php "$USER@$HOST:$TARGET/wp-config.php"
