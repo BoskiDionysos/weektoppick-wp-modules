@@ -1,9 +1,1 @@
-{
-  "logs": [
-    {
-      "ts": "2025-09-08T23:33:22Z",
-      "src": "meta",
-      "msg": "meta: {\"ts\":\"2025-09-08T23:12:14+00:00\",\"wp_debug_log\":\"/home/u493676300/debug/wp-debug.log\",\"php_error_log\":\"/home/u493676300/debug/wp-debug.log\",\"size\":{\"wp\":42542,\"php\":42542}}"
-    }
-  ]
-}
+{"logs":[{"ts":"2025-09-09T06:18:33Z","level":"info","step":"mirror","msg":"Synced 5Depft8Y9LU0t6Sv (REST)"}]}

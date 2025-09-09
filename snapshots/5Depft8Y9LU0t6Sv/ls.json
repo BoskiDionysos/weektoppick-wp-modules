@@ -1,5 +1,5 @@
 {
-  "version": "1.0.8",
+  "version": "1.0.9",
   "upload_dir": {
     "path": "/home/u493676300/domains/weektoppick.com/public_html/wp-content/uploads/2025/09",
     "url": "https://weektoppick.com/wp-content/uploads/2025/09",
@@ -81,7 +81,7 @@
     ]
   },
   "urls": {
-    "baseurl": "https://weektoppick.com/wp-content/uploads/",
+    "baseurl": "https://weektoppick.com/wp-content/uploads",
     "public_url": "https://weektoppick.com/wp-content/uploads/wtp-ro/public/5Depft8Y9LU0t6Sv/"
   }
 }
