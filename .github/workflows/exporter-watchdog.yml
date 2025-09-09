@@ -1,0 +1,158 @@
+name: Exporter Watchdog
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # co 30 min (UTC)
+  workflow_dispatch: {}       # ręczny start
+  push:
+    paths:
+      - ".github/workflows/exporter-watchdog.yml"
+
+concurrency:
+  group: exporter-watchdog
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+
+    env:
+      # Bazowy URL WP; gdy brak secreta — domyślnie prod
+      BASE_URL: ${{ secrets.RUNNER_URL || 'https://weektoppick.com' }}
+      SITE_KEY: "5Depft8Y9LU0t6Sv"
+      ROUTE: "/wp-json/wtp-ro-open/v1/health"
+
+    steps:
+      - name: Show parameters
+        run: |
+          echo "BASE_URL=${BASE_URL}"
+          echo "SITE_KEY=${SITE_KEY}"
+          echo "ROUTE=${ROUTE}"
+
+      - name: Probe exporter /health
+        id: probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="${BASE_URL%/}${ROUTE}?site_key=${SITE_KEY}"
+          echo "GET $URL"
+
+          BODY_FILE="$(mktemp)"
+          # zwróć sam kod HTTP do zmiennej; treść do BODY_FILE
+          HTTP=$(curl -sS -L --retry 2 --max-time 25 \
+                  -H "Accept: application/json" \
+                  -o "$BODY_FILE" -w '%{http_code}' "$URL" || echo "000")
+
+          # domyślnie FAIL
+          OK=false
+          if [ "$HTTP" = "200" ]; then
+            if jq -e '.ok == true' "$BODY_FILE" >/dev/null 2>&1; then
+              OK=true
+            fi
+          fi
+
+          PREVIEW="$(head -c 2000 "$BODY_FILE" | sed -e 's/\r//g')"
+          echo "HTTP=$HTTP"
+          echo "OK=$OK"
+          echo "Response preview (first 2KB):"
+          echo "-----------------------------"
+          echo "$PREVIEW"
+          echo "-----------------------------"
+
+          {
+            echo "http=$HTTP"
+            echo "ok=$OK"
+          } >> "$GITHUB_OUTPUT"
+
+          # Zapisz podgląd do artefaktu (użyje go github-script)
+          mkdir -p .wtp-watchdog
+          echo "$PREVIEW" > .wtp-watchdog/health-preview.txt
+
+      - name: Upload preview artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: exporter-health-preview
+          path: .wtp-watchdog/health-preview.txt
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Open/Update issue on failure
+        if: ${{ steps.probe.outputs.ok != 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+
+            const TITLE = "❌ Exporter watchdog alert";
+            const http = core.getInput('HTTP', { required:false }) || process.env.HTTP || '';
+            const ok = core.getInput('OK', { required:false }) || process.env.OK || '';
+            let preview = '';
+            try { preview = fs.readFileSync('.wtp-watchdog/health-preview.txt', 'utf8'); } catch(e) {}
+
+            // Znajdź istniejące otwarte issue o tym tytule
+            const issues = await github.paginate(
+              github.rest.issues.listForRepo,
+              { owner, repo, state: "open" }
+            );
+            let ticket = issues.find(i => i.title === TITLE);
+
+            const body = [
+              Time (UTC): ${new Date().toISOString()},
+              HTTP: ${process.env.HTTP || 'n/a'},
+              ok: ${process.env.OK || 'false'},
+              URL: ${process.env.BASE_URL}/${process.env.ROUTE.replace(/^\\//,'')}?site_key=${process.env.SITE_KEY},
+              "",
+              "Response preview (first 2KB):",
+              "",
+              preview || "(no body)",
+              "",
+              "",
+              Run: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}
+            ].join("\n");
+
+            if (!ticket) {
+              // utwórz nowe
+              await github.rest.issues.create({
+                owner, repo,
+                title: TITLE,
+                body
+              });
+            } else {
+              // dopisz komentarz do istniejącego
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: ticket.number, body
+              });
+            }
+        env:
+          HTTP: ${{ steps.probe.outputs.http }}
+          OK:   ${{ steps.probe.outputs.ok }}
+          BASE_URL: ${{ env.BASE_URL }}
+          ROUTE: ${{ env.ROUTE }}
+          SITE_KEY: ${{ env.SITE_KEY }}
+
+      - name: Auto-close alert when healthy
+        if: ${{ steps.probe.outputs.ok == 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const TITLE = "❌ Exporter watchdog alert";
+            const issues = await github.paginate(
+              github.rest.issues.listForRepo,
+              { owner, repo, state: "open" }
+            );
+            for (const i of issues) {
+              if (i.title === TITLE) {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: i.number,
+                  body: ✅ Healthy again at ${new Date().toISOString()}.
+                });
+                await github.rest.issues.update({
+                  owner, repo, issue_number: i.number, state: "closed"
+                });
+              }
+            }
