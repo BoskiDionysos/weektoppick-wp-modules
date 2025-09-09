@@ -2,7 +2,13 @@ name: Apply Inbox Patch
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - ''                # każda gałąź, nie tylko main
+    paths:
+      - '.wtp/inbox/'     # tylko gdy zmienia się coś w inbox
+  pull_request:
+    branches:
+      - main
     paths:
       - '.wtp/inbox/'
   workflow_dispatch:
