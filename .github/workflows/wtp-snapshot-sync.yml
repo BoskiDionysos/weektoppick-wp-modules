@@ -1,143 +1,88 @@
 name: WTP Snapshot Sync
 
 on:
-  workflow_dispatch:
-    inputs:
-      site_key:
-        description: "WTP site_key (uploads/wtp-ro/public/<key>)"
-        required: false
-        default: "5Depft8Y9LU0t6Sv"
-      rest_base:
-        description: "Base REST URL"
-        required: false
-        default: "https://weektoppick.com/wp-json/wtp-ro-open/v1"
   schedule:
     - cron: "*/30 * * * *"
+  workflow_dispatch: {}
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure jq & curl
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y jq curl
-
       - name: Vars
         id: v
-        shell: bash
         run: |
-          SITE_KEY="${{ github.event.inputs.site_key }}"
-          REST_BASE="${{ github.event.inputs.rest_base }}"
-          [ -z "$SITE_KEY" ] && SITE_KEY="5Depft8Y9LU0t6Sv"
-          [ -z "$REST_BASE" ] && REST_BASE="https://weektoppick.com/wp-json/wtp-ro-open/v1"
-          echo "SITE_KEY=$SITE_KEY"   >> "$GITHUB_OUTPUT"
-          echo "REST_BASE=$REST_BASE" >> "$GITHUB_OUTPUT"
-          echo "OUT_DIR=snapshots/$SITE_KEY" >> "$GITHUB_OUTPUT"
+          echo "SITE_KEY=5Depft8Y9LU0t6Sv" >> $GITHUB_OUTPUT
+          echo "BASE=https://weektoppick.com/wp-json/wtp-ro-open/v1" >> $GITHUB_OUTPUT
+          echo "OUT=snapshots/5Depft8Y9LU0t6Sv" >> $GITHUB_OUTPUT
 
-      - name: Prepare dirs
-        shell: bash
+      - name: Create output dir (idempotent)
         run: |
-          set -euo pipefail
-          mkdir -p "${{ steps.v.outputs.OUT_DIR }}" || true
-          mkdir -p "${{ steps.v.outputs.OUT_DIR }}/logs" || true
-          mkdir -p "${{ steps.v.outputs.OUT_DIR }}/config" || true
+          mkdir -p "${{ steps.v.outputs.OUT }}/logs"
 
-      - name: Curl flags
-        id: c
-        shell: bash
-        run: |
-          echo 'CURL_FLAGS=-fL --retry 4 --retry-delay 2 --connect-timeout 20 -A "Mozilla/5.0" -H "Accept: application/json,text/plain,/"' >> "$GITHUB_OUTPUT"
-
-      - name: Trigger config dump (redacted)
-        shell: bash
-        run: |
-          set -euo pipefail
-          URL="${{ steps.v.outputs.REST_BASE }}/config_dump?site_key=${{ steps.v.outputs.SITE_KEY }}"
-          echo "POST $URL"
-          curl ${{ steps.c.outputs.CURL_FLAGS }} -X POST "$URL" \
-            -o "${{ steps.v.outputs.OUT_DIR }}/config/config_dump.json" || true
-          test -s "${{ steps.v.outputs.OUT_DIR }}/config/config_dump.json" || echo '{}' > "${{ steps.v.outputs.OUT_DIR }}/config/config_dump.json"
-
-      - name: List files (/ls)
+      - name: Probe LS (dir + urls)
         id: ls
         shell: bash
         run: |
           set -euo pipefail
-          URL="${{ steps.v.outputs.REST_BASE }}/ls?site_key=${{ steps.v.outputs.SITE_KEY }}"
+          URL="${{ steps.v.outputs.BASE }}/ls?site_key=${{ steps.v.outputs.SITE_KEY }}"
           echo "GET $URL"
-          RESP="$(curl ${{ steps.c.outputs.CURL_FLAGS }} "$URL")"
-          echo "$RESP" | jq '.' > "${{ steps.v.outputs.OUT_DIR }}/ls.json"
+          RESP=$(curl -fsSL --retry 3 --retry-delay 2 "$URL")
+          echo "$RESP" > "${{ steps.v.outputs.OUT }}/ls.json"
+          # wyciągnij public_url jeżeli jest
+          PUB=$(echo "$RESP" | jq -r '.urls.public_url // empty')
+          echo "public_url=$PUB" >> $GITHUB_OUTPUT
 
-          FILES=$(echo "$RESP" | jq -r '.list.dirA // [] | .[]')
-          if [ -z "$FILES" ]; then
-            FILES=$(echo "$RESP" | jq -r '.list.dirB // [] | .[]')
+      - name: Try manifest.json (primary)
+        id: manifest_try
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="${{ steps.v.outputs.BASE }}/get?site_key=${{ steps.v.outputs.SITE_KEY }}&file=manifest.json"
+          echo "GET $URL"
+          curl -fsSL --retry 3 --retry-delay 2 "$URL" \
+            -o "${{ steps.v.outputs.OUT }}/manifest.json"
+          jq -e 'type=="object"' "${{ steps.v.outputs.OUT }}/manifest.json" >/dev/null
+          echo "ok=true" >> $GITHUB_OUTPUT
+
+      - name: Fallback to index.json (list files_*), if manifest missing
+        if: steps.manifest_try.outcomes.failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="${{ steps.v.outputs.BASE }}/get?site_key=${{ steps.v.outputs.SITE_KEY }}&file=index.json"
+          echo "GET $URL"
+          curl -fsSL --retry 3 --retry-delay 2 "$URL" \
+            -o "${{ steps.v.outputs.OUT }}/index.json"
+          jq -e '.files | type=="array"' "${{ steps.v.outputs.OUT }}/index.json" >/dev/null
+
+      - name: Download file lists (handles both manifest or index)
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="${{ steps.v.outputs.BASE }}"
+          SK="${{ steps.v.outputs.SITE_KEY }}"
+          OUT="${{ steps.v.outputs.OUT }}"
+
+          if [ -f "$OUT/manifest.json" ] && jq -e 'has("files")' "$OUT/manifest.json" >/dev/null 2>&1; then
+            FILES=$(jq -r '.files[]' "$OUT/manifest.json")
+          else
+            FILES=$(jq -r '.files[]' "$OUT/index.json")
           fi
 
-          {
-            echo "FILES<<EOF"
-            echo "$FILES"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Download files from root list
-        shell: bash
-        run: |
-          set -euo pipefail
-          while read -r f; do
-            [ -z "$f" ] && continue
-            # pomiń katalogi (logs, config)
-            if [ "$f" = "logs" ] || [ "$f" = "config" ]; then
-              echo "skip dir $f"
-              continue
-            fi
-            URL="${{ steps.v.outputs.REST_BASE }}/get?site_key=${{ steps.v.outputs.SITE_KEY }}&file=${f}&_b=$(date +%s)"
-            OUT="${{ steps.v.outputs.OUT_DIR }}/${f}"
-            echo "GET $URL -> $OUT"
-            mkdir -p "$(dirname "$OUT")" || true
-            curl ${{ steps.c.outputs.CURL_FLAGS }} "$URL" -o "$OUT"
-          done << EOF
-          ${{ steps.ls.outputs.FILES }}
-          EOF
-
-      - name: Download config pack (known files)
-        shell: bash
-        run: |
-          set -euo pipefail
-          for f in config/wp-config.redacted.php config/htaccess.redacted.txt config/meta.json; do
-            URL="${{ steps.v.outputs.REST_BASE }}/get?site_key=${{ steps.v.outputs.SITE_KEY }}&file=${f}&_b=$(date +%s)"
-            OUT="${{ steps.v.outputs.OUT_DIR }}/${f}"
-            echo "GET $URL -> $OUT"
-            mkdir -p "$(dirname "$OUT")" || true
-            curl ${{ steps.c.outputs.CURL_FLAGS }} "$URL" -o "$OUT" || true
+          for F in $FILES; do
+            echo "Downloading $F"
+            curl -fsSL --retry 3 --retry-delay 2 \
+              "$BASE/get?site_key=$SK&file=$F" -o "$OUT/$F"
           done
 
-      - name: Download latest logs (safe files)
-        shell: bash
-        run: |
-          set -euo pipefail
-          for f in wp-debug-latest.txt php_errors-latest.txt wp-debug-meta.json; do
-            URL="${{ steps.v.outputs.REST_BASE }}/get?site_key=${{ steps.v.outputs.SITE_KEY }}&file=${f}&_b=$(date +%s)"
-            OUT="${{ steps.v.outputs.OUT_DIR }}/logs/${f}"
-            echo "GET $URL -> $OUT"
-            mkdir -p "$(dirname "$OUT")" || true
-            curl ${{ steps.c.outputs.CURL_FLAGS }} "$URL" -o "$OUT" || true
+          # logi (jeśli są)
+          for L in wp-debug-latest.txt php_errors-latest.txt; do
+            curl -fsS --retry 2 --retry-delay 2 \
+              "$BASE/get?site_key=$SK&file=$L" -o "$OUT/logs/$L" || echo "no $L (ok)"
           done
-
-      - name: Commit & push snapshot
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name  "wtp-snapshot-bot"
-          git config user.email "wtp-snapshot-bot@users.noreply.github.com"
-          git add "${{ steps.v.outputs.OUT_DIR }}/" || true
-          git commit -m "snapshot: ${{
-            steps.v.outputs.SITE_KEY
-          }} $(date -u +'%Y-%m-%dT%H:%M:%SZ')" || echo "No changes"
-          git push || echo "No push (maybe no changes)"
