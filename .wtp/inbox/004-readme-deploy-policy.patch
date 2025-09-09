@@ -1,0 +1,17 @@
+*** Begin Patch
+*** Add File: README-WTP-DEPLOY.md
++# WTP Deploy Policy (short)
++
++**Plugins (plugins/)** → Agent Push (ZIP + manifest + /wp-json/wtp/v1/agent/install).  
++**MU-plugins (mu-plugins/)** i **Themes (themes/ / wp-content/themes/)** → Deploy Site (rsync).  
++wp-config.php generujemy z .wtp/wp-config.tpl.php *tylko* gdy ALLOW_WPCONFIG_DEPLOY=true.
++
++Rsync dla plugins/ jest *fallback-only*. Włączasz go sekretem:
++
++
++RSYNC_PLUGINS_FALLBACK=true
++
++
++Domyślnie jest wyłączony – główny tor dla wtyczek to Agent Push.
++
+*** End Patch
