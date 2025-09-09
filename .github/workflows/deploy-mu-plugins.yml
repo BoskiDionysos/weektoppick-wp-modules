@@ -1,0 +1,59 @@
+name: WTP Deploy MU Plugins
+
+on:
+  push:
+    paths:
+      - ".wtp/deploy/mu-plugins/"
+      - ".github/workflows/deploy-mu-plugins.yml"
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install sshpass
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Sanity check payload
+        run: |
+          if [ ! -d ".wtp/deploy/mu-plugins" ]; then
+            echo "No payload to deploy (.wtp/deploy/mu-plugins is missing)"; exit 1;
+          fi
+          ls -la .wtp/deploy/mu-plugins || true
+
+      - name: Upload MU plugins to server
+        env:
+          HOST:   ${{ secrets.DEPLOY_HOST }}
+          PORT:   ${{ secrets.DEPLOY_PORT }}
+          USER:   ${{ secrets.DEPLOY_USER }}
+          PASS:   ${{ secrets.DEPLOY_PASS }}
+          TARGET: ${{ secrets.DEPLOY_TARGET }}   # np. /home/u493676300/domains/weektoppick.com/public_html
+        run: |
+          set -euo pipefail
+          # Docelowy katalog MU
+          MU_DIR="$TARGET/wp-content/mu-plugins"
+
+          # Upewnij się, że katalog istnieje
+          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -p "$PORT" "$USER@$HOST" "mkdir -p '$MU_DIR'"
+
+          # Kopiuj wszystkie pliki z payloadu
+          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no -r .wtp/deploy/mu-plugins/* "$USER@$HOST":"$MU_DIR/"
+
+      - name: Ping (marker udanego deployu)
+        env:
+          HOST:   ${{ secrets.DEPLOY_HOST }}
+          PORT:   ${{ secrets.DEPLOY_PORT }}
+          USER:   ${{ secrets.DEPLOY_USER }}
+          PASS:   ${{ secrets.DEPLOY_PASS }}
+          TARGET: ${{ secrets.DEPLOY_TARGET }}
+        run: |
+          set -euo pipefail
+          TS=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          sshpass -p "$PASS" ssh -o StrictHostKeyChecking=no -p "$PORT" "$USER@$HOST" \
+            "mkdir -p '$TARGET/.wtp-bot' && echo 'deploy-mu $TS' > '$TARGET/.wtp-bot/ping.txt'"
