@@ -1,17 +1,42 @@
-HTTP/2 404 
-date: Tue, 09 Sep 2025 22:35:33 GMT
-content-type: application/json; charset=UTF-8
+HTTP/2 500 
+date: Tue, 09 Sep 2025 23:09:21 GMT
+content-type: text/html; charset=UTF-8
 vary: Accept-Encoding
 x-powered-by: PHP/8.3.22
-x-robots-tag: noindex
-link: <https://weektoppick.com/wp-json/>; rel="https://api.w.org/"
-x-content-type-options: nosniff
-access-control-expose-headers: X-WP-Total, X-WP-TotalPages, Link
-access-control-allow-headers: Authorization, X-WP-Nonce, Content-Disposition, Content-MD5, Content-Type
+expires: Wed, 11 Jan 1984 05:00:00 GMT
+cache-control: no-cache, must-revalidate, max-age=0, no-store, private
 platform: hostinger
 panel: hpanel
 content-security-policy: upgrade-insecure-requests
 server: hcdn
 alt-svc: h3=":443"; ma=86400
-x-hcdn-request-id: b724a6d97e34b28ce6e6d59a7bfff051-imm-edge4
+x-hcdn-request-id: 102e62fdff3fa6ea0aebbdffea92383d-bos-edge1
+
+HTTP/2 500 
+date: Tue, 09 Sep 2025 23:09:23 GMT
+content-type: text/html; charset=UTF-8
+vary: Accept-Encoding
+x-powered-by: PHP/8.3.22
+expires: Wed, 11 Jan 1984 05:00:00 GMT
+cache-control: no-cache, must-revalidate, max-age=0, no-store, private
+platform: hostinger
+panel: hpanel
+content-security-policy: upgrade-insecure-requests
+server: hcdn
+alt-svc: h3=":443"; ma=86400
+x-hcdn-request-id: 7f4b64e0b74e8a9654bb26bea7eb0955-bos-edge1
+
+HTTP/2 500 
+date: Tue, 09 Sep 2025 23:09:25 GMT
+content-type: text/html; charset=UTF-8
+vary: Accept-Encoding
+x-powered-by: PHP/8.3.22
+expires: Wed, 11 Jan 1984 05:00:00 GMT
+cache-control: no-cache, must-revalidate, max-age=0, no-store, private
+platform: hostinger
+panel: hpanel
+content-security-policy: upgrade-insecure-requests
+server: hcdn
+alt-svc: h3=":443"; ma=86400
+x-hcdn-request-id: 5565380424a91979dff4c5eaa65006cc-bos-edge1
 
