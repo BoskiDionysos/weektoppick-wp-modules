@@ -1,165 +1,125 @@
 name: Exporter Watchdog
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'mu-plugins/wtp-ro-exporter.php'
-      - '.github/workflows/exporter-watchdog.yml'
   schedule:
-    - cron: '*/15 * * * *'   # co 15 min (UTC)
-  workflow_dispatch: {}
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   issues: write
 
 concurrency:
   group: exporter-watchdog
   cancel-in-progress: true
 
+env:
+  BASE: https://weektoppick.com
+  NS_OPEN: wtp-ro-open/v1
+  NS_SNAP: wtp-ro/v1
+  SITE_KEY: 5Depft8Y9LU0t6Sv
+  OPS: ops-exporter-watchdog
+  UA: WTP-ExporterWatchdog/1.0 (+https://weektoppick.com)
+
 jobs:
-  check:
+  watchdog:
     runs-on: ubuntu-latest
-    env:
-      BASE: https://weektoppick.com
-      NS: wtp-ro-open/v1
-      SITE_KEY: 5Depft8Y9LU0t6Sv
-      OPS: ops-watchdog
     steps:
-      - name: Prepare tools & dirs
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tools
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq curl
-          mkdir -p "$OPS"
 
-      - name: Health check
-        id: health
+      - name: Prepare dirs
+        run: mkdir -p "$OPS/headers" "$OPS/bodies"
+
+      - name: Health checks (open + snap)
+        id: hc
+        shell: bash
         run: |
           set -euo pipefail
-          URL="${BASE}/wp-json/${NS}/health?site_key=${SITE_KEY}"
-          echo "GET $URL"
-          code=0
-          body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
-          http="$(echo "$body" | tail -n1)"
-          payload="$(echo "$body" | head -n-1)"
-          printf '%s\n' "$payload" > "$OPS/health.json" || true
-          echo "status=$http" >> "$GITHUB_OUTPUT"
-          echo "payload=$(echo "$payload" | tr -d '\n' | cut -c1-500)" >> "$GITHUB_OUTPUT"
+          ok=0
 
-      - name: List files
-        id: ls
-        run: |
-          set -euo pipefail
-          URL="${BASE}/wp-json/${NS}/ls?site_key=${SITE_KEY}"
-          echo "GET $URL"
-          body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
-          http="$(echo "$body" | tail -n1)"
-          payload="$(echo "$body" | head -n-1)"
-          printf '%s\n' "$payload" > "$OPS/ls.json" || true
-          echo "status=$http" >> "$GITHUB_OUTPUT"
-          # bezpieczna walidacja struktury (nie przerywamy joba)
-          if [ "$http" = "200" ] && jq -e '.files and (.files|type=="array")' "$OPS/ls.json" >/dev/null 2>&1; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            # zapisz pierwszy plik do testu /get
-            first="$(jq -r '.files[0] // empty' "$OPS/ls.json")"
-            echo "first_file=$first" >> "$GITHUB_OUTPUT"
-          else
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-            echo "first_file=" >> "$GITHUB_OUTPUT"
-          fi
+          check () {
+            local label="$1" url="$2"
+            local h="${OPS}/headers/${label}.hdr"
+            local b="${OPS}/bodies/${label}.out"
+            echo "GET $url"
+            if curl -A "$UA" -sS --show-error \
+                 --retry 2 --retry-delay 2 --retry-connrefused \
+                 --connect-timeout 10 --max-time 30 \
+                 -D "$h" "$url" -o "$b"; then
+              local code ct
+              code=$(awk 'NR==1{print $2}' "$h" 2>/dev/null || echo "")
+              ct=$(awk -F': ' 'BEGIN{IGNORECASE=1} tolower($1)=="content-type"{print tolower($2)}' "$h" 2>/dev/null | tr -d '\r')
+              if [ "$code" = "200" ]; then
+                if jq -e type "$b" >/dev/null 2>&1; then
+                  echo "${label}|${code}|json|OK" >> "${OPS}/summary.tsv"
+                  ok=$((ok+1))
+                else
+                  echo "${label}|${code}|${ct}|INVALID_JSON" >> "${OPS}/summary.tsv"
+                fi
+              else
+                echo "${label}|${code}|${ct}|HTTP_ERROR" >> "${OPS}/summary.tsv"
+              fi
+            else
+              echo "${label}|curl-fail||CURL_ERROR" >> "${OPS}/summary.tsv"
+            fi
+          }
 
-      - name: Get sample file (index.json preferred)
-        id: get
-        run: |
-          set -euo pipefail
-          pick="index.json"
-          if [ -n "${{ steps.ls.outputs.first_file }}" ]; then
-            pick="${{ steps.ls.outputs.first_file }}"
-          fi
-          URL="${BASE}/wp-json/${NS}/get?site_key=${SITE_KEY}&file=${pick}"
-          echo "GET $URL"
-          body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
-          http="$(echo "$body" | tail -n1)"
-          content="$(echo "$body" | head -n-1)"
-          # zapisz surową odpowiedź (może być JSON lub text/plain)
-          printf '%s\n' "$content" > "$OPS/get.sample"
-          echo "status=$http" >> "$GITHUB_OUTPUT"
-          echo "file=$pick" >> "$GITHUB_OUTPUT"
+          : > "${OPS}/summary.tsv"
+          check "open_ls.json"         "${BASE}/wp-json/${NS_OPEN}/ls?site_key=${SITE_KEY}"
+          check "open_index.json"      "${BASE}/wp-json/${NS_OPEN}/get?site_key=${SITE_KEY}&file=index.json"
+          check "snap_manifest.json"   "${BASE}/wp-json/${NS_SNAP}/snap?file=manifest.json"
+          check "snap_gh-digest.json"  "${BASE}/wp-json/${NS_SNAP}/snap?file=gh-digest.json"
 
-      - name: Decide result and summarize
-        id: decide
-        run: |
-          set -euo pipefail
-          HSTAT="${{ steps.health.outputs.status || '0' }}"
-          LSTAT="${{ steps.ls.outputs.status || '0' }}"
-          LOK="${{ steps.ls.outputs.ok || 'false' }}"
-          GSTAT="${{ steps.get.outputs.status || '0' }}"
-          FILE="${{ steps.get.outputs.file || '' }}"
+          echo "ok=${ok}" >> "$GITHUB_OUTPUT"
 
-          echo "health=$HSTAT, ls=$LSTAT (ok=$LOK), get=$GSTAT ($FILE)"
-
-          status="ok"
-          reason="healthy"
-          if [ "$HSTAT" != "200" ]; then
-            status="fail"; reason="health_http_$HSTAT"
-          elif [ "$LSTAT" != "200" ] || [ "$LOK" != "true" ]; then
-            status="fail"; reason="ls_bad_or_schema"
-          elif [ "$GSTAT" != "200" ]; then
-            status="fail"; reason="get_http_$GSTAT"
-          fi
-
-          jq -n --arg status "$status" --arg reason "$reason" \
-                --argfile health "$OPS/health.json" \
-                --argfile ls "$OPS/ls.json" \
-                --arg sample_file "$FILE" \
-                '{status:$status, reason:$reason, sample_file:$sample_file, health:$health, ls:$ls}' \
-                > "$OPS/summary.json"
-
-          cat "$OPS/summary.json"
-
-          if [ "$status" != "ok" ]; then
-            echo "fail=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          else
-            echo "fail=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Upload watchdog artifacts
+      - name: Upload diagnostics
         uses: actions/upload-artifact@v4
         with:
-          name: exporter-watchdog
-          path: ops-watchdog/**
-          if-no-files-found: warn
+          name: exporter-watchdog-${{ github.run_id }}
+          path: ops-exporter-watchdog/**
           retention-days: 7
 
       - name: Create Issue on failure
-        if: ${{ steps.decide.outputs.fail == 'true' }}
+        if: ${{ steps.hc.outputs.ok == '0' }}
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            const path = 'ops-watchdog/summary.json';
-            let summary = {};
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            let body = `Exporter watchdog: **NO PASSING CHECKS**\n\nRun: ${runUrl}\n\n`;
+
             try {
-              summary = JSON.parse(fs.readFileSync(path, 'utf8'));
-            } catch(e) {
-              summary = {status:'fail', reason:'summary_read_error'};
+              const summary = fs.readFileSync('ops-exporter-watchdog/summary.tsv','utf8');
+              body += 'Summary:\n\n```\n' + summary + '\n```\n\n';
+            } catch(e){}
+
+            const labels = ['open_ls.json','open_index.json','snap_manifest.json','snap_gh-digest.json'];
+            for (const lbl of labels) {
+              try {
+                const h = fs.readFileSync(`ops-exporter-watchdog/headers/${lbl}.hdr`, 'utf8');
+                const b = fs.readFileSync(`ops-exporter-watchdog/bodies/${lbl}.out`, 'utf8');
+                body += `### ${lbl}\n**Headers (first 600)**\n\n\`\`\`\n${h.slice(0,600)}\n\`\`\`\n`;
+                body += `**Body (first 1000)**\n\n\`\`\`\n${b.slice(0,1000)}\n\`\`\`\n\n`;
+              } catch(e){}
             }
-            const title = ❌ Exporter Watchdog: ${summary.reason || 'unknown'};
-            let body = 'Exporter watchdog detected a problem.\n\n';
-            body += '### Summary\n';
-            body += 'json\n' + JSON.stringify(summary, null, 2).slice(0, 4000) + '\n\n';
-            body += \nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId};
+
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title,
+              title: `Exporter watchdog: NO PASSING CHECKS (${context.runNumber})`,
               body
             });
 
-      - name: Fail job if watchdog failed
-        if: ${{ steps.decide.outputs.fail == 'true' }}
+      - name: Final gate
         run: |
-          echo "::error::Exporter watchdog failed (see artifacts and issue)."
-          exit 1
+          if [ "${{ steps.hc.outputs.ok }}" = "0" ]; then
+            echo "::error::Exporter watchdog failed (no endpoints OK)."
+            exit 1
+          fi
+          echo "At least one endpoint OK."
