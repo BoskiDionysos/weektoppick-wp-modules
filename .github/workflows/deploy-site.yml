@@ -65,18 +65,48 @@ jobs:
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             mu-plugins/ "$USER@$HOST:$TARGET/wp-content/mu-plugins/"
 
-      - name: Deploy standard plugins
+      - name: Deploy standard plugins (protect selected)
         if: ${{ hashFiles('plugins/**') != '' }}
+        env:
+          PROTECT_PLUGINS: "wordfence/ translatepress-multilingual/ cookie-law-info/"
         run: |
+          set -euo pipefail
+          # Zbuduj plik reguł rsync, które chronią katalogi po stronie serwera
+          RULES=$(mktemp)
+          for p in $PROTECT_PLUGINS; do
+            echo "--filter=protect $p" >> "$RULES"
+          done
+
+          # pokaż, co będziemy chronić
+          echo "Protecting on server:"
+          cat "$RULES" | sed 's/^/  /'
+
           rsync -avz --delete \
+            $(cat "$RULES") \
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             plugins/ "$USER@$HOST:$TARGET/wp-content/plugins/"
 
-      - name: Deploy themes
+     - name: Deploy themes (protect selected)
         if: ${{ hashFiles('themes/**') != '' || hashFiles('wp-content/themes/**') != '' }}
+        env:
+          # DOPASUJ listę motywów, których NIE chcemy kasować po stronie serwera,
+          # nawet jeśli nie ma ich w repo.
+          PROTECT_THEMES: "wtp-core-theme/ twentytwentyfive/ astra/ hello-elementor/"
         run: |
-          if [ -d "themes" ]; then SRC="themes/"; else SRC="wp-content/themes/"; fi
+          set -euo pipefail
+          if [ -d "themes" ]; then SRC="themes/"; elif [ -d "wp-content/themes" ]; then SRC="wp-content/themes/"; else echo "No themes directory in repo"; exit 0; fi
+
+          # reguły ochrony dla rsync (dotyczą ŚCIEŻEK PO STRONIE SERWERA)
+          RULES=$(mktemp)
+          for t in $PROTECT_THEMES; do
+            echo "--filter=protect $t" >> "$RULES"
+          done
+
+          echo "Protecting themes on server:"
+          cat "$RULES" | sed 's/^/  /'
+
           rsync -avz --delete \
+            $(cat "$RULES") \
             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
             "$SRC" "$USER@$HOST:$TARGET/wp-content/themes/"
 
