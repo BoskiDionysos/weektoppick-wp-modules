@@ -1,4 +1,4 @@
-name: WTP Snapshot Sync (resilient)
+name: WTP Snapshot Sync
 
 on:
   workflow_dispatch:
@@ -24,106 +24,119 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure tools (jq, curl)
+      - name: Ensure jq & curl
         run: |
           sudo apt-get update -y
           sudo apt-get install -y jq curl
 
-      - name: Set vars
-        id: vars
+      - name: Vars
+        id: v
         shell: bash
         run: |
-          set -euo pipefail
           SITE_KEY="${{ github.event.inputs.site_key }}"
           REST_BASE="${{ github.event.inputs.rest_base }}"
-          [ -z "${SITE_KEY:-}" ] && SITE_KEY="5Depft8Y9LU0t6Sv"
-          [ -z "${REST_BASE:-}" ] && REST_BASE="https://weektoppick.com/wp-json/wtp-ro-open/v1"
-          OUT_DIR="snapshots/${SITE_KEY}"
-          echo "SITE_KEY=${SITE_KEY}"   >> "$GITHUB_OUTPUT"
-          echo "REST_BASE=${REST_BASE}" >> "$GITHUB_OUTPUT"
-          echo "OUT_DIR=${OUT_DIR}"     >> "$GITHUB_OUTPUT"
+          [ -z "$SITE_KEY" ] && SITE_KEY="5Depft8Y9LU0t6Sv"
+          [ -z "$REST_BASE" ] && REST_BASE="https://weektoppick.com/wp-json/wtp-ro-open/v1"
+          echo "SITE_KEY=$SITE_KEY"   >> "$GITHUB_OUTPUT"
+          echo "REST_BASE=$REST_BASE" >> "$GITHUB_OUTPUT"
+          echo "OUT_DIR=snapshots/$SITE_KEY" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare output dirs (idempotent)
+      - name: Prepare dirs
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "${{ steps.vars.outputs.OUT_DIR }}" || true
-          mkdir -p "${{ steps.vars.outputs.OUT_DIR }}/logs" || true
+          mkdir -p "${{ steps.v.outputs.OUT_DIR }}" || true
+          mkdir -p "${{ steps.v.outputs.OUT_DIR }}/logs" || true
+          mkdir -p "${{ steps.v.outputs.OUT_DIR }}/config" || true
 
-      - name: Set curl flags (browser-like)
-        id: dl
+      - name: Curl flags
+        id: c
         shell: bash
         run: |
-          FLAGS='-fL --retry 5 --retry-delay 2 --connect-timeout 20 -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" -H "Accept: application/json,text/plain,*/*"'
-          echo "CURL_FLAGS=${FLAGS}" >> "$GITHUB_OUTPUT"
+          echo 'CURL_FLAGS=-fL --retry 4 --retry-delay 2 --connect-timeout 20 -A "Mozilla/5.0" -H "Accept: application/json,text/plain,*/*"' >> "$GITHUB_OUTPUT"
 
-      - name: Fetch /ls and save list
+      # --- NOWOŚĆ: odpal świeży dump configów ---
+      - name: Trigger config dump (redacted)
         shell: bash
         run: |
           set -euo pipefail
-          OUT="${{ steps.vars.outputs.OUT_DIR }}"
-          BASE="${{ steps.vars.outputs.REST_BASE }}"
-          KEY="${{ steps.vars.outputs.SITE_KEY }}"
-          URL="${BASE}/ls?site_key=${KEY}"
-          echo "GET ${URL}"
-          RESP="$(curl ${{ steps.dl.outputs.CURL_FLAGS }} "$URL")"
-          echo "$RESP" | jq '.' > "${OUT}/ls.json"
-          # Wyciągnij listę plików, pomiń katalog 'logs'
-          echo "$RESP" | jq -r '(.list.dirA // .list.dirB // []) | map(select(. != "logs")) | .[]' > "${OUT}/files.list"
-          if ! [ -s "${OUT}/files.list" ]; then
-            echo "::error::Brak plików do pobrania (lista pusta)"; exit 1
+          URL="${{ steps.v.outputs.REST_BASE }}/config_dump?site_key=${{ steps.v.outputs.SITE_KEY }}"
+          echo "POST $URL"
+          curl ${{ steps.c.outputs.CURL_FLAGS }} -X POST "$URL" \
+            -o "${{ steps.v.outputs.OUT_DIR }}/config/config_dump.json" || true
+          test -s "${{ steps.v.outputs.OUT_DIR }}/config/config_dump.json" || echo '{}' > "${{ steps.v.outputs.OUT_DIR }}/config/config_dump.json"
+
+      - name: List files (/ls)
+        id: ls
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="${{ steps.v.outputs.REST_BASE }}/ls?site_key=${{ steps.v.outputs.SITE_KEY }}"
+          echo "GET $URL"
+          RESP="$(curl ${{ steps.c.outputs.CURL_FLAGS }} "$URL")"
+          echo "$RESP" | jq '.' > "${{ steps.v.outputs.OUT_DIR }}/ls.json"
+          # prefer dirA, fallback dirB
+          FILES=$(echo "$RESP" | jq -r '.list.dirA // [] | .[]')
+          if [ -z "$FILES" ]; then
+            FILES=$(echo "$RESP" | jq -r '.list.dirB // [] | .[]')
           fi
+          {
+            echo "FILES<<'EOF'"
+            echo "$FILES"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Download files via /get
+      - name: Download files from root list
         shell: bash
         run: |
           set -euo pipefail
-          OUT="${{ steps.vars.outputs.OUT_DIR }}"
-          BASE="${{ steps.vars.outputs.REST_BASE }}"
-          KEY="${{ steps.vars.outputs.SITE_KEY }}"
-          while IFS= read -r fname; do
-            [ -z "$fname" ] && continue
-            # przygotuj podkatalog jeśli potrzeba
-            subdir="$(dirname "$fname")"
-            if [ "$subdir" != "." ]; then
-              mkdir -p "${OUT}/${subdir}" || true
+          while read -r f; do
+            [ -z "$f" ] && continue
+            # pomiń katalogi (logs, config) i puste wpisy
+            if [ "$f" = "logs" ] || [ "$f" = "config" ]; then
+              echo "skip dir $f"
+              continue
             fi
-            URL="${BASE}/get?site_key=${KEY}&file=${fname}&_b=$(date +%s)"
-            echo "GET ${URL}"
-            curl ${{ steps.dl.outputs.CURL_FLAGS }} "$URL" -o "${OUT}/${fname}"
-          done < "${OUT}/files.list"
+            URL="${{ steps.v.outputs.REST_BASE }}/get?site_key=${{ steps.v.outputs.SITE_KEY }}&file=${f}&_b=$(date +%s)"
+            OUT="${{ steps.v.outputs.OUT_DIR }}/${f}"
+            echo "GET $URL -> $OUT"
+            mkdir -p "$(dirname "$OUT")" || true
+            curl ${{ steps.c.outputs.CURL_FLAGS }} "$URL" -o "$OUT"
+          done << 'EOF'
+          ${{ steps.ls.outputs.FILES }}
+          EOF
 
-      - name: Stamp runner metadata (idempotent)
+      - name: Download config pack (known files)
         shell: bash
         run: |
           set -euo pipefail
-          NOW=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          mkdir -p runner || true
-          printf '{"status":"ok","started_at":"%s","finished_at":"%s","commit_sha":"%s","summary":"Mirror %s synchronized via REST /ls+get"}\n' \
-            "$NOW" "$NOW" "$GITHUB_SHA" "${{ steps.vars.outputs.SITE_KEY }}" \
-            > runner/runner_response.json
-          printf '{"logs":[{"ts":"%s","level":"info","step":"mirror","msg":"Synced %s (REST)"}]}\n' \
-            "$NOW" "${{ steps.vars.outputs.SITE_KEY }}" \
-            > runner/runner_logs.json
-          if [ -f runner/runner_health.json ]; then
-            jq --arg now "$NOW" '.last_snapshot_at=$now' runner/runner_health.json > runner/_tmp.json || cp runner/runner_health.json runner/_tmp.json
-            mv runner/_tmp.json runner/runner_health.json
-          else
-            printf '{"php_version":"","wp_version":"","wp_cli":"","server":"","memory_limit":"","disk_free_mb":0,"last_snapshot_at":"%s"}\n' \
-              "$NOW" \
-              > runner/runner_health.json
-          fi
+          for f in config/wp-config.redacted.php config/htaccess.redacted.txt config/meta.json; do
+            URL="${{ steps.v.outputs.REST_BASE }}/get?site_key=${{ steps.v.outputs.SITE_KEY }}&file=${f}&_b=$(date +%s)"
+            OUT="${{ steps.v.outputs.OUT_DIR }}/${f}"
+            echo "GET $URL -> $OUT"
+            mkdir -p "$(dirname "$OUT")" || true
+            curl ${{ steps.c.outputs.CURL_FLAGS }} "$URL" -o "$OUT" || true
+          done
 
-      - name: Commit & push (only if changed)
+      - name: Download latest logs (safe files)
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in wp-debug-latest.txt php_errors-latest.txt wp-debug-meta.json; do
+            URL="${{ steps.v.outputs.REST_BASE }}/get?site_key=${{ steps.v.outputs.SITE_KEY }}&file=${f}&_b=$(date +%s)"
+            OUT="${{ steps.v.outputs.OUT_DIR }}/logs/${f}"
+            echo "GET $URL -> $OUT"
+            curl ${{ steps.c.outputs.CURL_FLAGS }} "$URL" -o "$OUT" || true
+          done
+
+      - name: Commit & push snapshot
         shell: bash
         run: |
           set -euo pipefail
           git config user.name  "wtp-snapshot-bot"
           git config user.email "wtp-snapshot-bot@users.noreply.github.com"
-          git add snapshots runner/*.json || true
-          if ! git diff --cached --quiet; then
-            git commit -m "mirror: sync ${{ steps.vars.outputs.SITE_KEY }} via REST list"
-            git push
-          else
-            echo "No changes to commit."
-          fi
+          git add "${{ steps.v.outputs.OUT_DIR }}/" || true
+          git commit -m "snapshot: ${{
+            steps.v.outputs.SITE_KEY
+          }} $(date -u +'%Y-%m-%dT%H:%M:%SZ')" || echo "No changes"
+          git push || echo "No push (maybe no changes)"
