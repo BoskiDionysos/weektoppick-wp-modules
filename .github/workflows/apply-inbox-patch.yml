@@ -2,15 +2,8 @@ name: Apply Inbox Patch
 
 on:
   push:
-    branches:
-      - ""           # dowolna gałąź
     paths:
-      - ".wtp/inbox/"
-  pull_request:
-    branches:
-      - main
-    paths:
-      - ".wtp/inbox/"
+      - ".wtp/inbox/*.patch"
   workflow_dispatch:
 
 permissions:
@@ -31,16 +24,18 @@ jobs:
       - name: Find first patch in .wtp/inbox
         id: find
         run: |
+          set -euo pipefail
           PATCH="$(ls -1 .wtp/inbox/*.patch 2>/dev/null | head -n1 || true)"
           if [ -z "$PATCH" ]; then
-            echo "patch=" >> $GITHUB_OUTPUT
+            echo "patch=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          echo "patch=$PATCH" >> $GITHUB_OUTPUT
+          echo "patch=$PATCH" >> "$GITHUB_OUTPUT"
 
       - name: Apply patch
         if: steps.find.outputs.patch != ''
         run: |
+          set -euo pipefail
           git config user.name  "wtp-bot"
           git config user.email "wtp-bot@users.noreply.github.com"
 
