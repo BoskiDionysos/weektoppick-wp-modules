@@ -36,32 +36,34 @@ jobs:
         run: |
           mkdir -p "$OUTDIR/logs"
 
-      # --- Kluczowa zmiana: żadnego /open/ls. Zaczynamy od index.json przez SNAP proxy. ---
-      - name: Fetch index.json via SNAP
+      # ---- index.json: BEST-EFFORT, nigdy nie przerywa joba ----
+      - name: Try fetch index.json via SNAP (best-effort)
         id: idx
         run: |
           set -euo pipefail
           URL="$BASE/wp-json/$NS/snap?file=index.json"
           echo "GET $URL"
-          if ! curl -fsS "$URL" -o "$OUTDIR/index.json"; then
-            echo "::error::Cannot fetch index.json via SNAP proxy"
-            exit 1
+          if curl -fsS "$URL" -o "$OUTDIR/index.json"; then
+            echo "index.json fetched"
+            jq -e '{generated_at, files: (.files|length)}' "$OUTDIR/index.json" || true
+            echo "have_index=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Cannot fetch index.json via SNAP proxy (HTTP error). Will fallback."
+            echo '{}' > "$OUTDIR/index.json"
+            echo "have_index=false" >> "$GITHUB_OUTPUT"
           fi
-          # szybki podgląd
-          jq '{generated_at, files: (.files|length)}' "$OUTDIR/index.json" || true
 
-      - name: Resolve files list from index.json
+      - name: Resolve files list (fallback to files_000.json)
         id: list
         run: |
           set -euo pipefail
-          FILES=$(jq -r '.files[]? | select(test("^files_\\d{3}\\.json$"))' "$OUTDIR/index.json")
+          FILES=$(jq -r '.files[]? | select(test("^files_\\d{3}\\.json$"))' "$OUTDIR/index.json" 2>/dev/null || echo "")
           if [ -z "$FILES" ]; then
-            echo "::warning::No files_XXX.json listed in index.json; falling back to first shard guess"
             FILES="files_000.json"
+            echo "No shard list in index.json – using fallback: files_000.json"
           fi
           printf '%s\n' "$FILES" > "$OUTDIR/_files.list"
-          echo "Planned downloads:"
-          sed 's/^/ - /' "$OUTDIR/_files.list"
+          echo "Planned downloads:"; sed 's/^/ - /' "$OUTDIR/_files.list"
 
       - name: Download shards via SNAP
         run: |
@@ -78,23 +80,10 @@ jobs:
       - name: Download core metas via SNAP (best-effort)
         run: |
           set -euo pipefail
-          for f in manifest.json bundle.json options.json selftest.json; do
+          for f in manifest.json bundle.json options.json selftest.json gh-digest.json; do
             URL="$BASE/wp-json/$NS/snap?file=${f}"
             echo "GET $URL"
             curl -fsS "$URL" -o "$OUTDIR/$f" || true
-          done
-
-      # --- Logi: zostawiamy jak było, ale tolerujemy błędy (best-effort) ---
-      - name: Request fresh logs (/emit-logs)
-        run: |
-          set -euo pipefail
-          curl -fsS -X POST "$BASE/wp-json/wtp-ro-open/v1/emit-logs?site_key=$SITE_KEY" -o /dev/null || true
-
-      - name: Fetch wp-debug + php_errors (best-effort)
-        run: |
-          set -euo pipefail
-          for f in wp-debug-latest.txt php_errors-latest.txt wp-debug-meta.json; do
-            curl -fsS "$BASE/wp-json/wtp-ro-open/v1/get?site_key=$SITE_KEY&file=$f" -o "$OUTDIR/logs/$f" || true
           done
 
       - name: Commit snapshot (if changed)
