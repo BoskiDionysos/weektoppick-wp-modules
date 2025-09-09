@@ -1,0 +1,301 @@
+ name: Snapshot Watchdog (full)
+
+on:
+  # Auto po zmianach eksportera/watchdoga — NIE po zapisie stanu (.wtp/state)
+  push:
+    branches: [ main ]
+    paths:
+      - 'mu-plugins/wtp-ro-exporter.php'
+      - '.github/workflows/snapshot-watchdog.yml'
+  schedule:
+    - cron: '*/15 * * * *'     # co 15 min (UTC)
+  workflow_dispatch: {}
+
+permissions:
+  contents: write     # zapis stanu (.wtp/state/*.json) w repo
+  issues: write
+
+concurrency:
+  group: snapshot-watchdog
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      BASE: https://weektoppick.com
+      NS: wtp-ro-open/v1
+      SITE_KEY: 5Depft8Y9LU0t6Sv
+      OPS: ops-snapshot-watchdog
+      STATE_DIR: .wtp/state
+      STATE_FILE: .wtp/state/snapshot-files.json
+      # progi dla alertów
+      DELTA_HARD_LIMIT: "5"    # jeśli różnica liczby plików > 5 => alert
+      SAMPLE_N: "3"            # ile files_* sprawdzamy przez /get
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Tools & dirs
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq curl
+          mkdir -p "$OPS" "$STATE_DIR"
+
+      # ───── /health ───────────────────────────────────────────────────────────────
+      - name: GET /health
+        id: health
+        run: |
+          set -euo pipefail
+          URL="${BASE}/wp-json/${NS}/health?site_key=${SITE_KEY}"
+          echo "GET $URL"
+          body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
+          http="$(echo "$body" | tail -n1)"
+          payload="$(echo "$body" | head -n-1)"
+          printf '%s\n' "$payload" > "$OPS/health.json" || true
+          echo "status=$http" >> "$GITHUB_OUTPUT"
+          echo "ok_json=$(jq -e 'type==\"object\"' "$OPS/health.json" >/dev/null 2>&1 && echo yes || echo no)" >> "$GITHUB_OUTPUT"
+
+      # ───── /ls (lista plików) ───────────────────────────────────────────────────
+      - name: GET /ls
+        id: ls
+        run: |
+          set -euo pipefail
+          URL="${BASE}/wp-json/${NS}/ls?site_key=${SITE_KEY}"
+          echo "GET $URL"
+          body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
+          http="$(echo "$body" | tail -n1)"
+          payload="$(echo "$body" | head -n-1)"
+          printf '%s\n' "$payload" > "$OPS/ls.json" || true
+          echo "status=$http" >> "$GITHUB_OUTPUT"
+
+          schema_ok="false"
+          total=0
+          if [ "$http" = "200" ] && jq -e '.files and (.files|type=="array")' "$OPS/ls.json" >/dev/null 2>&1; then
+            schema_ok="true"
+            total="$(jq '.files|length' "$OPS/ls.json")"
+          fi
+          echo "schema_ok=$schema_ok" >> "$GITHUB_OUTPUT"
+          echo "total=$total" >> "$GITHUB_OUTPUT"
+
+          # zapisz uporządkowaną listę plików
+          jq -r '.files // [] | .[]' "$OPS/ls.json" | sort > "$OPS/files.list"
+
+      # ───── /get index.json ──────────────────────────────────────────────────────
+      - name: GET /get (index.json)
+        id: get_index
+        run: |
+          set -euo pipefail
+          pick="index.json"
+          URL="${BASE}/wp-json/${NS}/get?site_key=${SITE_KEY}&file=${pick}"
+          echo "GET $URL"
+          body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
+          http="$(echo "$body" | tail -n1)"
+          content="$(echo "$body" | head -n-1)"
+          printf '%s\n' "$content" > "$OPS/get.index.json" || true
+          echo "status=$http" >> "$GITHUB_OUTPUT"
+          # minimalna walidacja schematu index.json jeśli 200
+          if [ "$http" = "200" ]; then
+            schema_ok=$(jq -e 'has("manifest") and has("options") and has("selftest")' "$OPS/get.index.json" >/dev/null 2>&1 && echo true || echo false)
+          else
+            schema_ok=false
+          fi
+          echo "schema_ok=$schema_ok" >> "$GITHUB_OUTPUT"
+
+      # ───── /get SAMPLE_N plików files_*.json (jeśli są) ─────────────────────────
+      - name: GET /get sample files_*.json
+        id: get_samples
+        run: |
+          set -euo pipefail
+          SAMPLED=0
+          OK=0
+          ERR=0
+          > "$OPS/samples.txt"
+
+          # wybierz pierwsze N plików pasujących do files_*.json
+          mapfile -t picks < <(grep -E '^files_[0-9]{3}\.json$' "$OPS/files.list" | head -n "$SAMPLE_N" || true)
+
+          for f in "${picks[@]}"; do
+            [ -z "$f" ] && continue
+            URL="${BASE}/wp-json/${NS}/get?site_key=${SITE_KEY}&file=${f}"
+            echo "GET $URL"
+            body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
+            http="$(echo "$body" | tail -n1)"
+            content="$(echo "$body" | head -n-1)"
+            printf '%s\n' "$content" > "$OPS/get.$f" || true
+            SAMPLED=$((SAMPLED+1))
+            if [ "$http" = "200" ] && jq -e 'type=="object" or type=="array"' "$OPS/get.$f" >/dev/null 2>&1; then
+              echo "[OK] $f ($http)" >> "$OPS/samples.txt"
+              OK=$((OK+1))
+            else
+              echo "[ERR] $f (http=$http, json?=$(jq -e . "$OPS/get.$f" >/dev/null 2>&1 && echo yes || echo no))" >> "$OPS/samples.txt"
+              ERR=$((ERR+1))
+            fi
+          done
+
+          echo "sampled=$SAMPLED" >> "$GITHUB_OUTPUT"
+          echo "ok=$OK" >> "$GITHUB_OUTPUT"
+          echo "err=$ERR" >> "$GITHUB_OUTPUT"
+
+      # ───── porównanie z poprzednim stanem (.wtp/state/snapshot-files.json) ──────
+      - name: Load previous state (if any)
+        id: prev
+        run: |
+          set -euo pipefail
+          if [ -f "$STATE_FILE" ]; then
+            cp "$STATE_FILE" "$OPS/prev-files.list"
+          else
+            # brak stanu — uznajemy za pusty
+            : > "$OPS/prev-files.list"
+          fi
+          echo "has_prev=$( [ -s "$OPS/prev-files.list" ] && echo yes || echo no )" >> "$GITHUB_OUTPUT"
+
+      - name: Compute delta
+        id: delta
+        run: |
+          set -euo pipefail
+          # bieżąca lista plików już jest w $OPS/files.list
+          # poprzednia w $OPS/prev-files.list
+          comm -13 "$OPS/prev-files.list" "$OPS/files.list" > "$OPS/added.list"  || true
+          comm -23 "$OPS/prev-files.list" "$OPS/files.list" > "$OPS/removed.list" || true
+          ADDED=$(wc -l < "$OPS/added.list"  | tr -d ' ')
+          REM=$(wc -l < "$OPS/removed.list" | tr -d ' ')
+          DIFF=$((ADDED + REM))
+          echo "added=$ADDED"   >> "$GITHUB_OUTPUT"
+          echo "removed=$REM"   >> "$GITHUB_OUTPUT"
+          echo "delta=$DIFF"    >> "$GITHUB_OUTPUT"
+
+      # ───── decyzja (OK / FAIL) ──────────────────────────────────────────────────
+      - name: Decide result
+        id: decide
+        run: |
+          set -euo pipefail
+          H="${{ steps.health.outputs.status || '0' }}"
+          HJSON="${{ steps.health.outputs.ok_json || 'no' }}"
+          L="${{ steps.ls.outputs.status || '0' }}"
+          LOK="${{ steps.ls.outputs.schema_ok || 'false' }}"
+          T="${{ steps.ls.outputs.total || '0' }}"
+          GI="${{ steps.get_index.outputs.status || '0' }}"
+          GI_SCHEMA="${{ steps.get_index.outputs.schema_ok || 'false' }}"
+          SAMP="${{ steps.get_samples.outputs.sampled || '0' }}"
+          SOK="${{ steps.get_samples.outputs.ok || '0' }}"
+          SERR="${{ steps.get_samples.outputs.err || '0' }}"
+          DELTA="${{ steps.delta.outputs.delta || '0' }}"
+          HARD="${DELTA_HARD_LIMIT}"
+
+          status="ok"
+          reason="healthy"
+
+          if [ "$H" != "200" ] || [ "$HJSON" != "yes" ]; then
+            status="fail"; reason="health_bad_http_or_json"
+          elif [ "$L" != "200" ] || [ "$LOK" != "true" ]; then
+            status="fail"; reason="ls_bad_or_schema"
+          elif [ "$T" -eq 0 ]; then
+            status="fail"; reason="ls_empty_files"
+          elif [ "$GI" != "200" ] || [ "$GI_SCHEMA" != "true" ]; then
+            status="fail"; reason="index_bad_http_or_schema"
+          elif [ "$SERR" -gt 0 ]; then
+            status="fail"; reason="sample_get_errors"
+          elif [ "$DELTA" -gt "$HARD" ]; then
+            status="fail"; reason="delta_exceeds_limit"
+          fi
+
+          jq -n \
+            --arg status "$status" \
+            --arg reason "$reason" \
+            --argjson total "$T" \
+            --argjson delta "$DELTA" \
+            --argjson added "${{ steps.delta.outputs.added || '0' }}" \
+            --argjson removed "${{ steps.delta.outputs.removed || '0' }}" \
+            --arg health_http "${H}" \
+            --arg health_json "${HJSON}" \
+            --arg ls_http "${L}" \
+            --arg ls_schema "${LOK}" \
+            --arg index_http "${GI}" \
+            --arg index_schema "${GI_SCHEMA}" \
+            --argjson sampled "${SAMP}" \
+            --argjson sample_ok "${SOK}" \
+            --argjson sample_err "${SERR}" \
+            --argfile health "$OPS/health.json" \
+            --argfile ls "$OPS/ls.json" \
+            '{
+              status:$status,
+              reason:$reason,
+              totals:{ files:$total, delta:$delta, added:$added, removed:$removed },
+              checks:{
+                health:{ http:$health_http, ok_json: $health_json },
+                ls:{ http:$ls_http, schema_ok:$ls_schema },
+                index:{ http:$index_http, schema_ok:$index_schema },
+                samples:{ sampled:$sampled, ok:$sample_ok, err:$sample_err }
+              },
+              health:$health,
+              ls:$ls
+            }' > "$OPS/summary.json"
+
+          cat "$OPS/summary.json"
+
+          if [ "$status" != "ok" ]; then
+            echo "fail=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "fail=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # ───── zapisz aktualny stan listy plików do repo (nie triggeruje on:push, bo paths są zawężone)
+      - name: Persist state (files list) to repo
+        if: ${{ steps.decide.outputs.fail == 'false' }}
+        run: |
+          set -euo pipefail
+          # zapisujemy posortowaną listę do STATE_FILE
+          cp "$OPS/files.list" "$STATE_FILE"
+          if ! git diff --quiet -- "$STATE_FILE"; then
+            git config user.name  "wtp-bot"
+            git config user.email "wtp-bot@users.noreply.github.com"
+            git add "$STATE_FILE"
+            git commit -m "watchdog: update snapshot files state ($(date -u +%FT%TZ))"
+            git push origin HEAD:main
+          else
+            echo "State unchanged."
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-watchdog
+          path: ops-snapshot-watchdog/**
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Create Issue on failure
+        if: ${{ steps.decide.outputs.fail == 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let body = 'Snapshot watchdog detected a problem.\n\n';
+            try {
+              const summary = JSON.parse(fs.readFileSync('ops-snapshot-watchdog/summary.json','utf8'));
+              body += '### Summary\njson\n' + JSON.stringify(summary, null, 2).slice(0, 5000) + '\n\n';
+            } catch (e) {
+              body += 'No summary available.\n';
+            }
+            const added = fs.existsSync('ops-snapshot-watchdog/added.list') ? fs.readFileSync('ops-snapshot-watchdog/added.list','utf8') : '';
+            const removed = fs.existsSync('ops-snapshot-watchdog/removed.list') ? fs.readFileSync('ops-snapshot-watchdog/removed.list','utf8') : '';
+            body += '\n### Delta\n';
+            body += '*Added:*\n\n' + added.slice(0,2000) + '\n\n';
+            body += '*Removed:*\n\n' + removed.slice(0,2000) + '\n\n';
+            body += \nRun: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId};
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: ❌ Snapshot Watchdog failed (${new Date().toISOString()}),
+              body
+            });
+
+      - name: Fail job if watchdog failed
+        if: ${{ steps.decide.outputs.fail == 'true' }}
+        run: |
+          echo "::error::Snapshot watchdog failed (see artifacts and issue)."
+          exit 1
