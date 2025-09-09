@@ -9,20 +9,21 @@ permissions:
   contents: write
   issues: write
 
+concurrency:
+  group: snapshot-watchdog
+  cancel-in-progress: true
+
 env:
   BASE: https://weektoppick.com
   NS: wtp-ro/v1
   OPS: ops-snapshot-watchdog
+  UA: WTP-Watchdog/1.0 (+https://weektoppick.com)
   FILES: |
     manifest.json
     bundle.json
     index.json
     files_000.json
     gh-digest.json
-
-concurrency:
-  group: snapshot-watchdog
-  cancel-in-progress: true
 
 jobs:
   watchdog:
@@ -38,33 +39,68 @@ jobs:
           sudo apt-get install -y jq curl
 
       - name: Prepare folders
-        run: mkdir -p "$OPS"
+        run: |
+          mkdir -p "$OPS/headers" "$OPS/bodies"
 
-      - name: Fetch & validate JSONs
+      - name: Fetch & validate (verbose diagnostics)
         id: check
+        shell: bash
         run: |
           set -euo pipefail
-          STATUS=ok; REASON=""
+          STATUS=ok
+          REASON=""
+
           while read -r f; do
             [ -z "$f" ] && continue
             URL="${BASE}/wp-json/${NS}/snap?file=${f}"
-            OUT="${OPS}/${f}.out"
-            echo "GET $URL"
-            if ! curl -sS -m 25 "$URL" -o "$OUT"; then
-              STATUS=bad; REASON="fetch failed for $f"; break
+            H="${OPS}/headers/${f}.hdr"
+            B="${OPS}/bodies/${f}.json"
+            printf "GET %s\n" "$URL"
+
+            # Pobierz z retrys, zapisz nagłówki i body
+            # -sS: quiet/with errors, -D: headers -> file, --retry + --retry-connrefused: transient
+            if ! curl -A "$UA" -fsS --show-error \
+                --retry 3 --retry-delay 2 --retry-connrefused \
+                --connect-timeout 10 --max-time 30 \
+                -D "$H" "$URL" -o "$B"; then
+              STATUS=bad
+              REASON="curl failed for ${f}"
+              break
             fi
-            if ! jq -e type "$OUT" >/dev/null 2>&1; then
-              STATUS=bad; REASON="invalid JSON for $f"; break
+
+            # HTTP code z nagłówków
+            CODE=$(awk 'NR==1{print $2}' "$H")
+            # Content-Type (lowercase)
+            CT=$(awk -F': ' 'BEGIN{IGNORECASE=1} tolower($1)=="content-type"{print tolower($2)}' "$H" | tr -d '\r')
+
+            if [ "${CODE:-}" != "200" ]; then
+              STATUS=bad
+              REASON="HTTP ${CODE:-?} for ${f}"
+              break
+            fi
+
+            # Sprawdź, czy to JSON (nagłówek + realny parsing)
+            if ! echo "$CT" | grep -q "application/json"; then
+              # pozwalamy na text/plain czasem, ale i tak sprawdzimy jq
+              echo "::warning::Unexpected Content-Type for ${f}: ${CT:-none}"
+            fi
+
+            if ! jq -e type "$B" >/dev/null 2>&1; then
+              STATUS=bad
+              REASON="invalid JSON for ${f}"
+              break
             fi
           done <<< "$FILES"
-          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
-          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+
+          echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
+          echo "reason=${REASON}" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-watchdog-${{ github.run_id }}
-          path: ops-snapshot-watchdog/**
+          path: |
+            ops-snapshot-watchdog/**
           retention-days: 7
 
       - name: Create Issue on failure
@@ -76,14 +112,20 @@ jobs:
             const status = '${{ steps.check.outputs.status }}';
             const reason = `${{ toJson(steps.check.outputs.reason) }}`;
             const urlRun = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            let body = `Watchdog status: **${status}**\nReason: ${reason}\n\nRun: ${urlRun}\n\n`;
-            for (const f of ['manifest.json','bundle.json','index.json','files_000.json','gh-digest.json']) {
+
+            const files = ['manifest.json','bundle.json','index.json','files_000.json','gh-digest.json'];
+            let body = `Watchdog **${status.toUpperCase()}**\n\nReason: ${reason}\n\nRun: ${urlRun}\n\n`;
+
+            for (const f of files) {
               try {
-                const p = `ops-snapshot-watchdog/${f}.out`;
-                const txt = fs.readFileSync(p, 'utf8');
-                body += `**${f}** (first 1KB):\n\n\`\`\`json\n${txt.slice(0,1000)}\n\`\`\`\n\n`;
-              } catch(e){}
+                const h = fs.readFileSync(`ops-snapshot-watchdog/headers/${f}.hdr`, 'utf8');
+                const b = fs.readFileSync(`ops-snapshot-watchdog/bodies/${f}.json`, 'utf8');
+                body += `### ${f}\n`;
+                body += `**Headers (first 600 chars)**\n\n\`\`\`\n${h.slice(0,600)}\n\`\`\`\n`;
+                body += `**Body (first 1000 chars)**\n\n\`\`\`json\n${b.slice(0,1000)}\n\`\`\`\n\n`;
+              } catch (e) {}
             }
+
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
