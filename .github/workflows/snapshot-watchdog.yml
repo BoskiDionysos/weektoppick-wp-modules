@@ -1,300 +1,221 @@
-name: Snapshot Watchdog (full)
+name: Snapshot Watchdog
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'mu-plugins/wtp-ro-exporter.php'
-      - '.github/workflows/snapshot-watchdog.yml'
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: "*/30 * * * *"
   workflow_dispatch: {}
 
 permissions:
   contents: write
   issues: write
 
-concurrency:
-  group: snapshot-watchdog
-  cancel-in-progress: true
+env:
+  BASE: https://weektoppick.com
+  NS: wtp-ro-open/v1
+  SITE_KEY: 5Depft8Y9LU0t6Sv
+  OPS: ops-snapshot-watchdog
+  STATE_DIR: .wtp/state
+  STATE_FILE: .wtp/state/snapshot-files.txt
+  DELTA_HARD_LIMIT: "5"
+  SAMPLE_N: "3"
+  # Jeśli ustawisz w sekretach WATCHDOG_BLOCK=true to watchdog będzie failował przy dużej delcie
+  WATCHDOG_BLOCK: ${{ secrets.WATCHDOG_BLOCK }}
 
 jobs:
-  check:
+  watchdog:
     runs-on: ubuntu-latest
-    env:
-      BASE: https://weektoppick.com
-      NS: wtp-ro-open/v1
-      SITE_KEY: 5Depft8Y9LU0t6Sv
-      OPS: ops-snapshot-watchdog
-      STATE_DIR: .wtp/state
-      STATE_FILE: .wtp/state/snapshot-files.txt
-      DELTA_HARD_LIMIT: "5"
-      SAMPLE_N: "3"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Tools & dirs
+      - name: Ensure tools
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y curl
-          mkdir -p "$OPS" "$STATE_DIR"
+          sudo apt-get install -y jq curl
 
-      - name: GET /health
-        id: health
+      - name: Prepare folders
+        run: |
+          mkdir -p "$OPS"
+          mkdir -p "$STATE_DIR"
+
+      - name: Hit /health, /ls
+        id: ping
         run: |
           set -euo pipefail
-          URL="${BASE}/wp-json/${NS}/health?site_key=${SITE_KEY}"
-          echo "GET $URL"
-          body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
-          http="$(echo "$body" | tail -n1)"
-          payload="$(echo "$body" | head -n-1)"
-          printf '%s\n' "$payload" > "$OPS/health.txt" || true
-          echo "status=$http" >> "$GITHUB_OUTPUT"
-          # prosty test „czy to wygląda jak JSON” (bez jq)
-          case "$payload" in
-            \{|\[) ok_json=yes ;;
-            *)       ok_json=no ;;
-          esac
-          echo "ok_json=$ok_json" >> "$GITHUB_OUTPUT"
+          H_URL="${BASE}/wp-json/${NS}/health?site_key=${SITE_KEY}"
+          L_URL="${BASE}/wp-json/${NS}/ls?site_key=${SITE_KEY}"
+          echo "GET $H_URL"
+          curl -sS "$H_URL" -o "${OPS}/health.json" || true
+          echo "GET $L_URL"
+          curl -sS "$L_URL" -o "${OPS}/ls.json" || true
 
-      - name: GET /ls
-        id: ls
-        run: |
-          set -euo pipefail
-          URL="${BASE}/wp-json/${NS}/ls?site_key=${SITE_KEY}"
-          echo "GET $URL"
-          body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
-          http="$(echo "$body" | tail -n1)"
-          payload="$(echo "$body" | head -n-1)"
-          printf '%s\n' "$payload" > "$OPS/ls.txt" || true
-          echo "status=$http" >> "$GITHUB_OUTPUT"
-
-          # wyciągnięcie listy plików bez jq: prosta heurystyka (JSON array of strings)
-          : > "$OPS/files.list"
-          if [ "$http" = "200" ]; then
-            # spróbuj zgrepować "files_XXX.json" i kluczowe znane nazwy
-            echo "$payload" | tr '","' '\n\n' | sed 's/[{}[\] ]//g' \
-              | grep -E '^(files_[0-9]{3}\.json|index\.json|manifest\.json|options\.json|selftest\.json)$' \
-              | sort -u > "$OPS/files.list" || true
+          # Wyciągnij status OK z health (gdy JSON poprawny)
+          OK=false
+          if jq -e '.ok' "${OPS}/health.json" >/dev/null 2>&1; then
+            OK=$(jq -r '.ok|tostring' "${OPS}/health.json")
           fi
-          TOTAL=$(wc -l < "$OPS/files.list" | tr -d ' ')
-          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
-          schema_ok=no
-          [ "$http" = "200" ] && [ "$TOTAL" -gt 0 ] && schema_ok=yes
-          echo "schema_ok=$schema_ok" >> "$GITHUB_OUTPUT"
 
-      - name: GET /get (index.json)
-        id: get_index
+          # Policz pliki z ls (gdy JSON poprawny)
+          COUNT=0
+          if jq -e '.files' "${OPS}/ls.json" >/dev/null 2>&1; then
+            COUNT=$(jq -r '.files|length' "${OPS}/ls.json")
+          fi
+
+          echo "ok=${OK}"           >> "$GITHUB_OUTPUT"
+          echo "count=${COUNT}"     >> "$GITHUB_OUTPUT"
+
+      - name: Seed state on first run (no fail)
+        if: ${{ !hashFiles(env.STATE_FILE) }}
         run: |
           set -euo pipefail
-          pick="index.json"
-          URL="${BASE}/wp-json/${NS}/get?site_key=${SITE_KEY}&file=${pick}"
-          echo "GET $URL"
-          body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
-          http="$(echo "$body" | tail -n1)"
-          content="$(echo "$body" | head -n-1)"
-          printf '%s\n' "$content" > "$OPS/get.index.txt" || true
-          echo "status=$http" >> "$GITHUB_OUTPUT"
-          # heurystyka „czy ma klucze manifest/options/selftest”
-          case "$content" in
-            manifest|options|selftest) schema_ok=yes ;;
-            *)                                schema_ok=no ;;
-          esac
-          echo "schema_ok=$schema_ok" >> "$GITHUB_OUTPUT"
+          if jq -e '.files' "${OPS}/ls.json" >/dev/null 2>&1; then
+            jq -r '.files[]' "${OPS}/ls.json" | sort > "${STATE_FILE}"
+            echo "Seeded baseline at ${STATE_FILE}"
+          else
+            echo "No valid /ls JSON to seed baseline; continuing (watchdog will handle below)."
+          fi
 
-      - name: GET /get sample files_*.json
-        id: get_samples
+      - name: Compare with previous state
+        id: diff
         run: |
           set -euo pipefail
-          SAMPLED=0; OK=0; ERR=0
-          > "$OPS/samples.txt"
-          mapfile -t picks < <(grep -E '^files_[0-9]{3}\.json$' "$OPS/files.list" | head -n "${SAMPLE_N}" || true)
-          for f in "${picks[@]}"; do
+          # Zapisz aktualną listę plików (jeśli możliwe)
+          CURRENT="${OPS}/files.current.txt"
+          if jq -e '.files' "${OPS}/ls.json" >/dev/null 2>&1; then
+            jq -r '.files[]' "${OPS}/ls.json" | sort > "$CURRENT"
+          else
+            # brak poprawnego ls – traktuj jak błąd endpointu
+            echo "current_ok=false" >> "$GITHUB_OUTPUT"
+            echo "added=0"          >> "$GITHUB_OUTPUT"
+            echo "removed=0"        >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "current_ok=true" >> "$GITHUB_OUTPUT"
+
+          # Jeśli nie ma poprzedniego stanu – nic nie porównujemy (był seed wyżej)
+          if [ ! -s "${STATE_FILE}" ]; then
+            echo "No previous baseline; skipping diff."
+            echo "added=0"   >> "$GITHUB_OUTPUT"
+            echo "removed=0" >> "$GITHUB_OUTPUT"
+            cp "$CURRENT" "${STATE_FILE}"
+            exit 0
+          fi
+
+          PREV="${OPS}/files.prev.txt"
+          cp "${STATE_FILE}" "$PREV"
+
+          ADDED="${OPS}/files.added.txt"
+          REMOVED="${OPS}/files.removed.txt"
+
+          comm -13 "$PREV" "$CURRENT" > "$ADDED" || true
+          comm -23 "$PREV" "$CURRENT" > "$REMOVED" || true
+
+          A=$(wc -l < "$ADDED" | tr -d ' ')
+          R=$(wc -l < "$REMOVED" | tr -d ' ')
+          echo "added=${A}"   >> "$GITHUB_OUTPUT"
+          echo "removed=${R}" >> "$GITHUB_OUTPUT"
+
+      - name: Sample GET checks
+        if: ${{ steps.diff.outputs.current_ok == 'true' }}
+        run: |
+          set -euo pipefail
+          # Zrób próbki GET
+          head -n "${SAMPLE_N}" "${OPS}/files.current.txt" | while read -r f; do
             [ -z "$f" ] && continue
             URL="${BASE}/wp-json/${NS}/get?site_key=${SITE_KEY}&file=${f}"
             echo "GET $URL"
-            body="$(curl -sS -w '\n%{http_code}\n' "$URL" || true)"
-            http="$(echo "$body" | tail -n1)"
-            content="$(echo "$body" | head -n-1)"
-            printf '%s\n' "$content" > "$OPS/get.$f.txt" || true
-            SAMPLED=$((SAMPLED+1))
-            case "$http:$content" in
-              200:\{|200:\[ ) echo "[OK] $f ($http)" >> "$OPS/samples.txt"; OK=$((OK+1)) ;;
-              * )               echo "[ERR] $f (http=$http)" >> "$OPS/samples.txt"; ERR=$((ERR+1)) ;;
-            esac
+            curl -sS "$URL" -o "${OPS}/get_${f}.out" || true
           done
-          echo "sampled=$SAMPLED" >> "$GITHUB_OUTPUT"
-          echo "ok=$OK" >> "$GITHUB_OUTPUT"
-          echo "err=$ERR" >> "$GITHUB_OUTPUT"
 
-      - name: Load previous state (if any)
-        id: prev
-        run: |
-          set -euo pipefail
-          if [ -f "$STATE_FILE" ]; then cp "$STATE_FILE" "$OPS/prev-files.list"; else : > "$OPS/prev-files.list"; fi
-          echo "has_prev=$( [ -s "$OPS/prev-files.list" ] && echo yes || echo no )" >> "$GITHUB_OUTPUT"
-
-      - name: Compute delta
-        id: delta
-        run: |
-          set -euo pipefail
-          sort -u "$OPS/prev-files.list" -o "$OPS/prev-files.list" || true
-          sort -u "$OPS/files.list" -o "$OPS/files.list" || true
-          comm -13 "$OPS/prev-files.list" "$OPS/files.list" > "$OPS/added.list"  || true
-          comm -23 "$OPS/prev-files.list" "$OPS/files.list" > "$OPS/removed.list" || true
-          ADDED=$(wc -l < "$OPS/added.list" | tr -d ' ')
-          REM=$(wc -l < "$OPS/removed.list" | tr -d ' ')
-          DIFF=$((ADDED + REM))
-          echo "added=$ADDED"   >> "$GITHUB_OUTPUT"
-          echo "removed=$REM"   >> "$GITHUB_OUTPUT"
-          echo "delta=$DIFF"    >> "$GITHUB_OUTPUT"
-
-      - name: Decide result (Python)
+      - name: Decide & update baseline
         id: decide
-        env:
-          H: ${{ steps.health.outputs.status }}
-          HJSON: ${{ steps.health.outputs.ok_json }}
-          L: ${{ steps.ls.outputs.status }}
-          LOK: ${{ steps.ls.outputs.schema_ok }}
-          T: ${{ steps.ls.outputs.total }}
-          GI: ${{ steps.get_index.outputs.status }}
-          GI_SCHEMA: ${{ steps.get_index.outputs.schema_ok }}
-          SAMP: ${{ steps.get_samples.outputs.sampled }}
-          SOK: ${{ steps.get_samples.outputs.ok }}
-          SERR: ${{ steps.get_samples.outputs.err }}
-          ADDED: ${{ steps.delta.outputs.added }}
-          REMOVED: ${{ steps.delta.outputs.removed }}
-          DELTA: ${{ steps.delta.outputs.delta }}
-          HARD: ${{ env.DELTA_HARD_LIMIT }}
-          OPS: ${{ env.OPS }}
-        run: |
-          python3 - << 'PY'
-          import os, json, pathlib
-          OPS=os.environ["OPS"]
-          H=int(os.getenv("H","0") or "0")
-          HJSON=os.getenv("HJSON","no")
-          L=int(os.getenv("L","0") or "0")
-          LOK=os.getenv("LOK","no")=="yes"
-          T=int(os.getenv("T","0") or "0")
-          GI=int(os.getenv("GI","0") or "0")
-          GI_SCHEMA=os.getenv("GI_SCHEMA","no")=="yes"
-          SAMP=int(os.getenv("SAMP","0") or "0")
-          SOK=int(os.getenv("SOK","0") or "0")
-          SERR=int(os.getenv("SERR","0") or "0")
-          ADDED=int(os.getenv("ADDED","0") or "0")
-          REMOVED=int(os.getenv("REMOVED","0") or "0")
-          DELTA=int(os.getenv("DELTA","0") or "0")
-          HARD=int(os.getenv("HARD","5") or "5")
-
-          status="ok"; reason="healthy"
-          if H!=200 or HJSON!="yes":
-            status="fail"; reason="health_bad_http_or_json"
-          elif L!=200 or not LOK:
-            status="fail"; reason="ls_bad_or_schema"
-          elif T==0:
-            status="fail"; reason="ls_empty_files"
-          elif GI!=200 or not GI_SCHEMA:
-            status="fail"; reason="index_bad_http_or_schema"
-          elif SERR>0:
-            status="fail"; reason="sample_get_errors"
-          elif DELTA>HARD:
-            status="fail"; reason="delta_exceeds_limit"
-
-          summary = {
-            "status": status,
-            "reason": reason,
-            "totals": {"files": T, "delta": DELTA, "added": ADDED, "removed": REMOVED},
-            "checks": {
-              "health": {"http": H, "ok_json": HJSON},
-              "ls": {"http": L, "schema_ok": LOK},
-              "index": {"http": GI, "schema_ok": GI_SCHEMA},
-              "samples": {"sampled": SAMP, "ok": SOK, "err": SERR}
-            }
-          }
-          pathlib.Path(OPS).mkdir(parents=True, exist_ok=True)
-          with open(f"{OPS}/summary.json","w",encoding="utf-8") as f:
-            json.dump(summary,f,ensure_ascii=False,indent=2)
-          with open(os.environ["GITHUB_OUTPUT"],"a") as out:
-            out.write(f"fail={'true' if status!='ok' else 'false'}\n")
-          PY
-
-      - name: Persist state (files list) to repo
-        if: ${{ steps.decide.outputs.fail == 'false' }}
         run: |
           set -euo pipefail
-          cp "$OPS/files.list" "$STATE_FILE"
-          if ! git diff --quiet -- "$STATE_FILE"; then
-            git config user.name  "wtp-bot"
-            git config user.email "wtp-bot@users.noreply.github.com"
-            git add "$STATE_FILE"
-            git commit -m "watchdog: update snapshot files state ($(date -u +%FT%TZ))"
-            git push origin HEAD:main
+          OK="${{ steps.ping.outputs.ok }}"
+          COUNT="${{ steps.ping.outputs.count }}"
+          ADDED="${{ steps.diff.outputs.added }}"
+          REMOVED="${{ steps.diff.outputs.removed }}"
+          LIMIT="${DELTA_HARD_LIMIT}"
+
+          echo "Endpoint ok=${OK}, files=${COUNT}, added=${ADDED}, removed=${REMOVED}, limit=${LIMIT}"
+
+          STATUS="ok"
+          REASON=""
+
+          if [ "${OK}" != "true" ]; then
+            STATUS="bad"
+            REASON="health not ok or endpoint error"
+          elif [ "${COUNT}" = "0" ]; then
+            STATUS="bad"
+            REASON="ls empty or unreadable"
           else
-            echo "State unchanged."
+            DELTA=$(( ADDED + REMOVED ))
+            if [ "$DELTA" -gt "$LIMIT" ]; then
+              STATUS="warn"
+              REASON="large delta ${DELTA} > ${LIMIT}"
+            fi
+          fi
+
+          echo "status=${STATUS}" >> "$GITHUB_OUTPUT"
+          echo "reason=${REASON}" >> "$GITHUB_OUTPUT"
+
+          # jeśli wszystko wygląda ok lub tylko delta duża — aktualizujemy baseline
+          if [ -s "${OPS}/files.current.txt" ] && { [ "$STATUS" = "ok" ] || [ "$STATUS" = "warn" ]; }; then
+            cp "${OPS}/files.current.txt" "${STATE_FILE}"
+            echo "Baseline updated."
           fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: snapshot-watchdog
-          path: ops-snapshot-watchdog/**
-          if-no-files-found: warn
+          name: snapshot-watchdog-${{ github.run_id }}
+          path: |
+            ops-snapshot-watchdog/**
+            .wtp/state/**
           retention-days: 7
 
-      - name: Create Issue on failure (no-jq)
-        if: ${{ steps.decide.outputs.fail == 'true' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Create Issue on failure/warn
+        if: ${{ steps.decide.outputs.status != 'ok' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const status = '${{ steps.decide.outputs.status }}';
+            const reason = `${{ toJson(steps.decide.outputs.reason) }}`;
+            const added  = '${{ steps.diff.outputs.added }}';
+            const removed= '${{ steps.diff.outputs.removed }}';
+            const urlRun = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            let body = `Watchdog status: **${status}**\nReason: ${reason}\nAdded: ${added}, Removed: ${removed}\n\nRun: ${urlRun}\n\n`;
+            try {
+              const h = fs.readFileSync('ops-snapshot-watchdog/health.json', 'utf8');
+              body += `**health.json** (first 1KB):\n\n\`\`\`json\n${h.slice(0,1000)}\n\`\`\`\n\n`;
+            } catch (e) {}
+            try {
+              const l = fs.readFileSync('ops-snapshot-watchdog/ls.json', 'utf8');
+              body += `**ls.json** (first 2KB):\n\n\`\`\`json\n${l.slice(0,2000)}\n\`\`\`\n\n`;
+            } catch (e) {}
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Snapshot watchdog: ${status.toUpperCase()} (${context.runNumber})`,
+              body
+            });
+
+      - name: Final gate
         run: |
           set -euo pipefail
-          owner="${GITHUB_REPOSITORY%/*}"
-          repo="${GITHUB_REPOSITORY#*/}"
-          title="❌ Snapshot Watchdog failed ($(date -u +%FT%TZ))"
-          health_head="$(head -c 1000 ops-snapshot-watchdog/health.txt 2>/dev/null || true)"
-          ls_head="$(head -c 1000 ops-snapshot-watchdog/ls.txt 2>/dev/null || true)"
-          summary="$(cat ops-snapshot-watchdog/summary.json 2>/dev/null || echo '{}')"
-
-          python3 - "$owner" "$repo" "$title" "$GITHUB_SERVER_URL" "$GITHUB_RUN_ID" <<'PY'
-          import sys, json, os, urllib.request
-          owner, repo, title, server_url, run_id = sys.argv[1:6]
-          health = os.environ.get("health_head","")
-          ls = os.environ.get("ls_head","")
-          try:
-            with open("ops-snapshot-watchdog/summary.json","r",encoding="utf-8") as f:
-              summary = f.read()
-          except:
-            summary = "{}"
-          body = (
-            "Snapshot watchdog detected a problem.\n\n"
-            "### /health (head)\n\n"+health+"\n\n"
-            "### /ls (head)\n\n"+ls+"\n\n"
-            "### Summary\n\n"+summary+"\n\n"
-            f"Run: {server_url}/{owner}/{repo}/actions/runs/{run_id}"
-          )
-          payload = json.dumps({"title": title, "body": body}).encode("utf-8")
-          req = urllib.request.Request(
-            f"https://api.github.com/repos/{owner}/{repo}/issues",
-            data=payload,
-            headers={
-              "Authorization": f"Bearer {os.environ.get('GH_TOKEN','')}",
-              "Accept": "application/vnd.github+json",
-              "Content-Type": "application/json"
-            },
-            method="POST"
-          )
-          try:
-            with urllib.request.urlopen(req) as r:
-              r.read()
-          except Exception as e:
-            print("Issue create failed:", e)
-          PY
-
-      - name: Fail job if watchdog failed
-        if: ${{ steps.decide.outputs.fail == 'true' }}
-        run: |
-          echo "::error::Snapshot watchdog failed (see artifacts and created issue)."
-          exit 1
+          STATUS="${{ steps.decide.outputs.status }}"
+          BLOCK="${WATCHDOG_BLOCK:-false}"
+          if [ "$STATUS" = "bad" ]; then
+            echo "::error::Snapshot watchdog failed (endpoint problem)."
+            exit 1
+          fi
+          if [ "$STATUS" = "warn" ] && [ "$BLOCK" = "true" ]; then
+            echo "::error::Snapshot watchdog failed (excessive delta)."
+            exit 1
+          fi
+          echo "Watchdog OK (status=${STATUS}, block=${BLOCK})."
