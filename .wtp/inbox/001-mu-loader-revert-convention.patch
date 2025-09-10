@@ -1,0 +1,101 @@
+patch
+diff --git a/mu-plugins/00-mu-safe-loader.php b/mu-plugins/00-mu-safe-loader.php
+--- a/mu-plugins/00-mu-safe-loader.php
++++ b/mu-plugins/00-mu-safe-loader.php
+@@
+-<?php
+-/**
+- * MU Safe Loader (safe mode) – ładuje WYŁĄCZNIE MU-pluginy oznaczone końcówką ".on.php"
+- * i loguje postęp/błędy do wp-content/uploads/wtp-ro/mu-loader.log
+- */
+-if (!defined('ABSPATH')) exit;
+-
+-$mu_dir = -__DIR__;
+-$log    = WP_CONTENT_DIR . '/uploads/wtp-ro/mu-loader.log';
+-
+-@mkdir(dirname($log), 0775, true);
+-@file_put_contents($log, "[".date('c')."] MU Safe Loader init (safe mode)\n", FILE_APPEND);
+-
+-/** Polyfill dla PHP < 8 */
+-if (!function_exists('str_ends_with')) {
+-    function str_ends_with($haystack, $needle) {
+-        if ($needle === '') return true;
+-        $len = strlen($needle);
+-        return $len === 0 ? true : substr($haystack, -$len) === $needle;
+-    }
+-}
+-
+-/**
+- * Bezpieczna zasada:
+- *  - ładuj TYLKO pliki zakończone na ".on.php"
+- *  - ignoruj sam loader
+- * Dzięki temu „włączasz” MU-plugin przez zmianę nazwy z ".php" na ".on.php".
+- * Jeśli coś wysadzi WP – wystarczy zmienić rozszerzenie z powrotem.
+- */
+-$files = @scandir($mu_dir) ?: [];
+-foreach ($files as $f) {
+-    if ($f === '.' || $f === '..') continue;
+-    if ($f === basename(__FILE__)) continue;
+-    if (!str_ends_with($f, '.on.php')) continue;   // KLUCZOWE: tylko .on.php
+-
+-    $path = $mu_dir . '/' . $f;
+-    if (!is_file($path)) continue;
+-
+-    // Uwaga: fatal błędów składni nie da się „złapać” try/catch,
+-    // ale ograniczamy ryzyko tym, że ładujemy tylko świadomie włączone pliki.
+-    try {
+-        include_once $path;
+-        @file_put_contents($log, "[".date('c')."] Loaded: $f\n", FILE_APPEND);
+-    } catch (Throwable $e) {
+-        @file_put_contents(
+-            $log,
+-            "[".date('c')."] ERROR in $f: " . $e->getMessage() . "\n",
+-            FILE_APPEND
+-        );
+-    }
+-}
++<?php
++/**
++ * MU Loader – Twoja pierwotna konwencja:
++ *  - ładuj każdy plik kończący się na ".php" (poza samym loaderem),
++ *  - pomijaj pliki wyłączone: ".off.php" i ".disabled.php",
++ *  - loguj postęp/błędy do wp-content/uploads/wtp-ro/mu-loader.log
++ */
++if (!defined('ABSPATH')) exit;
++
++$mu_dir = __DIR__;
++$log    = WP_CONTENT_DIR . '/uploads/wtp-ro/mu-loader.log';
++
++// Zapewnij katalog na log
++if (function_exists('wp_mkdir_p')) {
++    @wp_mkdir_p(dirname($log));
++} else {
++    @mkdir(dirname($log), 0775, true);
++}
++@file_put_contents($log, "[".date('c')."] MU Loader init\n", FILE_APPEND);
++
++// Polyfill dla PHP < 8
++if (!function_exists('str_ends_with')) {
++    function str_ends_with($haystack, $needle) {
++        if ($needle === '') return true;
++        $len = strlen($needle);
++        return $len > 0 ? substr($haystack, -$len) === $needle : true;
++    }
++}
++
++$files = @scandir($mu_dir) ?: [];
++foreach ($files as $f) {
++    if ($f === '.' || $f === '..') continue;
++    if ($f === basename(__FILE__)) continue;            // nie ładuj samego loadera
++    if (!str_ends_with($f, '.php')) continue;           // tylko *.php
++    $low = strtolower($f);
++    if (str_ends_with($low, '.off.php')) continue;      // wyłączone
++    if (str_ends_with($low, '.disabled.php')) continue; // wyłączone
++
++    $path = $mu_dir . '/' . $f;
++    if (!is_file($path)) continue;
++
++    // Uwaga: błędów składni nie złapiemy try/catch – ładuj świadomie
++    include_once $path;
++    @file_put_contents($log, "[".date('c')."] Loaded: $f\n", FILE_APPEND);
++}
