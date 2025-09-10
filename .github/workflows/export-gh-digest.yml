@@ -24,6 +24,7 @@ jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
     env:
       HOST:     ${{ secrets.DEPLOY_HOST }}
       PORT:     ${{ secrets.DEPLOY_PORT }}
@@ -35,7 +36,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
 
       - name: Install tools
         run: |
