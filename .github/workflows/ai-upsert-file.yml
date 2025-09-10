@@ -1,113 +1,70 @@
 name: AI Upsert File
 
 on:
-  repository_dispatch:
-    types: [ai-upsert-file]
   workflow_dispatch:
     inputs:
       path:
-        description: "Target path in repo (e.g., mu-plugins/00-mu-safe-loader.php)"
+        description: 'Ścieżka pliku do utworzenia/aktualizacji'
         required: true
         type: string
       content_b64:
-        description: "File content in base64"
+        description: 'Treść pliku w base64'
         required: true
         type: string
       message:
-        description: "Commit message"
+        description: 'Wiadomość commita'
         required: true
         type: string
       branch:
-        description: "Target branch"
-        required: false
-        default: "main"
+        description: 'Gałąź docelowa'
+        required: true
         type: string
-
-permissions:
-  contents: write
+  repository_dispatch:
+    types: [ai-upsert-file]
 
 jobs:
   upsert:
     runs-on: ubuntu-latest
     steps:
-      - name: Install jq
+      - name: Ustal dane wejściowe
+        id: inputs
         run: |
-          sudo apt-get update -y
-          sudo apt-get install -y jq
-
-      - name: Read inputs/payload
-        id: prep
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
-            PATH_IN="${{ inputs.path }}"
-            CONTENT_B64="${{ inputs.content_b64 }}"
-            MESSAGE="${{ inputs.message }}"
-            BRANCH="${{ inputs.branch }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "path=${{ github.event.inputs.path }}" >> $GITHUB_OUTPUT
+            echo "content_b64=${{ github.event.inputs.content_b64 }}" >> $GITHUB_OUTPUT
+            echo "message=${{ github.event.inputs.message }}" >> $GITHUB_OUTPUT
+            echo "branch=${{ github.event.inputs.branch }}" >> $GITHUB_OUTPUT
           else
-            PATH_IN="${{ github.event.client_payload.path }}"
-            CONTENT_B64="${{ github.event.client_payload.content_b64 }}"
-            MESSAGE="${{ github.event.client_payload.message }}"
-            BRANCH="${{ github.event.client_payload.branch || 'main' }}"
+            echo "path=${{ github.event.client_payload.path }}" >> $GITHUB_OUTPUT
+            echo "content_b64=${{ github.event.client_payload.content_b64 }}" >> $GITHUB_OUTPUT
+            echo "message=${{ github.event.client_payload.message }}" >> $GITHUB_OUTPUT
+            echo "branch=${{ github.event.client_payload.branch }}" >> $GITHUB_OUTPUT
           fi
 
-          echo "path_in=${PATH_IN}"            >> "$GITHUB_OUTPUT"
-          echo "content_b64=${CONTENT_B64}"    >> "$GITHUB_OUTPUT"
-          echo "message=${MESSAGE}"            >> "$GITHUB_OUTPUT"
-          echo "branch=${BRANCH:-main}"        >> "$GITHUB_OUTPUT"
-
-      - name: Get existing SHA (if any)
-        id: cur
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT || secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
+      - name: Pobierz SHA (jeśli istnieje)
+        id: sha
         run: |
-          set -euo pipefail
-          enc() { python3 - "$1" <<'PY'
-import sys, urllib.parse
-print(urllib.parse.quote(sys.argv[1], safe=''))
-PY
-          }
-          PATH_IN="${{ steps.prep.outputs.path_in }}"
-          BRANCH="${{ steps.prep.outputs.branch }}"
-          URL="https://api.github.com/repos/${REPO}/contents/$(enc "${PATH_IN}")?ref=$(enc "${BRANCH}")"
+          set -e
+          API="https://api.github.com/repos/${{ github.repository }}/contents/${{ steps.inputs.outputs.path }}?ref=${{ steps.inputs.outputs.branch }}"
+          SHA=$(curl -s -H "Authorization: token ${{ secrets.WTP_GITHUB_PAT || secrets.GITHUB_TOKEN }}" "$API" | jq -r '.sha // empty')
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
 
-          RESP="$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "$URL" || true)"
-          SHA="$(echo "$RESP" | jq -r '.sha // empty')"
-          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
-
-      - name: Upsert file via Contents API
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT || secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
+      - name: Utwórz/aktualizuj plik
         run: |
-          set -euo pipefail
-          PATH_IN='${{ steps.prep.outputs.path_in }}'
-          BRANCH='${{ steps.prep.outputs.branch }}'
-          MSG='${{ steps.prep.outputs.message }}'
-          B64='${{ steps.prep.outputs.content_b64 }}'
-          SHA='${{ steps.cur.outputs.sha }}'
-
+          API="https://api.github.com/repos/${{ github.repository }}/contents/${{ steps.inputs.outputs.path }}"
           BODY=$(jq -n \
-            --arg message "$MSG" \
-            --arg content "$B64" \
-            --arg branch  "$BRANCH" \
-            --arg sha     "$SHA" \
-            '($sha|length)>0 as $has
-             | {message:$message, content:$content, branch:$branch}
-             + ( $has ? {sha:$sha} : {} )')
-
-          URL="https://api.github.com/repos/${REPO}/contents/${PATH_IN}"
-          RESP="$(curl -sS -X PUT "$URL" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -d "$BODY")"
-
-          echo "$RESP" | jq -e '.commit.sha' >/dev/null
-          echo "Upsert OK: $(echo "$RESP" | jq -r '.content.path // "unknown")"
-
-      - name: Summary
-        run: echo "✅ AI upsert finished for ${{ steps.prep.outputs.path_in }} on ${{ steps.prep.outputs.branch }}"
+            --arg msg "${{ steps.inputs.outputs.message }}" \
+            --arg b64 "${{ steps.inputs.outputs.content_b64 }}" \
+            --arg branch "${{ steps.inputs.outputs.branch }}" \
+            --arg sha "${{ steps.sha.outputs.sha }}" \
+            '{
+              message: $msg,
+              content: $b64,
+              branch: $branch
+            } + (if $sha != "" then {sha: $sha} else {} end)')
+          echo "Upsert file: ${{ steps.inputs.outputs.path }}"
+          curl -s -X PUT -H "Authorization: token ${{ secrets.WTP_GITHUB_PAT || secrets.GITHUB_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "$BODY" \
+            "$API" | tee response.json
+          cat response.json | jq -r '.commit.sha'
