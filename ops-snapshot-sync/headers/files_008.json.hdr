@@ -1,5 +1,5 @@
 HTTP/2 404 
-date: Wed, 10 Sep 2025 14:10:00 GMT
+date: Wed, 10 Sep 2025 14:38:50 GMT
 content-type: application/json; charset=UTF-8
 vary: Accept-Encoding
 x-powered-by: PHP/8.3.22
@@ -9,11 +9,11 @@ link: <https://weektoppick.com/wp-json/>; rel="https://api.w.org/"
 x-content-type-options: nosniff
 access-control-expose-headers: X-WP-Total, X-WP-TotalPages, Link
 access-control-allow-headers: Authorization, X-WP-Nonce, Content-Disposition, Content-MD5, Content-Type
-x-litespeed-cache: miss
+x-litespeed-cache: hit
 platform: hostinger
 panel: hpanel
 content-security-policy: upgrade-insecure-requests
 server: hcdn
 alt-svc: h3=":443"; ma=86400
-x-hcdn-request-id: 9b8eeaf1c102674b8502aed16effb877-imm-edge4
+x-hcdn-request-id: 4e4984a3b721e49f8385b7aaef5843d3-imm-edge5
 
