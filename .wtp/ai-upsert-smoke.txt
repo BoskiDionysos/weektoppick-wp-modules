@@ -1,2 +1,2 @@
 ok: ai-upsert
-test: 1
+updated: 2
