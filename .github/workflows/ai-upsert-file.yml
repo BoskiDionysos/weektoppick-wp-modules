@@ -73,7 +73,6 @@ jobs:
             exit 1
           fi
 
-          # zapisz base64 do pliku – bezpieczniej, niż w env/inline
           printf '%s' "${CONTENT_B64}" > b64.txt
 
           {
@@ -91,7 +90,7 @@ jobs:
           WANT="${{ steps.inp.outputs.sha256 }}"
           python3 - <<'PY'
 import base64, hashlib, pathlib
-b64 = pathlib.Path('b64.txt').read_bytes()            # toleruje spacje/nowe linie
+b64 = pathlib.Path('b64.txt').read_bytes()
 data = base64.b64decode(b64, validate=False)
 pathlib.Path('decoded.bin').write_bytes(data)
 pathlib.Path('sha.txt').write_text(hashlib.sha256(data).hexdigest())
@@ -111,7 +110,6 @@ PY
           set -euo pipefail
           enc() { jq -nr --arg x "$1" '$x|@uri'; }
           URL="https://api.github.com/repos/${REPO}/contents/$(enc '${{ steps.inp.outputs.path }}')?ref=$(enc '${{ steps.inp.outputs.branch }}')"
-          echo "GET $URL"
           RESP="$(curl -fsS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "$URL" || true)"
           SHA="$(jq -r '.sha // empty' <<<"$RESP")"
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
@@ -124,7 +122,6 @@ PY
           enc() { jq -nr --arg x "$1" '$x|@uri'; }
           URL="https://api.github.com/repos/${REPO}/contents/$(enc '${{ steps.inp.outputs.path }}')"
 
-          # Zbuduj JSON ciałko z warunkiem (bez ternary)
           if [[ -n "${{ steps.cur.outputs.sha }}" ]]; then
             BODY="$(jq -n \
               --arg message "${{ steps.inp.outputs.message }}" \
@@ -140,7 +137,6 @@ PY
               '{message:$message, content:$content, branch:$branch}')"
           fi
 
-          echo "PUT $URL"
           RESP="$(curl -fsS -X PUT \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
