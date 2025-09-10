@@ -1,0 +1,88 @@
+diff --git a/.github/workflows/patch-from-comment.yml b/.github/workflows/patch-from-comment.yml
+--- a/.github/workflows/patch-from-comment.yml
++++ b/.github/workflows/patch-from-comment.yml
+@@
+ name: Create Patch From Comment
+
+ on:
+   issue_comment:
+     types: [created]
+-  workflow_dispatch: {}
++  workflow_dispatch:
++    inputs:
++      patch:
++        description: 'Optional: paste unified diff (starts with "diff --git") if running manually'
++        required: false
++        default: ''
+
+ permissions:
+   contents: write
+   issues: read
+
+ concurrency:
+   group: patch-from-comment
+   cancel-in-progress: true
+
+ jobs:
+-  from-comment:
+-    if: ${{ github.event_name == 'issue_comment' && contains(github.event.comment.body, 'patch') }}
++  from-comment:
+     runs-on: ubuntu-latest
+     steps:
+       - name: Checkout
+         uses: actions/checkout@v4
+         with: { fetch-depth: 0 }
+
+-      - name: Extract patch from comment & save to .wtp/inbox/
++      - name: Extract patch (comment or manual) → .wtp/inbox/
+         id: extract
+         uses: actions/github-script@v7
+         with:
+           script: |
+-            const fs = require('fs');
+-            const body = context.payload.comment.body;
+-            // Wyciągnij pierwszy blok patch ... 
+-            const m = body.match(/patch\s*([\s\S]*?)/i);
+-            if (!m) core.setFailed("No patch fenced block found in comment.");
+-            const patch = m[1].trim();
+-            const ts = new Date().toISOString().replace(/[-:]/g,'').replace(/\..*/,'Z');
+-            const num = String(context.payload.comment.id).slice(-6); // pseudo id
+-            const filename = .wtp/inbox/${num}-${ts}.patch;
+-            fs.mkdirSync('.wtp/inbox', { recursive: true });
+-            fs.writeFileSync(filename, patch, {encoding:'utf8'});
+-            core.setOutput('filename', filename);
++            const fs = require('fs');
++            const ev = context.eventName;
++            // 1) Pobierz treść: z komentarza albo z inputu manualnego
++            let body = '';
++            if (ev === 'issue_comment') {
++              body = (context.payload.comment && context.payload.comment.body) || '';
++            } else if (ev === 'workflow_dispatch') {
++              body = core.getInput('patch') || '';
++            }
++            // 2) Musi zawierać słowo "patch" i blok zaczynający się od "diff --git"
++            if (!/patch/i.test(body) || !/^\s*diff --git/m.test(body)) {
++              core.setFailed('No unified diff found. Add a comment that starts with "patch" followed by lines starting with "diff --git".');
++              return;
++            }
++            // Weź wszystko od pierwszej linii "diff --git"
++            const start = body.match(/^\s*diff --git/m).index;
++            const patch = body.slice(start).trim() + "\n";
++            // 3) Nazwa pliku w inboxie
++            const ts  = new Date().toISOString().replace(/[-:]/g,'').replace(/\..*/,'Z');
++            const num = (context.payload.comment && context.payload.comment.id)
++              ? String(context.payload.comment.id).slice(-6)
++              : String(Math.random()).slice(2,8);
++            const filename = `.wtp/inbox/${num}-${ts}.patch`;
++            fs.mkdirSync('.wtp/inbox', { recursive: true });
++            fs.writeFileSync(filename, patch, { encoding:'utf8' });
++            core.setOutput('filename', filename);
+
+       - name: Commit patch file
++        if: ${{ steps.extract.outcomes != 'failure' }}
+         run: |
+           git config user.name  "wtp-bot"
+           git config user.email "wtp-bot@users.noreply.github.com"
+           git add .wtp/inbox/
+           git commit -m "inbox: add ${{ steps.extract.outputs.filename }} from issue comment or manual"
+           git push origin HEAD:main
