@@ -1,9 +1,8 @@
-name: Export GH Digest (for Chat analysis)
+name: Export GH Digest (full repo snapshot for diagnostics)
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
     paths:
       - 'mu-plugins/**'
       - 'plugins/**'
@@ -12,16 +11,20 @@ on:
       - '.github/workflows/**'
   schedule:
     - cron: '*/30 * * * *'
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 concurrency:
   group: export-gh-digest
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
     env:
       HOST:     ${{ secrets.DEPLOY_HOST }}
       PORT:     ${{ secrets.DEPLOY_PORT }}
@@ -48,26 +51,32 @@ jobs:
           set -euo pipefail
 
           make_list () {
-            local glob="$1"
-            if ! compgen -G "$glob" >/dev/null; then
-              echo "[]"; return
-            fi
-            arr="[]"
-            while IFS= read -r -d '' f; do
-              size=$(stat -c%s "$f" 2>/dev/null || echo 0)
-              sha=$(sha256sum "$f" 2>/dev/null | awk '{print $1}')
-              last="$(git log -1 --format='%h %ct' -- "$f" 2>/dev/null || true)"
+            local root="$1"
+            # Jeśli katalog nie istnieje, zwróć []
+            [ -d "$root" ] || { echo "[]"; return; }
+
+            # Zbierz pliki z zachowaniem stabilnej kolejności
+            mapfile -d '' files < <(cd "$root" && find . -type f -print0 | LC_ALL=C sort -z)
+
+            local arr="[]"
+            for rel in "${files[@]}"; do
+              rel="${rel#./}"
+              local fpath="${root%/}/$rel"
+              local size sha last_hash last_ts
+              size=$(stat -c%s "$fpath" 2>/dev/null || echo 0)
+              sha=$(sha256sum "$fpath" 2>/dev/null | awk '{print $1}')
+              last="$(git log -1 --format='%h %ct' -- "$fpath" 2>/dev/null || true)"
               last_hash=$(echo "$last" | awk '{print $1}')
-              last_ts=$(echo "$last" | awk '{print $2}')
+              last_ts=$(echo "$last"  | awk '{print $2}')
               item=$(jq -n \
-                --arg p "$f" \
-                --argjson s "${size:-0}" \
-                --arg sh "${sha:-}" \
-                --arg lh "${last_hash:-}" \
-                --argjson lt "${last_ts:-0}" \
-                '{path:$p,size:$s,sha256:$sh,last_commit:{hash:$lh,ts:$lt}}')
+                --arg path "$rel" \
+                --argjson size "${size:-0}" \
+                --arg sha256 "${sha:-}" \
+                --arg last_hash "${last_hash:-}" \
+                --argjson last_ts "${last_ts:-0}" \
+                '{path:$path,size:$size,sha256:$sha256,last_commit:{hash:$last_hash,ts:$last_ts}}')
               arr=$(jq -c --argjson it "$item" '. + [$it]' <<<"$arr")
-            done < <(find $glob -type f -print0 2>/dev/null || true)
+            done
             echo "$arr"
           }
 
@@ -79,26 +88,33 @@ jobs:
 
           head_hash="$(git rev-parse HEAD)"
           head_ts="$(git log -1 --format='%ct' || echo 0)"
+          repo="${{ github.repository }}"
+          branch="${{ github.ref_name }}"
+          gen_time="$(date -u +%FT%TZ)"
 
           jq -n \
-            --arg repo "${{ github.repository }}" \
-            --arg ref  "${{ github.ref_name }}" \
+            --arg repo "$repo" \
+            --arg branch "$branch" \
             --arg head "$head_hash" \
-            --argjson hts "${head_ts:-0}" \
+            --argjson head_ts "${head_ts:-0}" \
             --arg site_key "${SITE_KEY:-}" \
-            --arg target   "${TARGET:-}" \
-            --arg host     "${HOST:-}" \
-            --arg port     "${PORT:-}" \
-            --arg user     "${USER:-}" \
-            --arg time     "$(date -u +%FT%TZ)" \
+            --arg target "${TARGET:-}" \
+            --arg host   "${HOST:-}" \
+            --arg port   "${PORT:-}" \
+            --arg user   "${USER:-}" \
+            --arg time   "$gen_time" \
             --argjson mu   "$mu_plugins" \
             --argjson plg  "$plugins" \
             --argjson thm  "$themes" \
             --argjson wpt  "$wp_themes" \
             --argjson wfs  "$workflows" \
             '{
-              meta:{ repo:$repo, branch:$ref, head:$head, head_ts:$hts, generated_at:$time },
-              deploy:{ host:$host, port:$port, target:$target, user:$user },
+              meta:{
+                repo:$repo, branch:$branch, head:$head, head_ts:$head_ts, generated_at:$time
+              },
+              deploy:{
+                host:$host, port:$port, target:$target, user:$user
+              },
               site_key:$site_key,
               trees:{
                 mu_plugins:$mu, plugins:$plg, themes:$thm, wp_content_themes:$wpt, workflows:$wfs
@@ -106,20 +122,27 @@ jobs:
             }' > gh-digest.json
 
           echo "Built gh-digest.json:"
-          jq -C '.meta, .site_key, {mu: .trees.mu_plugins|length, plg:.trees.plugins|length, thm:.trees.themes|length, wpt:.trees.wp_content_themes|length, wfs:.trees.workflows|length}' gh-digest.json
+          jq -C '.meta, {counts:{
+              mu: .trees.mu_plugins|length,
+              plg:.trees.plugins|length,
+              thm:.trees.themes|length,
+              wpt:.trees.wp_content_themes|length,
+              wfs:.trees.workflows|length
+          }}' gh-digest.json || true
 
       - name: Upload digest to snapshot folder (SFTP)
         if: ${{ env.HOST != '' && env.USER != '' && env.PASS != '' && env.TARGET != '' && env.SITE_KEY != '' }}
         run: |
           set -euo pipefail
           REMOTE_DIR="$TARGET/wp-content/uploads/wtp-ro/public/$SITE_KEY"
+          echo "Creating remote dir: $REMOTE_DIR"
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p '$REMOTE_DIR'"
+          echo "Uploading gh-digest.json → $REMOTE_DIR/gh-digest.json"
           sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no gh-digest.json "$USER@$HOST:$REMOTE_DIR/gh-digest.json"
 
-      - name: Upload artifact (fallback)
+      - name: Upload artifact (for inspection)
         uses: actions/upload-artifact@v4
         with:
           name: gh-digest
           path: gh-digest.json
-          if-no-files-found: error
           retention-days: 7
