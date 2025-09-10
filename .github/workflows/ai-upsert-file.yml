@@ -78,26 +78,28 @@ jobs:
             echo "branch=${BRANCH}"
             echo "sha256=${SHA256}"
             echo "message<<EOF"
-            echo "${MESSAGE}"
+            printf "%s" "${MESSAGE}"
             echo "EOF"
             echo "content_b64<<EOF"
-            echo "${CONTENT_B64}"
+            printf "%s" "${CONTENT_B64}"
             echo "EOF"
           } >> "$GITHUB_OUTPUT"
 
       - name: Verify SHA-256 (optional)
         if: ${{ steps.inp.outputs.sha256 != '' }}
         shell: bash
+        env:
+          WANT: ${{ steps.inp.outputs.sha256 }}
+          B64: ${{ steps.inp.outputs.content_b64 }}
         run: |
           set -euo pipefail
-          WANT='${{ steps.inp.outputs.sha256 }}'
-          CALC=$(python3 - <<'PY' <<< '${{ steps.inp.outputs.content_b64 }}')
-import base64, sys, hashlib
-b64 = sys.stdin.read()
-# toleruj spacje/nowe linie; validate=False nie przerwie na whitespace
+          CALC=$(python3 - <<'PY'
+import os, base64, hashlib, sys
+b64 = os.environ.get("B64","")
 data = base64.b64decode(b64.encode(), validate=False)
 print(hashlib.sha256(data).hexdigest())
 PY
+          )
           echo "expected=$WANT"
           echo "calculated=$CALC"
           if [[ "$WANT" != "$CALC" ]]; then
@@ -111,35 +113,43 @@ PY
         run: |
           set -euo pipefail
           URL="https://api.github.com/repos/${REPO}/contents/${{ steps.inp.outputs.path }}?ref=${{ steps.inp.outputs.branch }}"
-          echo "GET $URL"
           RESP=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "$URL" || true)
           SHA=$(jq -r '.sha // empty' <<<"$RESP")
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare JSON body
+        id: body
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf "%s" '${{ steps.inp.outputs.message }}' > msg.txt
+          printf "%s" '${{ steps.inp.outputs.content_b64 }}' > content.b64
+          if [[ -n '${{ steps.cur.outputs.sha }}' ]]; then
+            jq -n \
+              --rawfile message msg.txt \
+              --rawfile content content.b64 \
+              --arg branch '${{ steps.inp.outputs.branch }}' \
+              --arg sha    '${{ steps.cur.outputs.sha }}' \
+              '{message:$message, content:$content, branch:$branch, sha:$sha}' > body.json
+          else
+            jq -n \
+              --rawfile message msg.txt \
+              --rawfile content content.b64 \
+              --arg branch '${{ steps.inp.outputs.branch }}' \
+              '{message:$message, content:$content, branch:$branch}' > body.json
+          fi
+          echo "file://$PWD/body.json" >> $GITHUB_STEP_SUMMARY
 
       - name: PUT (create/update) file
         shell: bash
         run: |
           set -euo pipefail
           URL="https://api.github.com/repos/${REPO}/contents/${{ steps.inp.outputs.path }}"
-          SHA='${{ steps.cur.outputs.sha }}'
-          if [[ -n "$SHA" ]]; then
-            BODY=$(jq -n --arg message '${{ steps.inp.outputs.message }}' \
-                        --arg content '${{ steps.inp.outputs.content_b64 }}' \
-                        --arg branch  '${{ steps.inp.outputs.branch }}' \
-                        --arg sha     "$SHA" \
-                        '{message:$message, content:$content, branch:$branch, sha:$sha}')
-          else
-            BODY=$(jq -n --arg message '${{ steps.inp.outputs.message }}' \
-                        --arg content '${{ steps.inp.outputs.content_b64 }}' \
-                        --arg branch  '${{ steps.inp.outputs.branch }}' \
-                        '{message:$message, content:$content, branch:$branch}')
-          fi
-
           echo "PUT $URL"
           RESP=$(curl -sS -X PUT \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
-            -d "$BODY" \
+            -d @body.json \
             "$URL")
           echo "$RESP" | jq .
           jq -e '.content.path or .commit.sha' <<<"$RESP" >/dev/null
