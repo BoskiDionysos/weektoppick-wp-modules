@@ -152,27 +152,44 @@ jobs:
               body
             });
 
-      - name: Publish public diag (always)
+            - name: Publish public diag (always)
         if: always()
         env:
-          HOST:     ${{ secrets.DEPLOY_HOST }}
-          PORT:     ${{ secrets.DEPLOY_PORT }}
-          USER:     ${{ secrets.DEPLOY_USER }}
-          PASS:     ${{ secrets.DEPLOY_PASS }}
-          TARGET:   ${{ secrets.DEPLOY_TARGET }}
-          SITE_KEY: ${{ secrets.WTP_SITE_KEY }}
+          HOST:   ${{ secrets.DEPLOY_HOST }}
+          PORT:   ${{ secrets.DEPLOY_PORT }}
+          USER:   ${{ secrets.DEPLOY_USER }}
+          PASS:   ${{ secrets.DEPLOY_PASS }}
+          TARGET: ${{ secrets.DEPLOY_TARGET }}
         run: |
           set -euo pipefail
+          SITE_KEY="${{ env.SITE_KEY }}"   # używamy tego samego SITE_KEY co do fetchy (literal 5Dep...)
+
           STATUS="${{ steps.req.outputs.status || 'unknown' }}"
           REASON="${{ steps.req.outputs.reason || '' }}"
           NOW="$(date -u +%FT%TZ)"
           RUN="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
           jq -n --arg workflow "snapshot-watchdog" --arg status "$STATUS" --arg reason "$REASON" --arg run_url "$RUN" --arg time "$NOW" \
             '{workflow:$workflow,status:$status,reason:$reason,run_url:$run_url,time:$time}' > watchdog-last.json
+
           REMOTE_DIR="$TARGET/wp-content/uploads/wtp-ro/public/${SITE_KEY}"
+          echo "REMOTE_DIR=$REMOTE_DIR"
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p '$REMOTE_DIR'"
           sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no watchdog-last.json "$USER@$HOST:$REMOTE_DIR/watchdog-last.json"
 
+          echo "Listing remote dir:"
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "ls -la '$REMOTE_DIR' | sed 's/^/remote: /'"
+
+          # Self-check HTTP
+          URL="${{ env.BASE }}/wp-json/wtp-ro-open/v1/get?site_key=${SITE_KEY}&file=watchdog-last.json"
+          echo "GET $URL"
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$URL")
+          echo "HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "::error::Public diag not reachable (HTTP $code)"
+            exit 1
+          fi
+          
       - name: Final gate
         run: |
           set -euo pipefail
