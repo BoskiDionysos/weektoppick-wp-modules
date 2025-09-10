@@ -1,42 +1,17 @@
-HTTP/2 500 
-date: Wed, 10 Sep 2025 11:09:41 GMT
-content-type: text/html; charset=UTF-8
+HTTP/2 404 
+date: Wed, 10 Sep 2025 11:32:52 GMT
+content-type: application/json; charset=UTF-8
 vary: Accept-Encoding
 x-powered-by: PHP/8.3.22
-expires: Wed, 11 Jan 1984 05:00:00 GMT
-cache-control: no-cache, must-revalidate, max-age=0, no-store, private
+x-robots-tag: noindex
+link: <https://weektoppick.com/wp-json/>; rel="https://api.w.org/"
+x-content-type-options: nosniff
+access-control-expose-headers: X-WP-Total, X-WP-TotalPages, Link
+access-control-allow-headers: Authorization, X-WP-Nonce, Content-Disposition, Content-MD5, Content-Type
 platform: hostinger
 panel: hpanel
 content-security-policy: upgrade-insecure-requests
 server: hcdn
 alt-svc: h3=":443"; ma=86400
-x-hcdn-request-id: 652d87caaa1f44b7766ca5a99f31af8f-phx-edge6
-
-HTTP/2 500 
-date: Wed, 10 Sep 2025 11:09:44 GMT
-content-type: text/html; charset=UTF-8
-vary: Accept-Encoding
-x-powered-by: PHP/8.3.22
-expires: Wed, 11 Jan 1984 05:00:00 GMT
-cache-control: no-cache, must-revalidate, max-age=0, no-store, private
-platform: hostinger
-panel: hpanel
-content-security-policy: upgrade-insecure-requests
-server: hcdn
-alt-svc: h3=":443"; ma=86400
-x-hcdn-request-id: 4b0ce0048cdfdb7d2a9f1f009199686f-phx-edge6
-
-HTTP/2 500 
-date: Wed, 10 Sep 2025 11:09:46 GMT
-content-type: text/html; charset=UTF-8
-vary: Accept-Encoding
-x-powered-by: PHP/8.3.22
-expires: Wed, 11 Jan 1984 05:00:00 GMT
-cache-control: no-cache, must-revalidate, max-age=0, no-store, private
-platform: hostinger
-panel: hpanel
-content-security-policy: upgrade-insecure-requests
-server: hcdn
-alt-svc: h3=":443"; ma=86400
-x-hcdn-request-id: 960707682ac5b319c8750e1d37bd1080-phx-edge6
+x-hcdn-request-id: d7df0450134154fcf601982767e57e19-bos-edge1
 
