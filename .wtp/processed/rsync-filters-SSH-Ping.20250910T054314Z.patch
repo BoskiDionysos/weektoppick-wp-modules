@@ -1,0 +1,102 @@
+patch
+diff --git a/.github/workflows/deploy-site.yml b/.github/workflows/deploy-site.yml
+--- a/.github/workflows/deploy-site.yml
++++ b/.github/workflows/deploy-site.yml
+@@
+-name: Deploy Site (MU, plugins, themes, wp-config)
+-on:
+-  push:
+-    branches: [ main ]
+-    paths:
+-      - 'mu-plugins/'
+-      - 'plugins/'
+-      - 'themes/'
+-      - 'wp-content/themes/'
+-      - '.wtp/wp-config.tpl.php'
+-      - '.github/workflows/deploy-site.yml'
+-  workflow_dispatch: {}
++name: Deploy Site (MU, plugins, themes, wp-config)
++on:
++  push:
++    branches: [ main ]
++    paths:
++      - 'mu-plugins/**'
++      - 'plugins/**'
++      - 'themes/**'
++      - 'wp-content/themes/**'
++      - '.wtp/wp-config.tpl.php'
++    paths-ignore:
++      - '.wtp/**'
++      - '.github/workflows/**'
++  workflow_dispatch: {}
+ concurrency:
+   group: deploy-site-${{ github.ref }}
+   cancel-in-progress: true
+ jobs:
+   deploy:
+     runs-on: ubuntu-latest
+     timeout-minutes: 30
+@@
+       - name: Install tools
+         run: |
+           sudo apt-get update -y
+           sudo apt-get install -y rsync sshpass
++      - name: Check SSH reachability (ping)
++        id: ping
++        shell: bash
++        run: |
++          set -euo pipefail
++          if timeout 10 bash -c "cat < /dev/null > /dev/tcp/${HOST}/${PORT}" 2>/dev/null; then
++            echo "ok=true" >> "$GITHUB_OUTPUT"
++          else
++            echo "ok=false" >> "$GITHUB_OUTPUT"
++            echo "::warning::SSH not reachable (host/port). Skipping deploy steps."
++          fi
+@@
+-      - name: Create target folders (first connect)
++      - name: Create target folders (first connect)
++        if: ${{ steps.ping.outputs.ok == 'true' }}
+         run: |
+           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+             "mkdir -p '$TARGET/wp-content/mu-plugins' \
+                       '$TARGET/wp-content/plugins' \
+                       '$TARGET/wp-content/themes' \
+                       '$TARGET/.wtp-bot'"
+@@
+-      - name: Deploy standard plugins
++      - name: Deploy standard plugins
++        if: ${{ steps.ping.outputs.ok == 'true' && hashFiles('plugins/**') != '' }}
+         run: |
+-          rsync -avz --delete \
++          rsync -avz --delete \
+             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
+             plugins/ "$USER@$HOST:$TARGET/wp-content/plugins/"
+@@
+-      - name: Deploy themes
+-        if: ${{ hashFiles('themes/') != '' || hashFiles('wp-content/themes/') != '' }}
++      - name: Deploy themes
++        if: ${{ steps.ping.outputs.ok == 'true' && (hashFiles('themes/**') != '' || hashFiles('wp-content/themes/**') != '') }}
+         run: |
+           if [ -d "themes" ]; then SRC="themes/"; else SRC="wp-content/themes/"; fi
+           rsync -avz --delete \
+             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
+             "$SRC" "$USER@$HOST:$TARGET/wp-content/themes/"
+@@
+-      - name: Generate & deploy wp-config.php (optional)
+-        if: ${{ env.ALLOW_WPCONFIG_DEPLOY == 'true' && hashFiles('.wtp/wp-config.tpl.php') != '' }}
++      - name: Generate & deploy wp-config.php (optional)
++        if: ${{ steps.ping.outputs.ok == 'true' && env.ALLOW_WPCONFIG_DEPLOY == 'true' && hashFiles('.wtp/wp-config.tpl.php') != '' }}
+         env:
+           WTP_AGENT_TOKEN:  ${{ secrets.WTP_AGENT_TOKEN }}
+@@
+           rsync -avz \
+             -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
+             wp-config.php "$USER@$HOST:$TARGET/wp-config.php"
+@@
+-      - name: Write deploy marker
++      - name: Write deploy marker
++        if: ${{ steps.ping.outputs.ok == 'true' }}
+         run: |
+           echo "deploy $(date -u +%FT%TZ)" > .deploy.txt
+           rsync -avz -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
+             .deploy.txt "$USER@$HOST:$TARGET/.wtp-bot/deploy.txt"
