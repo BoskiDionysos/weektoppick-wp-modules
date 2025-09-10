@@ -1,5 +1,5 @@
 HTTP/2 404 
-date: Wed, 10 Sep 2025 13:28:17 GMT
+date: Wed, 10 Sep 2025 13:42:22 GMT
 content-type: application/json; charset=UTF-8
 vary: Accept-Encoding
 x-powered-by: PHP/8.3.22
@@ -13,7 +13,8 @@ x-litespeed-cache: hit
 platform: hostinger
 panel: hpanel
 content-security-policy: upgrade-insecure-requests
+age: 846
 server: hcdn
 alt-svc: h3=":443"; ma=86400
-x-hcdn-request-id: 2a849149517aad74e520ae969e0f02a8-imm-edge4
+x-hcdn-request-id: a740390a281fe5b51ca0a32e3ab2d8ca-imm-edge4
 
