@@ -32,96 +32,58 @@ jobs:
   upsert:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
     steps:
-      - name: Prepare env
+      - name: Prepare inputs
         id: prep
-        shell: bash
         run: |
           set -euo pipefail
-          echo "REPO=${GITHUB_REPOSITORY}" >> $GITHUB_OUTPUT
-          echo "PATH_IN=${{ inputs.path }}" >> $GITHUB_OUTPUT
-          echo "BRANCH=${{ inputs.branch }}" >> $GITHUB_OUTPUT
-          # commit message i base64 zapisujemy do plików, by uniknąć problemów z nowymi liniami
+          echo "REPO=${GITHUB_REPOSITORY}" >> "$GITHUB_OUTPUT"
+          echo "PATH_IN=${{ inputs.path }}" >> "$GITHUB_OUTPUT"
+          echo "BRANCH=${{ inputs.branch }}" >> "$GITHUB_OUTPUT"
           printf "%s" "${{ inputs.message }}" > msg.txt
           printf "%s" "${{ inputs.content_b64 }}" > content.b64
-          # opcjonalny SHA do weryfikacji
-          printf "%s" "${{ inputs.sha256 }}" > want.sha
 
       - name: Verify SHA-256 (optional)
         if: ${{ inputs.sha256 != '' }}
-        env:
-          WANT: ${{ inputs.sha256 }}
         run: |
           set -euo pipefail
-          CALC=$(python3 - <<'PY'
-import base64, hashlib, sys, pathlib
-b64 = pathlib.Path("content.b64").read_text()
-data = base64.b64decode(b64.encode(), validate=False)
-print(hashlib.sha256(data).hexdigest())
-PY
-          )
-          echo "expected=$WANT"
+          CALC=$(python3 -c "import base64,hashlib,pathlib;b=pathlib.Path('content.b64').read_text();d=base64.b64decode(b.encode(), validate=False);print(hashlib.sha256(d).hexdigest())")
+          echo "expected=${{ inputs.sha256 }}"
           echo "calculated=$CALC"
-          [[ "$WANT" == "$CALC" ]] || { echo "::error::SHA-256 mismatch"; exit 1; }
+          [ "$CALC" = "${{ inputs.sha256 }}" ] || { echo '::error::SHA-256 mismatch'; exit 1; }
 
       - name: Read current file sha (if any)
         id: cur
         env:
-          GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT || secrets.GITHUB_TOKEN }}
-          REPO: ${{ steps.prep.outputs.REPO }}
-          PATH_IN: ${{ steps.prep.outputs.PATH_IN }}
-          BRANCH: ${{ steps.prep.outputs.BRANCH }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          URL="https://api.github.com/repos/${REPO}/contents/${PATH_IN}?ref=${BRANCH}"
+          URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/${{ inputs.path }}?ref=${{ inputs.branch }}"
+          echo "GET $URL"
           RESP=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "$URL" || true)
-          SHA=$(python3 - <<'PY'
-import sys, json
-try:
-  print(json.load(sys.stdin).get("sha",""))
-except Exception:
-  print("")
-PY
-          <<<"$RESP")
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          SHA=$(python3 -c "import sys,json; print(json.loads(sys.stdin.read() or '{}').get('sha',''))" <<<"$RESP")
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Build request body
+      - name: Build body.json
         env:
           BRANCH: ${{ steps.prep.outputs.BRANCH }}
           SHA: ${{ steps.cur.outputs.sha }}
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-import os, json, pathlib
-body = {
-  "message": pathlib.Path("msg.txt").read_text(),
-  "content": pathlib.Path("content.b64").read_text(),
-  "branch": os.environ["BRANCH"] or "main",
-}
-sha = os.environ.get("SHA","").strip()
-if sha:
-  body["sha"] = sha
-pathlib.Path("body.json").write_text(json.dumps(body))
-print(json.dumps(body)[:400] + ("..." if len(json.dumps(body))>400 else ""))
-PY
+          python3 -c "import os,json,pathlib; body={'message':pathlib.Path('msg.txt').read_text(),'content':pathlib.Path('content.b64').read_text(),'branch':os.environ.get('BRANCH') or 'main'}; sha=os.environ.get('SHA','').strip(); 
+if sha: body['sha']=sha; pathlib.Path('body.json').write_text(json.dumps(body))"
 
       - name: PUT (create/update) file
         env:
-          GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT || secrets.GITHUB_TOKEN }}
-          REPO: ${{ steps.prep.outputs.REPO }}
-          PATH_IN: ${{ steps.prep.outputs.PATH_IN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          URL="https://api.github.com/repos/${REPO}/contents/${PATH_IN}"
+          URL="https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/${{ inputs.path }}"
           echo "PUT $URL"
           curl -sS -X PUT \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -d @body.json \
-            "$URL" | tee /tmp/resp.json
-          python3 - <<'PY'
-import json,sys
-j=json.load(open('/tmp/resp.json'))
-print("content:", j.get('content',{}).get('path'))
-print("commit:", j.get('commit',{}).get('sha'))
-PY
+            "$URL" | tee resp.json
+          python3 -c "import json; j=json.load(open('resp.json')); print('path:', j.get('content',{}).get('path')); print('commit:', j.get('commit',{}).get('sha'))"
