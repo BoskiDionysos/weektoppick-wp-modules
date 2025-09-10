@@ -42,7 +42,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y jq sshpass
+          sudo apt-get install -y jq sshpass curl
 
       - name: Build digest JSON
         id: digest
@@ -54,11 +54,11 @@ jobs:
             local root="$1"
             [ -d "$root" ] || { echo "[]"; return; }
             mapfile -d '' files < <(cd "$root" && find . -type f -print0 | LC_ALL=C sort -z)
-            local arr='[]'
+            local arr="[]"
             for rel in "${files[@]}"; do
               rel="${rel#./}"
               local fpath="${root%/}/$rel"
-              local size sha last_hash last_ts last
+              local size sha last last_hash last_ts
               size=$(stat -c%s "$fpath" 2>/dev/null || echo 0)
               sha=$(sha256sum "$fpath" 2>/dev/null | awk '{print $1}')
               last="$(git log -1 --format='%h %ct' -- "$fpath" 2>/dev/null || true)"
@@ -120,21 +120,42 @@ jobs:
               wfs:.trees.workflows|length
           }}' gh-digest.json || true
 
-      - name: Upload digest to snapshot folder (SFTP)
-        # jeśli wszystkie wymagane sekrety istnieją – upload; inaczej step pominie się
-        if: ${{ env.HOST != '' && env.USER != '' && env.PASS != '' && env.TARGET != '' && env.SITE_KEY != '' }}
+      - name: Upload digest to snapshot folder (SFTP) + verify
         shell: bash
+        env:
+          BASE: https://weektoppick.com
         run: |
           set -euo pipefail
+          if [ -z "${HOST:-}" ] || [ -z "${USER:-}" ] || [ -z "${PASS:-}" ] || [ -z "${TARGET:-}" ] || [ -z "${SITE_KEY:-}" ]; then
+            echo "::error::Missing one of required secrets (HOST/USER/PASS/TARGET/SITE_KEY)."
+            exit 1
+          fi
+
           REMOTE_DIR="$TARGET/wp-content/uploads/wtp-ro/public/$SITE_KEY"
           echo "Remote dir: $REMOTE_DIR"
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p '$REMOTE_DIR'"
-          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no gh-digest.json "$USER@$HOST:$REMOTE_DIR/gh-digest.json"
+
+          # upload (overwrite)
+          sshpass -p "$PASS" ssh -p "${PORT:-22}" -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p '$REMOTE_DIR'"
+          sshpass -p "$PASS" scp -P "${PORT:-22}" -o StrictHostKeyChecking=no gh-digest.json "$USER@$HOST:$REMOTE_DIR/gh-digest.json"
           echo "✅ Uploaded gh-digest.json"
+
+          # pokaż co faktycznie jest na serwerze
+          echo "— remote ls -l:"
+          sshpass -p "$PASS" ssh -p "${PORT:-22}" -o StrictHostKeyChecking=no "$USER@$HOST" "ls -l '$REMOTE_DIR/gh-digest.json' || true"
+          echo "— remote head:"
+          sshpass -p "$PASS" ssh -p "${PORT:-22}" -o StrictHostKeyChecking=no "$USER@$HOST" "head -c 200 '$REMOTE_DIR/gh-digest.json' || true"
+          echo
+
+          # publiczny odczyt (ten sam, który sprawdzasz w przeglądarce)
+          echo "— public GET via WP endpoint:"
+          URL="$BASE/wp-json/wtp-ro-open/v1/get?site_key=$SITE_KEY&file=gh-digest.json"
+          echo "GET $URL"
+          curl -fsS "$URL" | head -c 200 || true
+          echo
 
       - name: Upload artifact (for inspection)
         uses: actions/upload-artifact@v4
         with:
           name: gh-digest
           path: gh-digest.json
-          retention-days:
+          retention-days: 7
