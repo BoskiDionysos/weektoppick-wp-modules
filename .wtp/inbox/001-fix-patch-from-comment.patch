@@ -1,0 +1,101 @@
+patch
+diff --git a/.github/workflows/patch-from-comment.yml b/.github/workflows/patch-from-comment.yml
+--- a/.github/workflows/patch-from-comment.yml
++++ b/.github/workflows/patch-from-comment.yml
+@@
+-name: Create Patch From Comment
+-on:
+-  issue_comment:
+-    types: [created]
+-  workflow_dispatch: {}
+-permissions:
+-  contents: write
+-  issues: read
+-concurrency:
+-  group: patch-from-comment
+-  cancel-in-progress: true
+-jobs:
+-  from-comment:
+-    if: ${{ github.event_name == 'issue_comment' && contains(github.event.comment.body, 'patch') }}
+-    runs-on: ubuntu-latest
+-    steps:
+-      - name: Checkout
+-        uses: actions/checkout@v4
+-        with: { fetch-depth: 0 }
+-      - name: Extract patch from comment & save to .wtp/inbox/
+-        id: extract
+-        uses: actions/github-script@v7
+-        with:
+-          script: |
+-            const fs = require('fs');
+-            const body = context.payload.comment.body;
+-            const m = body.match(/patch\s*([\s\S]*?)$/i);
+-            if (!m) core.setFailed("No patch block found in comment.");
+-            const patch = m[1].trim();
+-            const ts = new Date().toISOString().replace(/[-:]/g,'').replace(/\..*/,'Z');
+-            const num = String(context.payload.comment.id).slice(-6);
+-            const filename = `.wtp/inbox/${num}-${ts}.patch`;
+-            fs.mkdirSync('.wtp/inbox', { recursive: true });
+-            fs.writeFileSync(filename, patch, {encoding:'utf8'});
+-            core.setOutput('filename', filename);
+-      - name: Commit patch file
+-        run: |
+-          git config user.name  "wtp-bot"
+-          git config user.email "wtp-bot@users.noreply.github.com"
+-          git add .wtp/inbox/
+-          git commit -m "inbox: add ${{ steps.extract.outputs.filename }} from issue comment"
+-          git push origin HEAD:main
++name: Create Patch From Comment
++on:
++  issue_comment:
++    types: [created]
++  workflow_dispatch:
++    inputs:
++      patch:
++        description: "Paste unified diff (starts with 'diff --git ...')"
++        required: true
++        type: string
++permissions:
++  contents: write
++  issues: read
++concurrency:
++  group: patch-from-comment
++  cancel-in-progress: true
++jobs:
++  from-comment:
++    runs-on: ubuntu-latest
++    steps:
++      - name: Checkout
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++      - name: Extract patch (comment or manual) → .wtp/inbox/
++        id: extract
++        uses: actions/github-script@v7
++        with:
++          script: |
++            const fs = require('fs');
++            fs.mkdirSync('.wtp/inbox', { recursive: true });
++            let src = '';
++            if (context.eventName === 'issue_comment') {
++              src = context.payload.comment?.body || '';
++              const m = src.match(/patch\s*([\s\S]*?)$/i);
++              if (!m) core.setFailed('No patch block found in comment.');
++              src = m[1].trim();
++            } else {
++              // manual run
++              src = core.getInput('patch');
++              if (!src || !src.includes('diff --git')) core.setFailed('Provide a unified diff in inputs.patch');
++            }
++            const ts  = new Date().toISOString().replace(/[-:]/g,'').replace(/\..*/,'Z');
++            const id  = String((context.payload.comment?.id || context.runId)).slice(-6);
++            const out = `.wtp/inbox/${id}-${ts}.patch`;
++            fs.writeFileSync(out, src, {encoding:'utf8'});
++            core.setOutput('filename', out);
++      - name: Commit patch file
++        run: |
++          git config user.name  "wtp-bot"
++          git config user.email "wtp-bot@users.noreply.github.com"
++          git add .wtp/inbox/
++          git commit -m "inbox: add ${{ steps.extract.outputs.filename }}"
++          git push origin HEAD:main
