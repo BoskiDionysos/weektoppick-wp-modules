@@ -1,0 +1,84 @@
+patch
+diff --git a/mu-plugins/00-mu-safe-loader.php b/mu-plugins/00-mu-safe-loader.php
+--- a/mu-plugins/00-mu-safe-loader.php
++++ b/mu-plugins/00-mu-safe-loader.php
+@@
+-<?php
+-/**
+- * MU Safe Loader – ładuje wszystkie MU pluginy i loguje postęp/błędy.
+- */
+-if (!defined('ABSPATH')) exit;
+-
+-$mu_dir = DIR;
+-$log   = WP_CONTENT_DIR . '/uploads/wtp-ro/mu-loader.log';
+-
+-// upewnij się, że ścieżka na log istnieje
+-@mkdir(dirname($log), 0775, true);
+-@file_put_contents($log, "[".date('c')."] MU Safe Loader init\n", FILE_APPEND);
+-
+-// ładuj każdy *.php poza samym loaderem i plikami *.off
+-$files = @scandir($mu_dir) ?: [];
+-foreach ($files as $f) {
+-    if ($f === '.' || $f === '..') continue;
+-    if ($f === basename(FILE)) continue;
+-    if (substr($f, -4) !== '.php') continue;
+-    if (str_ends_with($f, '.off.php')) continue;
+-
+-    $path = $mu_dir . '/' . $f;
+-    if (!is_file($path)) continue;
+-
+-    try {
+-        include_once $path;
+-        @file_put_contents($log, "[".date('c')."] Loaded: $f\n", FILE_APPEND);
+-    } catch (Throwable $e) {
+-        @file_put_contents(
+-            $log,
+-            "[".date('c')."] ERROR in $f: ".$e->getMessage()."\n",
+-            FILE_APPEND
+-        );
+-    }
+-}
++<?php
++/**
++ * MU Loader – Twoja konwencja:
++ *  - ładuj każdy plik kończący się na ".php" (poza samym loaderem),
++ *  - pomijaj: ".off.php" i ".disabled.php",
++ *  - loguj do wp-content/uploads/wtp-ro/mu-loader.log
++ */
++if (!defined('ABSPATH')) exit;
++
++$mu_dir = _DIR_;
++$log    = WP_CONTENT_DIR . '/uploads/wtp-ro/mu-loader.log';
++
++// katalog na log
++if (function_exists('wp_mkdir_p')) {
++    @wp_mkdir_p(dirname($log));
++} else {
++    @mkdir(dirname($log), 0775, true);
++}
++@file_put_contents($log, "[".date('c')."] MU Loader init\n", FILE_APPEND);
++
++// Polyfill dla PHP < 8
++if (!function_exists('str_ends_with')) {
++    function str_ends_with($haystack, $needle) {
++        if ($needle === '') return true;
++        $len = strlen($needle);
++        return $len > 0 ? substr($haystack, -$len) === $needle : true;
++    }
++}
++
++$files = @scandir($mu_dir) ?: [];
++foreach ($files as $f) {
++    if ($f === '.' || $f === '..') continue;
++    if ($f === basename(_FILE_)) continue;           // nie ładuj samego loadera
++    if (substr($f, -4) !== '.php') continue;           // tylko *.php
++    $low = strtolower($f);
++    if (str_ends_with($low, '.off.php')) continue;     // wyłączone
++    if (str_ends_with($low, '.disabled.php')) continue;// wyłączone
++
++    $path = $mu_dir . '/' . $f;
++    if (!is_file($path)) continue;
++
++    include_once $path; // (błędów składni i tak nie złapiesz try/catch)
++    @file_put_contents($log, "[".date('c')."] Loaded: $f\n", FILE_APPEND);
++}
