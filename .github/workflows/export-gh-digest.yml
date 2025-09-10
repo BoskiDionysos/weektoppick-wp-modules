@@ -54,11 +54,11 @@ jobs:
             local root="$1"
             [ -d "$root" ] || { echo "[]"; return; }
             mapfile -d '' files < <(cd "$root" && find . -type f -print0 | LC_ALL=C sort -z)
-            local arr="[]"
+            local arr='[]'
             for rel in "${files[@]}"; do
               rel="${rel#./}"
               local fpath="${root%/}/$rel"
-              local size sha last_hash last_ts
+              local size sha last_hash last_ts last
               size=$(stat -c%s "$fpath" 2>/dev/null || echo 0)
               sha=$(sha256sum "$fpath" 2>/dev/null | awk '{print $1}')
               last="$(git log -1 --format='%h %ct' -- "$fpath" 2>/dev/null || true)"
@@ -121,17 +121,20 @@ jobs:
           }}' gh-digest.json || true
 
       - name: Upload digest to snapshot folder (SFTP)
+        # jeśli wszystkie wymagane sekrety istnieją – upload; inaczej step pominie się
         if: ${{ env.HOST != '' && env.USER != '' && env.PASS != '' && env.TARGET != '' && env.SITE_KEY != '' }}
+        shell: bash
         run: |
           set -euo pipefail
           REMOTE_DIR="$TARGET/wp-content/uploads/wtp-ro/public/$SITE_KEY"
           echo "Remote dir: $REMOTE_DIR"
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p '$REMOTE_DIR'"
           sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no gh-digest.json "$USER@$HOST:$REMOTE_DIR/gh-digest.json"
+          echo "✅ Uploaded gh-digest.json"
 
       - name: Upload artifact (for inspection)
         uses: actions/upload-artifact@v4
         with:
           name: gh-digest
           path: gh-digest.json
-          retention-days: 7
+          retention-days:
