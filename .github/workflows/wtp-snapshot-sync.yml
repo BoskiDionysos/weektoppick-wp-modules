@@ -9,33 +9,38 @@ on:
     paths:
       - ".github/workflows/wtp-snapshot-sync.yml"
 
+permissions:
+  contents: write
+
 concurrency:
   group: wtp-snapshot-sync
   cancel-in-progress: true
 
-permissions:
-  contents: write
+env:
+  BASE: https://weektoppick.com
+  SITE_KEY: 5Depft8Y9LU0t6Sv
+  OUTDIR: snapshots/5Depft8Y9LU0t6Sv
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      BASE: https://weektoppick.com
-      SITE_KEY: 5Depft8Y9LU0t6Sv
-      OUTDIR: snapshots/5Depft8Y9LU0t6Sv
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Tools
+        shell: bash
         run: |
+          set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y jq curl sshpass
           mkdir -p "$OUTDIR/logs"
 
       - name: Fetch ls.json (health + URLs)
         id: ls
+        shell: bash
         run: |
           set -euo pipefail
           URL="$BASE/wp-json/wtp-ro-open/v1/ls?site_key=$SITE_KEY"
@@ -44,26 +49,33 @@ jobs:
           jq '{version, urls, exists}' "$OUTDIR/ls.json" || true
 
       - name: Resolve files list & download chunks (robust)
+        shell: bash
         run: |
           set -euo pipefail
           LS="$OUTDIR/ls.json"
           OUT="$OUTDIR"
+
           PUB=$(jq -r '.urls.public_url? // empty' "$LS")
           if [ -z "$PUB" ]; then
             PUB="$BASE/wp-content/uploads/wtp-ro/public/$SITE_KEY/"
           fi
           PUB="${PUB%/}/"
+
           FILES=$(jq -r '.list.dirA? // [] | .[] | select(test("^files_\\d{3}\\.json$"))' "$LS")
+
           if [ -z "$FILES" ]; then
             echo "No files from ls.json; trying public index.json"
             curl -fsS "${PUB}index.json" -o "$OUT/index.json" || true
             FILES=$(jq -r '.files[]? | select(test("^files_\\d{3}\\.json$"))' "$OUT/index.json" 2>/dev/null || echo "")
           fi
+
           if [ -z "$FILES" ]; then
             echo "::warning::No snapshot files found. Skipping."
             exit 0
           fi
+
           echo "Will download:"; echo "$FILES" | sed 's/^/ - /'
+
           while IFS= read -r f; do
             [ -z "$f" ] && continue
             echo "→ $f"
@@ -71,12 +83,14 @@ jobs:
               curl -fsS "${PUB}${f}" -o "$OUT/$f"
             fi
           done <<< "$FILES"
+
           for f in index.json bundle.json options.json selftest.json; do
             curl -fsS "$BASE/wp-json/wtp-ro-open/v1/get?site_key=$SITE_KEY&file=$f" -o "$OUT/$f" || \
             curl -fsS "${PUB}${f}" -o "$OUT/$f" || true
           done
 
-      - name: Request fresh logs (/emit-logs)
+      - name: Request fresh logs (/emit-logs) and fetch
+        shell: bash
         run: |
           set -euo pipefail
           curl -fsS -X POST "$BASE/wp-json/wtp-ro-open/v1/emit-logs?site_key=$SITE_KEY" -o /dev/null || true
@@ -85,6 +99,7 @@ jobs:
           done
 
       - name: Commit snapshot (if changed)
+        shell: bash
         run: |
           set -e
           git add -A
@@ -105,7 +120,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-            - name: Publish public diag (always)
+      - name: Publish public diag (always)
         if: always()
         env:
           HOST:   ${{ secrets.DEPLOY_HOST }}
@@ -113,9 +128,10 @@ jobs:
           USER:   ${{ secrets.DEPLOY_USER }}
           PASS:   ${{ secrets.DEPLOY_PASS }}
           TARGET: ${{ secrets.DEPLOY_TARGET }}
+        shell: bash
         run: |
           set -euo pipefail
-          SITE_KEY="${{ env.SITE_KEY }}"   # ten sam, co w fetchach
+          SITE_KEY="${{ env.SITE_KEY }}"
 
           NOW="$(date -u +%FT%TZ)"
           RUN="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
@@ -123,6 +139,7 @@ jobs:
           if [ -f "${{ env.OUTDIR }}/ls.json" ]; then
             FILES=$(jq -r '.list.dirA? // [] | join(",")' "${{ env.OUTDIR }}/ls.json" 2>/dev/null || echo "")
           fi
+
           jq -n --arg workflow "wtp-snapshot-sync" --arg run_url "$RUN" --arg time "$NOW" --arg files "$FILES" \
             '{workflow:$workflow,run_url:$run_url,time:$time,files_from_ls: ($files|split(",")|map(select(. != "")))}' > snapshot-sync-last.json
 
@@ -134,10 +151,14 @@ jobs:
           echo "Listing remote dir:"
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "ls -la '$REMOTE_DIR' | sed 's/^/remote: /'"
 
-          # Self-check HTTP
-          URL="${{ env.BASE }}/wp-json/wtp-ro-open/v1/get?site_key=${SITE_KEY}&file=snapshot-sync-last.json"
+      - name: Self-check public URL
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="${{ env.BASE }}/wp-json/wtp-ro-open/v1/get?site_key=${{ env.SITE_KEY }}&file=snapshot-sync-last.json"
           echo "GET $URL"
-          code=$(curl -s -o /dev/null -w '%{http_code}' "$URL")
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$URL" || true)
           echo "HTTP $code"
           if [ "$code" != "200" ]; then
             echo "::error::Public diag not reachable (HTTP $code)"
