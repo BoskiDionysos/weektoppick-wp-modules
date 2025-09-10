@@ -24,7 +24,6 @@ jobs:
   build-and-publish:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-
     env:
       HOST:     ${{ secrets.DEPLOY_HOST }}
       PORT:     ${{ secrets.DEPLOY_PORT }}
@@ -36,8 +35,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        with: { fetch-depth: 0 }
 
       - name: Install tools
         run: |
@@ -52,12 +50,8 @@ jobs:
 
           make_list () {
             local root="$1"
-            # Jeśli katalog nie istnieje, zwróć []
             [ -d "$root" ] || { echo "[]"; return; }
-
-            # Zbierz pliki z zachowaniem stabilnej kolejności
             mapfile -d '' files < <(cd "$root" && find . -type f -print0 | LC_ALL=C sort -z)
-
             local arr="[]"
             for rel in "${files[@]}"; do
               rel="${rel#./}"
@@ -109,16 +103,10 @@ jobs:
             --argjson wpt  "$wp_themes" \
             --argjson wfs  "$workflows" \
             '{
-              meta:{
-                repo:$repo, branch:$branch, head:$head, head_ts:$head_ts, generated_at:$time
-              },
-              deploy:{
-                host:$host, port:$port, target:$target, user:$user
-              },
+              meta:{ repo:$repo, branch:$branch, head:$head, head_ts:$head_ts, generated_at:$time },
+              deploy:{ host:$host, port:$port, target:$target, user:$user },
               site_key:$site_key,
-              trees:{
-                mu_plugins:$mu, plugins:$plg, themes:$thm, wp_content_themes:$wpt, workflows:$wfs
-              }
+              trees:{ mu_plugins:$mu, plugins:$plg, themes:$thm, wp_content_themes:$wpt, workflows:$wfs }
             }' > gh-digest.json
 
           echo "Built gh-digest.json:"
@@ -135,9 +123,8 @@ jobs:
         run: |
           set -euo pipefail
           REMOTE_DIR="$TARGET/wp-content/uploads/wtp-ro/public/$SITE_KEY"
-          echo "Creating remote dir: $REMOTE_DIR"
+          echo "Remote dir: $REMOTE_DIR"
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p '$REMOTE_DIR'"
-          echo "Uploading gh-digest.json → $REMOTE_DIR/gh-digest.json"
           sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no gh-digest.json "$USER@$HOST:$REMOTE_DIR/gh-digest.json"
 
       - name: Upload artifact (for inspection)
