@@ -1,0 +1,117 @@
+patch
+diff --git a/.github/workflows/ai-upsert-file.yml b/.github/workflows/ai-upsert-file.yml
+--- a/.github/workflows/ai-upsert-file.yml
++++ b/.github/workflows/ai-upsert-file.yml
+@@
+ name: AI Upsert File
+ 
+ on:
+   repository_dispatch:
+-    types: [ai-upsert-file]   # wywołujemy eventem 'ai-upsert-file'
+-  workflow_dispatch: {}        # opcjonalnie: ręczne odpalenie z UI
++    types: [ai-upsert-file]
++  workflow_dispatch:
++    inputs:
++      path:
++        description: 'Target path in repo (e.g., mu-plugins/00-mu-safe-loader.php)'
++        required: true
++        type: string
++      content_b64:
++        description: 'File content in base64'
++        required: true
++        type: string
++      message:
++        description: 'Commit message'
++        required: true
++        type: string
++      branch:
++        description: 'Target branch'
++        required: false
++        default: 'main'
++        type: string
++      sha256:
++        description: 'Optional SHA-256 of decoded content for verification'
++        required: false
++        type: string
+@@
+ jobs:
+   upsert:
+     runs-on: ubuntu-latest
+@@
+-      - name: Read payload
+-        id: payload
+-        run: |
+-          # repository_dispatch -> context.event.client_payload.*
+-          # workflow_dispatch -> inputs (jeśli chcesz dodać inputs — tu korzystamy z dispatch)
+-          {
+-            echo "path<<EOF"
+-            echo "${{ github.event.client_payload.path }}"
+-            echo "EOF"
+-            echo "content_b64<<EOF"
+-            echo "${{ github.event.client_payload.content_b64 }}"
+-            echo "EOF"
+-            echo "message<<EOF"
+-            echo "${{ github.event.client_payload.message }}"
+-            echo "EOF"
+-            echo "branch=${{ github.event.client_payload.branch || 'main' }}"
+-          } >> "$GITHUB_OUTPUT"
++      - name: Read payload (dispatch or UI)
++        id: payload
++        shell: bash
++        run: |
++          set -euo pipefail
++          EV="${GITHUB_EVENT_NAME}"
++          if [[ "$EV" == "repository_dispatch" ]]; then
++            PATH_IN="${{ github.event.client_payload.path }}"
++            CONTENT_B64="${{ github.event.client_payload.content_b64 }}"
++            MESSAGE="${{ github.event.client_payload.message }}"
++            BRANCH="${{ github.event.client_payload.branch || 'main' }}"
++            SHA256="${{ github.event.client_payload.sha256 }}"
++          else
++            PATH_IN="${{ inputs.path }}"
++            CONTENT_B64="${{ inputs.content_b64 }}"
++            MESSAGE="${{ inputs.message }}"
++            BRANCH="${{ inputs.branch || 'main' }}"
++            SHA256="${{ inputs.sha256 }}"
++          fi
++          if [[ -z "${PATH_IN}" || -z "${CONTENT_B64}" || -z "${MESSAGE}" ]]; then
++            echo "::error::Missing required inputs (path/content_b64/message)."
++            exit 1
++          fi
++          {
++            echo "path=${PATH_IN}"
++            echo "content_b64=${CONTENT_B64}"
++            echo "message=${MESSAGE}"
++            echo "branch=${BRANCH}"
++            echo "sha256=${SHA256}"
++          } >> "$GITHUB_OUTPUT"
+@@
+-      - name: Upsert via Contents API
++      - name: Upsert via Contents API
+         env:
+-          GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT || secrets.GITHUB_TOKEN }}
++          GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT || github.token }}
+           OWNER: ${{ github.repository_owner }}
+           REPO:  ${{ github.event.repository.name }}
+           PATH:  ${{ steps.payload.outputs.path }}
+           MSG:   ${{ steps.payload.outputs.message }}
+           B64:   ${{ steps.payload.outputs.content_b64 }}
+           BR:    ${{ steps.payload.outputs.branch }}
+         run: |
+           set -euo pipefail
+@@
+           API="https://api.github.com/repos/${OWNER}/${REPO}/contents/${PATH}"
+ 
+           # Spróbuj pobrać sha (jeśli plik istnieje)
+           SHA=""
+           if curl -sS -H "Authorization: Bearer ${GH_TOKEN}" \
+                     -H "Accept: application/vnd.github+json" \
+                     "${API}?ref=${BR}" | jq -e 'has("sha")' >/dev/null 2>&1; then
+             SHA=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" \
+                          -H "Accept: application/vnd.github+json" \
+                          "${API}?ref=${BR}" | jq -r '.sha')
+           fi
+@@
+       - name: Summary
+         run: |
+           echo "✅ AI file upsert finished."
