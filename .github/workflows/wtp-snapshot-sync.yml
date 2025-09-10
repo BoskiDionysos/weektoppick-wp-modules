@@ -106,7 +106,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      # Publikacja publicznych diagów i awaryjnych placeholderów (żeby /get nie zwracał 404)
       - name: Publish public diag (+fallbacks)
         if: always()
         env:
@@ -116,6 +115,7 @@ jobs:
           PASS:     ${{ secrets.DEPLOY_PASS }}
           TARGET:   ${{ secrets.DEPLOY_TARGET }}
           SITE_KEY: ${{ env.SITE_KEY }}
+          BASE:     ${{ env.BASE }}
         run: |
           set -euo pipefail
           NOW="$(date -u +%FT%TZ)"
@@ -128,6 +128,11 @@ jobs:
           fi
           jq -n --arg workflow "wtp-snapshot-sync" --arg run_url "$RUN" --arg time "$NOW" --arg files "$FILES" \
             '{workflow:$workflow,run_url:$run_url,time:$time,files_from_ls: ($files|split(",")|map(select(. != "")))}' > snapshot-sync-last.json
+
+          # watchdog-last.json (publikacja z sync – żeby URL zawsze istniał)
+          jq -n --arg workflow "snapshot-watchdog" --arg status "ok" --arg reason "published by sync" \
+                --arg run_url "$RUN" --arg time "$NOW" \
+            '{workflow:$workflow,status:$status,reason:$reason,run_url:$run_url,time:$time}' > watchdog-last.json
 
           # fallback gh-digest.json (tymczasowo, dopóki nie wstanie eksporter)
           if ! curl -fsS "$BASE/wp-json/wtp-ro-open/v1/get?site_key=$SITE_KEY&file=gh-digest.json" -o /dev/null; then
@@ -151,5 +156,6 @@ jobs:
 
           # publikacja plików
           sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no snapshot-sync-last.json "$USER@$HOST:$REMOTE_DIR/snapshot-sync-last.json" || true
+          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no watchdog-last.json      "$USER@$HOST:$REMOTE_DIR/watchdog-last.json"      || true
           [ -f gh-digest.json ] && sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no gh-digest.json "$USER@$HOST:$REMOTE_DIR/gh-digest.json" || true
           [ -f bundle.json ]   && sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no bundle.json   "$USER@$HOST:$REMOTE_DIR/bundle.json"   || true
