@@ -3,7 +3,7 @@ name: Snapshot Watchdog
 on:
   schedule:
     - cron: "*/30 * * * *"
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -15,24 +15,21 @@ concurrency:
 
 env:
   BASE: https://weektoppick.com
-  NS: wtp-ro/v1
+  SITE_KEY: 5Depft8Y9LU0t6Sv
   OPS: ops-snapshot-watchdog
-  UA: WTP-Watchdog/1.1 (+https://weektoppick.com)
-
-  # Pliki do sprawdzenia (kolejność: ważne -> mniej ważne)
-  PROBES: |
+  UA: WTP-Watchdog/1.0 (+https://weektoppick.com)
+  REQUIRED: |
     manifest.json
     files_000.json
     gh-digest.json
+  OPTIONAL: |
     index.json
     bundle.json
-
-  # STRONG/RELAXED bramka: ustaw w Secrets repo WATCHDOG_STRICT=true, by wymagać >=2 OK
-  WATCHDOG_STRICT: ${{ secrets.WATCHDOG_STRICT }}
 
 jobs:
   watchdog:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -41,71 +38,87 @@ jobs:
       - name: Ensure tools
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y jq curl
-
-      - name: Prepare folders
-        run: |
+          sudo apt-get install -y jq curl sshpass
           mkdir -p "$OPS/headers" "$OPS/bodies"
 
-      - name: Probe SNAP endpoints
-        id: probe
+      - name: Fetch & validate (required)
+        id: req
         shell: bash
         run: |
           set -euo pipefail
-          : > "${OPS}/summary.tsv"
-          OK=0
-          TOTAL=0
+          STATUS=ok
+          REASON=""
+          OK_COUNT=0
+          FAIL_COUNT=0
 
           fetch_one () {
             local f="$1"
-            local url="${BASE}/wp-json/${NS}/snap?file=${f}"
+            local url="${BASE}/wp-json/wtp-ro-open/v1/get?site_key=${SITE_KEY}&file=${f}"
             local h="${OPS}/headers/${f}.hdr"
-            local b="${OPS}/bodies/${f}.out"
-
-            TOTAL=$((TOTAL+1))
+            local b="${OPS}/bodies/${f}.json"
             echo "GET $url"
-
-            if curl -A "$UA" -sS --show-error \
-                 --retry 2 --retry-delay 2 --retry-connrefused \
-                 --connect-timeout 10 --max-time 30 \
-                 -D "$h" "$url" -o "$b"; then
-              :
-            else
-              echo "::warning::curl error for ${f}"
+            if ! curl -A "$UA" -fsS --show-error --retry 2 --retry-delay 2 --retry-connrefused \
+                 --connect-timeout 10 --max-time 30 -D "$h" "$url" -o "$b"; then
+              echo "::error::curl failed for $f"
+              return 1
             fi
-
-            local code ct valid="n"
-            code=$(awk 'NR==1{print $2}' "$h" 2>/dev/null || echo "")
-            ct=$(awk -F': ' 'BEGIN{IGNORECASE=1} tolower($1)=="content-type"{print tolower($2)}' "$h" 2>/dev/null | tr -d '\r')
-
-            if [ "$code" = "200" ] && jq -e type "$b" >/dev/null 2>&1; then
-              valid="y"
-              OK=$((OK+1))
+            local code
+            code=$(awk 'NR==1{print $2}' "$h")
+            if [ "${code:-}" != "200" ]; then
+              echo "::error::HTTP ${code:-?} for $f"
+              return 1
             fi
-
-            printf "%s|%s|%s|%s\n" "$f" "${code:-curl-fail}" "$valid" "${ct:-}" >> "${OPS}/summary.tsv"
+            if ! jq -e type "$b" >/dev/null 2>&1; then
+              echo "::error::invalid JSON for $f"
+              return 1
+            fi
+            return 0
           }
 
           while read -r f; do
             [ -z "$f" ] && continue
-            fetch_one "$f"
-          done <<< "$PROBES"
+            if fetch_one "$f"; then
+              OK_COUNT=$((OK_COUNT+1))
+            else
+              FAIL_COUNT=$((FAIL_COUNT+1))
+            fi
+          done <<< "$REQUIRED"
 
-          STRICT="${WATCHDOG_STRICT:-false}"
-          if [ "$STRICT" = "true" ]; then THRESH=2; else THRESH=1; fi
-
-          echo "ok=$OK"           >> "$GITHUB_OUTPUT"
-          echo "threshold=$THRESH" >> "$GITHUB_OUTPUT"
-
-          if [ "$OK" -ge "$THRESH" ]; then
-            echo "status=ok"   >> "$GITHUB_OUTPUT"
-            echo "reason=at least $OK OK (threshold=$THRESH)" >> "$GITHUB_OUTPUT"
+          if [ "$OK_COUNT" -ge 2 ]; then
+            echo "required_ok=true" >> "$GITHUB_OUTPUT"
           else
-            echo "status=bad"  >> "$GITHUB_OUTPUT"
-            echo "reason=only $OK OK (threshold=$THRESH)"     >> "$GITHUB_OUTPUT"
+            echo "required_ok=false" >> "$GITHUB_OUTPUT"
+            STATUS=bad
+            REASON="required set insufficient (ok=$OK_COUNT, fail=$FAIL_COUNT)"
           fi
 
-      - name: Upload diagnostics
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch & validate (optional)
+        if: ${{ steps.req.outputs.required_ok == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          fetch_opt () {
+            local f="$1"
+            local url="${BASE}/wp-json/wtp-ro-open/v1/get?site_key=${SITE_KEY}&file=${f}"
+            local h="${OPS}/headers/${f}.hdr"
+            local b="${OPS}/bodies/${f}.json"
+            echo "GET $url"
+            if curl -A "$UA" -fsS --show-error --retry 2 --retry-delay 2 --retry-connrefused \
+                 --connect-timeout 10 --max-time 30 -D "$h" "$url" -o "$b"; then
+              jq -e type "$b" >/dev/null 2>&1 || echo "::warning::optional invalid JSON for $f"
+            else
+              echo "::warning::optional fetch failed for $f"
+            fi
+          }
+          while read -r f; do
+            [ -z "$f" ] && continue
+            fetch_opt "$f"
+          done <<< "$OPTIONAL"
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-watchdog-${{ github.run_id }}
@@ -113,50 +126,57 @@ jobs:
           retention-days: 7
 
       - name: Create Issue on failure
-        if: ${{ steps.probe.outputs.status != 'ok' }}
+        if: ${{ steps.req.outputs.status != 'ok' }}
         uses: actions/github-script@v7
-        env:
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          STATUS: ${{ steps.probe.outputs.status }}
-          REASON: ${{ steps.probe.outputs.reason }}
-          PROBES_ENV: ${{ env.PROBES }}
         with:
           script: |
             const fs = require('fs');
-            const runUrl = process.env.RUN_URL || '';
-            const status = (process.env.STATUS || '').toUpperCase();
-            const reason = process.env.REASON || '';
-            const probes = (process.env.PROBES_ENV || '').split('\n').map(s => s.trim()).filter(Boolean);
-
-            let body = Watchdog **${status}**\n\nReason: ${reason}\n\nRun: ${runUrl}\n\n;
-
-            try {
-              const summary = fs.readFileSync('ops-snapshot-watchdog/summary.tsv','utf8');
-              body += 'Summary (file|code|valid|content-type):\n\n\n' + summary + '\n\n\n';
-            } catch (e) {}
-
-            for (const f of probes) {
+            const status = '${{ steps.req.outputs.status }}';
+            const reason = `${{ toJson(steps.req.outputs.reason) }}`;
+            const urlRun = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const files = ['manifest.json','files_000.json','gh-digest.json','index.json','bundle.json'];
+            let body = `Watchdog **${status.toUpperCase()}**\n\nReason: ${reason}\n\nRun: ${urlRun}\n\n`;
+            for (const f of files) {
               try {
-                const h = fs.readFileSync(ops-snapshot-watchdog/headers/${f}.hdr, 'utf8');
-                const b = fs.readFileSync(ops-snapshot-watchdog/bodies/${f}.out, 'utf8');
-                body += ### ${f}\n;
-                body += **Headers (first 600)**\n\n\\\\n${h.slice(0,600)}\n\\\\n;
-                body += **Body (first 1000)**\n\n\\\\n${b.slice(0,1000)}\n\\\\n\n;
+                const h = fs.readFileSync(`ops-snapshot-watchdog/headers/${f}.hdr`, 'utf8');
+                const b = fs.readFileSync(`ops-snapshot-watchdog/bodies/${f}.json`, 'utf8');
+                body += `### ${f}\n`;
+                body += `**Headers (first 600 chars)**\n\n\`\`\`\n${h.slice(0,600)}\n\`\`\`\n`;
+                body += `**Body (first 1000 chars)**\n\n\`\`\`json\n${b.slice(0,1000)}\n\`\`\`\n\n`;
               } catch (e) {}
             }
-
             await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              title: Snapshot watchdog: ${status} (${context.runNumber}),
+              title: `Snapshot watchdog: ${status.toUpperCase()} (${context.runNumber})`,
               body
             });
+
+      - name: Publish public diag (always)
+        if: always()
+        env:
+          HOST:     ${{ secrets.DEPLOY_HOST }}
+          PORT:     ${{ secrets.DEPLOY_PORT }}
+          USER:     ${{ secrets.DEPLOY_USER }}
+          PASS:     ${{ secrets.DEPLOY_PASS }}
+          TARGET:   ${{ secrets.DEPLOY_TARGET }}
+          SITE_KEY: ${{ secrets.WTP_SITE_KEY }}
+        run: |
+          set -euo pipefail
+          STATUS="${{ steps.req.outputs.status || 'unknown' }}"
+          REASON="${{ steps.req.outputs.reason || '' }}"
+          NOW="$(date -u +%FT%TZ)"
+          RUN="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          jq -n --arg workflow "snapshot-watchdog" --arg status "$STATUS" --arg reason "$REASON" --arg run_url "$RUN" --arg time "$NOW" \
+            '{workflow:$workflow,status:$status,reason:$reason,run_url:$run_url,time:$time}' > watchdog-last.json
+          REMOTE_DIR="$TARGET/wp-content/uploads/wtp-ro/public/${SITE_KEY}"
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p '$REMOTE_DIR'"
+          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no watchdog-last.json "$USER@$HOST:$REMOTE_DIR/watchdog-last.json"
 
       - name: Final gate
         run: |
           set -euo pipefail
-          echo "OK count: ${{ steps.probe.outputs.ok }} / threshold ${{ steps.probe.outputs.threshold }}"
-          if [ "${{ steps.probe.outputs.status }}" != "ok" ]; then
+          if [ "${{ steps.req.outputs.status }}" != "ok" ]; then
             echo "::error::Snapshot watchdog failed (endpoint/content problem)."
             exit 1
           fi
