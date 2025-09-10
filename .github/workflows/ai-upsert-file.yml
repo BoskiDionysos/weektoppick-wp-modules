@@ -1,8 +1,6 @@
 name: AI Upsert File
 
 on:
-  repository_dispatch:
-    types: [ai-upsert-file]
   workflow_dispatch:
     inputs:
       path:
@@ -30,130 +28,100 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: ai-upsert-file
-  cancel-in-progress: true
-
 jobs:
   upsert:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT || github.token }}
-
     steps:
-      - name: Install jq
-        run: |
-          sudo apt-get update -y
-          sudo apt-get install -y jq
-
-      - name: Gather inputs/payload
-        id: inp
+      - name: Prepare env
+        id: prep
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == "repository_dispatch" ]]; then
-            PATH_IN=$(jq -r '.client_payload.path // empty' "$GITHUB_EVENT_PATH")
-            CONTENT_B64=$(jq -r '.client_payload.content_b64 // empty' "$GITHUB_EVENT_PATH")
-            MESSAGE=$(jq -r '.client_payload.message // "upsert via workflow"' "$GITHUB_EVENT_PATH")
-            BRANCH=$(jq -r '.client_payload.branch // "main"' "$GITHUB_EVENT_PATH")
-            SHA256=$(jq -r '.client_payload.sha256 // empty' "$GITHUB_EVENT_PATH")
-          else
-            PATH_IN="${{ inputs.path }}"
-            CONTENT_B64="${{ inputs.content_b64 }}"
-            MESSAGE="${{ inputs.message }}"
-            BRANCH="${{ inputs.branch }}"
-            SHA256="${{ inputs.sha256 }}"
-            [[ -z "${BRANCH:-}" ]] && BRANCH="main"
-          fi
-
-          if [[ -z "${PATH_IN}" || -z "${CONTENT_B64}" ]]; then
-            echo "::error::Missing required path/content_b64."
-            exit 1
-          fi
-
-          {
-            echo "path=${PATH_IN}"
-            echo "branch=${BRANCH}"
-            echo "sha256=${SHA256}"
-            echo "message<<EOF"
-            printf "%s" "${MESSAGE}"
-            echo "EOF"
-            echo "content_b64<<EOF"
-            printf "%s" "${CONTENT_B64}"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          echo "REPO=${GITHUB_REPOSITORY}" >> $GITHUB_OUTPUT
+          echo "PATH_IN=${{ inputs.path }}" >> $GITHUB_OUTPUT
+          echo "BRANCH=${{ inputs.branch }}" >> $GITHUB_OUTPUT
+          # commit message i base64 zapisujemy do plików, by uniknąć problemów z nowymi liniami
+          printf "%s" "${{ inputs.message }}" > msg.txt
+          printf "%s" "${{ inputs.content_b64 }}" > content.b64
+          # opcjonalny SHA do weryfikacji
+          printf "%s" "${{ inputs.sha256 }}" > want.sha
 
       - name: Verify SHA-256 (optional)
-        if: ${{ steps.inp.outputs.sha256 != '' }}
-        shell: bash
+        if: ${{ inputs.sha256 != '' }}
         env:
-          WANT: ${{ steps.inp.outputs.sha256 }}
-          B64: ${{ steps.inp.outputs.content_b64 }}
+          WANT: ${{ inputs.sha256 }}
         run: |
           set -euo pipefail
           CALC=$(python3 - <<'PY'
-import os, base64, hashlib, sys
-b64 = os.environ.get("B64","")
+import base64, hashlib, sys, pathlib
+b64 = pathlib.Path("content.b64").read_text()
 data = base64.b64decode(b64.encode(), validate=False)
 print(hashlib.sha256(data).hexdigest())
 PY
           )
           echo "expected=$WANT"
           echo "calculated=$CALC"
-          if [[ "$WANT" != "$CALC" ]]; then
-            echo "::error::SHA-256 mismatch."
-            exit 1
-          fi
+          [[ "$WANT" == "$CALC" ]] || { echo "::error::SHA-256 mismatch"; exit 1; }
 
       - name: Read current file sha (if any)
         id: cur
-        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT || secrets.GITHUB_TOKEN }}
+          REPO: ${{ steps.prep.outputs.REPO }}
+          PATH_IN: ${{ steps.prep.outputs.PATH_IN }}
+          BRANCH: ${{ steps.prep.outputs.BRANCH }}
         run: |
           set -euo pipefail
-          URL="https://api.github.com/repos/${REPO}/contents/${{ steps.inp.outputs.path }}?ref=${{ steps.inp.outputs.branch }}"
+          URL="https://api.github.com/repos/${REPO}/contents/${PATH_IN}?ref=${BRANCH}"
           RESP=$(curl -sS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "$URL" || true)
-          SHA=$(jq -r '.sha // empty' <<<"$RESP")
-          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          SHA=$(python3 - <<'PY'
+import sys, json
+try:
+  print(json.load(sys.stdin).get("sha",""))
+except Exception:
+  print("")
+PY
+          <<<"$RESP")
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
 
-      - name: Prepare JSON body
-        id: body
-        shell: bash
+      - name: Build request body
+        env:
+          BRANCH: ${{ steps.prep.outputs.BRANCH }}
+          SHA: ${{ steps.cur.outputs.sha }}
         run: |
           set -euo pipefail
-          printf "%s" '${{ steps.inp.outputs.message }}' > msg.txt
-          printf "%s" '${{ steps.inp.outputs.content_b64 }}' > content.b64
-          if [[ -n '${{ steps.cur.outputs.sha }}' ]]; then
-            jq -n \
-              --rawfile message msg.txt \
-              --rawfile content content.b64 \
-              --arg branch '${{ steps.inp.outputs.branch }}' \
-              --arg sha    '${{ steps.cur.outputs.sha }}' \
-              '{message:$message, content:$content, branch:$branch, sha:$sha}' > body.json
-          else
-            jq -n \
-              --rawfile message msg.txt \
-              --rawfile content content.b64 \
-              --arg branch '${{ steps.inp.outputs.branch }}' \
-              '{message:$message, content:$content, branch:$branch}' > body.json
-          fi
-          echo "file://$PWD/body.json" >> $GITHUB_STEP_SUMMARY
+          python3 - <<'PY'
+import os, json, pathlib
+body = {
+  "message": pathlib.Path("msg.txt").read_text(),
+  "content": pathlib.Path("content.b64").read_text(),
+  "branch": os.environ["BRANCH"] or "main",
+}
+sha = os.environ.get("SHA","").strip()
+if sha:
+  body["sha"] = sha
+pathlib.Path("body.json").write_text(json.dumps(body))
+print(json.dumps(body)[:400] + ("..." if len(json.dumps(body))>400 else ""))
+PY
 
       - name: PUT (create/update) file
-        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT || secrets.GITHUB_TOKEN }}
+          REPO: ${{ steps.prep.outputs.REPO }}
+          PATH_IN: ${{ steps.prep.outputs.PATH_IN }}
         run: |
           set -euo pipefail
-          URL="https://api.github.com/repos/${REPO}/contents/${{ steps.inp.outputs.path }}"
+          URL="https://api.github.com/repos/${REPO}/contents/${PATH_IN}"
           echo "PUT $URL"
-          RESP=$(curl -sS -X PUT \
+          curl -sS -X PUT \
             -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -d @body.json \
-            "$URL")
-          echo "$RESP" | jq .
-          jq -e '.content.path or .commit.sha' <<<"$RESP" >/dev/null
-
-      - name: Summary
-        run: |
-          echo "Upserted: ${{ steps.inp.outputs.path }} on branch ${{ steps.inp.outputs.branch }}"
+            "$URL" | tee /tmp/resp.json
+          python3 - <<'PY'
+import json,sys
+j=json.load(open('/tmp/resp.json'))
+print("content:", j.get('content',{}).get('path'))
+print("commit:", j.get('commit',{}).get('sha'))
+PY
