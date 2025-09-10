@@ -1,0 +1,22 @@
+patch
+diff --git a/.github/workflows/ai-upsert-file.yml b/.github/workflows/ai-upsert-file.yml
+index 1111111..2222222 100644
+--- a/.github/workflows/ai-upsert-file.yml
++++ b/.github/workflows/ai-upsert-file.yml
+@@
+-    env:
+-      REPO: ${{ github.repository }}
+-      GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT || github.token }}
++    env:
++      REPO: ${{ github.repository }}
++      GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT }}
+@@
+       - name: Read inputs/payload
+         id: inp
+         shell: bash
+         run: |
+           set -euo pipefail
++          # Fallback: jeśli brak sekretu, użyj wbudowanego github.token
++          if [[ -z "${GH_TOKEN:-}" ]]; then
++            GH_TOKEN="${{ github.token }}"
++          fi
