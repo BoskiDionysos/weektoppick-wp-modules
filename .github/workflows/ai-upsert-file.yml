@@ -1,70 +1,162 @@
 name: AI Upsert File
 
 on:
+  repository_dispatch:
+    types: [ai-upsert-file]
   workflow_dispatch:
     inputs:
       path:
-        description: 'Ścieżka pliku do utworzenia/aktualizacji'
+        description: 'Target path in repo (np. mu-plugins/00-mu-safe-loader.php)'
         required: true
+        type: string
+      content_plain:
+        description: 'Zwykła treść pliku (workflow sam zakoduje do Base64). Użyj zamiast content_b64.'
+        required: false
         type: string
       content_b64:
-        description: 'Treść pliku w base64'
-        required: true
+        description: 'Treść pliku w Base64 (jeśli podasz, content_plain jest ignorowany).'
+        required: false
         type: string
       message:
-        description: 'Wiadomość commita'
+        description: 'Commit message'
         required: true
         type: string
       branch:
-        description: 'Gałąź docelowa'
-        required: true
+        description: 'Target branch'
+        required: false
+        default: 'main'
         type: string
-  repository_dispatch:
-    types: [ai-upsert-file]
+      sha256:
+        description: 'Opcjonalny SHA-256 zdekodowanej treści (dla weryfikacji)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ai-upsert-file
+  cancel-in-progress: true
 
 jobs:
   upsert:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT || github.token }}
+
     steps:
-      - name: Ustal dane wejściowe
-        id: inputs
+      - name: Ensure tools
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "path=${{ github.event.inputs.path }}" >> $GITHUB_OUTPUT
-            echo "content_b64=${{ github.event.inputs.content_b64 }}" >> $GITHUB_OUTPUT
-            echo "message=${{ github.event.inputs.message }}" >> $GITHUB_OUTPUT
-            echo "branch=${{ github.event.inputs.branch }}" >> $GITHUB_OUTPUT
+          sudo apt-get update -y
+          sudo apt-get install -y jq coreutils openssl
+
+      - name: Read inputs / payload
+        id: inp
+        shell: bash
+        run: |
+          set -euo pipefail
+          EV="${GITHUB_EVENT_NAME}"
+
+          if [[ "$EV" == "repository_dispatch" ]]; then
+            PATH_IN=$(jq -r '.client_payload.path // empty' "$GITHUB_EVENT_PATH")
+            CONTENT_B64=$(jq -r '.client_payload.content_b64 // empty' "$GITHUB_EVENT_PATH")
+            CONTENT_PLAIN=$(jq -r '.client_payload.content_plain // empty' "$GITHUB_EVENT_PATH")
+            MESSAGE=$(jq -r '.client_payload.message // "upsert via workflow"' "$GITHUB_EVENT_PATH")
+            BRANCH=$(jq -r '.client_payload.branch // "main"' "$GITHUB_EVENT_PATH")
+            SHA256=$(jq -r '.client_payload.sha256 // empty' "$GITHUB_EVENT_PATH")
           else
-            echo "path=${{ github.event.client_payload.path }}" >> $GITHUB_OUTPUT
-            echo "content_b64=${{ github.event.client_payload.content_b64 }}" >> $GITHUB_OUTPUT
-            echo "message=${{ github.event.client_payload.message }}" >> $GITHUB_OUTPUT
-            echo "branch=${{ github.event.client_payload.branch }}" >> $GITHUB_OUTPUT
+            PATH_IN="${{ inputs.path }}"
+            CONTENT_B64="${{ inputs.content_b64 }}"
+            CONTENT_PLAIN="${{ inputs.content_plain }}"
+            MESSAGE="${{ inputs.message }}"
+            BRANCH="${{ inputs.branch }}"
+            SHA256="${{ inputs.sha256 }}"
           fi
 
-      - name: Pobierz SHA (jeśli istnieje)
-        id: sha
-        run: |
-          set -e
-          API="https://api.github.com/repos/${{ github.repository }}/contents/${{ steps.inputs.outputs.path }}?ref=${{ steps.inputs.outputs.branch }}"
-          SHA=$(curl -s -H "Authorization: token ${{ secrets.WTP_GITHUB_PAT || secrets.GITHUB_TOKEN }}" "$API" | jq -r '.sha // empty')
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          if [[ -z "${PATH_IN}" || -z "${MESSAGE}" || -z "${BRANCH}" ]]; then
+            echo "::error::Brak path/message/branch."
+            exit 1
+          fi
 
-      - name: Utwórz/aktualizuj plik
+          # Jeśli nie ma content_b64, ale jest content_plain -> zakoduj
+          if [[ -z "${CONTENT_B64}" ]]; then
+            if [[ -z "${CONTENT_PLAIN}" ]]; then
+              echo "::error::Brak treści: podaj content_plain lub content_b64."
+              exit 1
+            fi
+            # Użyj openssl do bez-łamanego Base64 (-A)
+            CONTENT_B64=$(printf '%s' "${CONTENT_PLAIN}" | openssl base64 -A)
+          fi
+
+          echo "path=${PATH_IN}"            >> "$GITHUB_OUTPUT"
+          echo "branch=${BRANCH}"           >> "$GITHUB_OUTPUT"
+          echo "message=${MESSAGE}"         >> "$GITHUB_OUTPUT"
+          echo "content_b64=${CONTENT_B64}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${SHA256}"           >> "$GITHUB_OUTPUT"
+
+      - name: Verify SHA-256 (optional)
+        if: ${{ steps.inp.outputs.sha256 != '' }}
+        shell: bash
         run: |
-          API="https://api.github.com/repos/${{ github.repository }}/contents/${{ steps.inputs.outputs.path }}"
+          set -euo pipefail
+          WANT='${{ steps.inp.outputs.sha256 }}'
+          # Zdekoduj i policz SHA256 (portable: sha256sum)
+          GOT=$(printf '%s' '${{ steps.inp.outputs.content_b64 }}' | base64 -d | sha256sum | awk '{print $1}')
+          echo "expected=$WANT"
+          echo "calculated=$GOT"
+          if [[ "$WANT" != "$GOT" ]]; then
+            echo "::error::SHA-256 mismatch."
+            exit 1
+          fi
+
+      - name: Determine current file SHA (if exists)
+        id: cur
+        shell: bash
+        run: |
+          set -euo pipefail
+          enc() { jq -nr --arg x "$1" '$x|@uri'; }
+          URL="https://api.github.com/repos/${REPO}/contents/$(enc '${{ steps.inp.outputs.path }}')?ref=$(enc '${{ steps.inp.outputs.branch }}')"
+          echo "GET $URL"
+          set +e
+          RESP=$(curl -fsS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "$URL" 2>/dev/null)
+          CODE=$?
+          set -e
+          if [[ $CODE -eq 0 ]]; then
+            SHA=$(jq -r '.sha // empty' <<<"$RESP")
+            echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create/Update file (PUT)
+        shell: bash
+        run: |
+          set -euo pipefail
+          enc() { jq -nr --arg x "$1" '$x|@uri'; }
+          URL="https://api.github.com/repos/${REPO}/contents/$(enc '${{ steps.inp.outputs.path }}')"
+          # Złóż body; sha dodaj tylko, jeśli istnieje
           BODY=$(jq -n \
-            --arg msg "${{ steps.inputs.outputs.message }}" \
-            --arg b64 "${{ steps.inputs.outputs.content_b64 }}" \
-            --arg branch "${{ steps.inputs.outputs.branch }}" \
-            --arg sha "${{ steps.sha.outputs.sha }}" \
-            '{
-              message: $msg,
-              content: $b64,
-              branch: $branch
-            } + (if $sha != "" then {sha: $sha} else {} end)')
-          echo "Upsert file: ${{ steps.inputs.outputs.path }}"
-          curl -s -X PUT -H "Authorization: token ${{ secrets.WTP_GITHUB_PAT || secrets.GITHUB_TOKEN }}" \
-            -H "Content-Type: application/json" \
+            --arg message "${{ steps.inp.outputs.message }}" \
+            --arg content "${{ steps.inp.outputs.content_b64 }}" \
+            --arg branch  "${{ steps.inp.outputs.branch }}" \
+            --arg sha     "${{ steps.cur.outputs.sha }}" '
+              ($sha|length>0) as $has
+              | {message:$message, content:$content, branch:$branch}
+              + ( $has ? {sha:$sha} : {} )')
+
+          echo "PUT $URL"
+          RESP=$(curl -fsS -X PUT \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
             -d "$BODY" \
-            "$API" | tee response.json
-          cat response.json | jq -r '.commit.sha'
+            "$URL")
+
+          echo "$RESP" | jq -e '.content.path // .commit.sha | length>0' >/dev/null
+          echo "$RESP" | jq -r '.content.path? // empty' | sed 's/^/::notice::content: /'
+          echo "$RESP" | jq -r '.commit.sha?  // empty' | sed 's/^/::notice::commit:  /'
+
+      - name: Summary
+        run: |
+          echo "✅ Upserted: ${{ steps.inp.outputs.path }} on branch ${{ steps.inp.outputs.branch }}"
