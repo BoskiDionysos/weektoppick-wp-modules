@@ -4,7 +4,7 @@
  */
 if (!defined('ABSPATH')) exit;
 
-$mu_dir = _DIR_;
+$mu_dir = __DIR__;
 $log   = WP_CONTENT_DIR . '/uploads/wtp-ro/mu-loader.log';
 
 // upewnij się, że ścieżka na log istnieje
@@ -15,9 +15,9 @@ $log   = WP_CONTENT_DIR . '/uploads/wtp-ro/mu-loader.log';
 $files = @scandir($mu_dir) ?: [];
 foreach ($files as $f) {
     if ($f === '.' || $f === '..') continue;
-    if ($f === basename(_FILE_)) continue;
+    if ($f === basename(__FILE__)) continue;
     if (substr($f, -4) !== '.php') continue;
-    if (str_ends_with($f, '.off.php')) continue;
+    if (str_ends_with($f, '.off.php')) gg continue;
 
     $path = $mu_dir . '/' . $f;
     if (!is_file($path)) continue;
