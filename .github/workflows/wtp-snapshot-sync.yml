@@ -105,25 +105,41 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Publish public diag (always)
+            - name: Publish public diag (always)
         if: always()
         env:
-          HOST:     ${{ secrets.DEPLOY_HOST }}
-          PORT:     ${{ secrets.DEPLOY_PORT }}
-          USER:     ${{ secrets.DEPLOY_USER }}
-          PASS:     ${{ secrets.DEPLOY_PASS }}
-          TARGET:   ${{ secrets.DEPLOY_TARGET }}
-          WTP_SITE_KEY: ${{ secrets.WTP_SITE_KEY }}
+          HOST:   ${{ secrets.DEPLOY_HOST }}
+          PORT:   ${{ secrets.DEPLOY_PORT }}
+          USER:   ${{ secrets.DEPLOY_USER }}
+          PASS:   ${{ secrets.DEPLOY_PASS }}
+          TARGET: ${{ secrets.DEPLOY_TARGET }}
         run: |
           set -euo pipefail
+          SITE_KEY="${{ env.SITE_KEY }}"   # ten sam, co w fetchach
+
           NOW="$(date -u +%FT%TZ)"
           RUN="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
           FILES=""
-          if [ -f "$OUTDIR/ls.json" ]; then
-            FILES=$(jq -r '.list.dirA? // [] | join(",")' "$OUTDIR/ls.json" 2>/dev/null || echo "")
+          if [ -f "${{ env.OUTDIR }}/ls.json" ]; then
+            FILES=$(jq -r '.list.dirA? // [] | join(",")' "${{ env.OUTDIR }}/ls.json" 2>/dev/null || echo "")
           fi
           jq -n --arg workflow "wtp-snapshot-sync" --arg run_url "$RUN" --arg time "$NOW" --arg files "$FILES" \
             '{workflow:$workflow,run_url:$run_url,time:$time,files_from_ls: ($files|split(",")|map(select(. != "")))}' > snapshot-sync-last.json
-          REMOTE_DIR="$TARGET/wp-content/uploads/wtp-ro/public/${WTP_SITE_KEY}"
+
+          REMOTE_DIR="$TARGET/wp-content/uploads/wtp-ro/public/${SITE_KEY}"
+          echo "REMOTE_DIR=$REMOTE_DIR"
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p '$REMOTE_DIR'"
           sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no snapshot-sync-last.json "$USER@$HOST:$REMOTE_DIR/snapshot-sync-last.json"
+
+          echo "Listing remote dir:"
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "ls -la '$REMOTE_DIR' | sed 's/^/remote: /'"
+
+          # Self-check HTTP
+          URL="${{ env.BASE }}/wp-json/wtp-ro-open/v1/get?site_key=${SITE_KEY}&file=snapshot-sync-last.json"
+          echo "GET $URL"
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$URL")
+          echo "HTTP $code"
+          if [ "$code" != "200" ]; then
+            echo "::error::Public diag not reachable (HTTP $code)"
+            exit 1
+          fi
