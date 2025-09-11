@@ -1,36 +1,29 @@
 name: Deploy Site (MU, plugins, themes, wp-config)
 
 on:
+  workflow_dispatch: {}
   push:
-    branches:
-      - main
+    branches: [ main ]
     paths:
-      - 'mu-plugins/**'
-      - 'plugins/**'
-      - 'themes/**'
-      - 'wp-content/themes/**'
-      - '.wtp/wp-config.tpl.php'
-      - '.github/workflows/deploy-site.yml'
-
-  workflow_run:
-    workflows:
-      - Apply Inbox Patch
-      - Create Patch From Comment
-    types:
-      - completed
-
-  workflow_dispatch:
+      - "mu-plugins/**"
+      - "plugins/**"
+      - "themes/**"
+      - "wp-content/themes/**"
+      - ".wtp/**"
+      - "wtp/**"
+      - ".github/workflows/deploy-site.yml"
 
 concurrency:
-  group: deploy-site-${{ github.ref }}
+  group: deploy-site
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
-    # dla workflow_run: tylko po sukcesie i tylko z main
-    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
 
     env:
       HOST:   ${{ secrets.DEPLOY_HOST }}
@@ -38,110 +31,85 @@ jobs:
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
-      ALLOW_WPCONFIG_DEPLOY: ${{ secrets.ALLOW_WPCONFIG_DEPLOY }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Install tools
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y rsync sshpass
+          sudo apt-get install -y rsync sshpass jq
 
-      - name: Sanity check secrets
+      - name: Build exclude list for server-managed plugins
+        id: ex
+        shell: bash
         run: |
-          for v in HOST PORT USER PASS TARGET; do
-            test -n "$(printenv $v)" || { echo "::error::Missing env $v (check repository secrets)"; exit 1; }
-          done
+          set -euo pipefail
+          mkdir -p .wtp
+          EX=".wtp/rsync-protected-plugins.txt"
+          : > "$EX"
 
-      - name: Create target folders (first connect)
+          SRC=""
+          if   [ -f ".wtp/protected-plugins.txt" ]; then SRC=".wtp/protected-plugins.txt"
+          elif [ -f "wtp/protected-plugins.txt"  ]; then SRC="wtp/protected-plugins.txt"
+          fi
+
+          if [ -n "$SRC" ]; then
+            echo "Using protect list: $SRC"
+            # Każda nazwa katalogu wtyczki -> linia 'katalog/' w exclude-from
+            # Puste linie i komentarze (#) pomijamy
+            while IFS= read -r line; do
+              line="${line%%#*}"; line="${line//[$'\t\r\n ']/}"
+              [ -z "$line" ] && continue
+              echo "${line}/" >> "$EX"
+            done < "$SRC"
+          else
+            echo "No protected-plugins list found."
+          fi
+
+          echo "--- BUILT EXCLUDE FILE (.wtp/rsync-protected-plugins.txt) ---"
+          if [ -s "$EX" ]; then cat "$EX"; else echo "(empty)"; fi
+          echo "exclude_file=$EX" >> "$GITHUB_OUTPUT"
+
+      - name: Pre-deploy: list remote plugin dirs
+        continue-on-error: true
+        env:
+          EX: ${{ steps.ex.outputs.exclude_file }}
         run: |
+          set -e
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
-            "mkdir -p '$TARGET/wp-content/mu-plugins' \
-                      '$TARGET/wp-content/plugins' \
-                      '$TARGET/wp-content/themes' \
-                      '$TARGET/.wtp-bot'"
+            "ls -1 '${TARGET%/}/wp-content/plugins' || true"
 
-      # ---------- MU-PLUGINS ----------
-      - name: Deploy MU plugins
-        if: ${{ hashFiles('mu-plugins/**') != '' }}
-        run: |
-          rsync -avz --delete \
-            -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
-            mu-plugins/ "$USER@$HOST:$TARGET/wp-content/mu-plugins/"
-
-      # ---------- PLUGINS (protect selected) ----------
-      - name: Deploy standard plugins (protect selected)
-        if: ${{ hashFiles('plugins/**') != '' }}
-        env:
-          # podaj katalogi pluginów, które masz tylko na serwerze (bez końcowego ukośnika)
-          PROTECT_PLUGINS: "wordfence translatepress-multilingual cookie-law-info"
+      - name: Sync MU plugins
         run: |
           set -euo pipefail
-          FILTERS=()
-          for p in $PROTECT_PLUGINS; do
-            # każda reguła jako JEDEN argument (zawiera spację): "--filter=protect /nazwa/"
-            FILTERS+=("--filter=protect /$p/")
-          done
+          sshpass -p "$PASS" rsync -az --delete -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
+            "mu-plugins/" "$USER@$HOST:${TARGET%/}/wp-content/mu-plugins/"
 
-          echo "Protecting plugins on server:"
-          printf '  %s\n' "${FILTERS[@]}"
-
-          rsync -avz --delete \
-            "${FILTERS[@]}" \
-            -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
-            plugins/ "$USER@$HOST:$TARGET/wp-content/plugins/"
-
-      # ---------- THEMES (protect selected) ----------
-      - name: Deploy themes (protect selected)
-        if: ${{ hashFiles('themes/**') != '' || hashFiles('wp-content/themes/**') != '' }}
-        env:
-          # podaj katalogi motywów, które masz tylko na serwerze (bez końcowego ukośnika)
-          PROTECT_THEMES: "wtp-core-theme twentytwentyfive astra hello-elementor"
+      - name: Sync themes (repo-managed)
         run: |
           set -euo pipefail
-          if [ -d "themes" ]; then SRC="themes/"; elif [ -d "wp-content/themes" ]; then SRC="wp-content/themes/"; else echo "No themes directory in repo"; exit 0; fi
+          sshpass -p "$PASS" rsync -az --delete -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
+            "wp-content/themes/" "$USER@$HOST:${TARGET%/}/wp-content/themes/"
 
-          FILTERS=()
-          for t in $PROTECT_THEMES; do
-            FILTERS+=("--filter=protect /$t/")
-          done
-
-          echo "Protecting themes on server:"
-          printf '  %s\n' "${FILTERS[@]}"
-
-          rsync -avz --delete \
-            "${FILTERS[@]}" \
-            -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
-            "$SRC" "$USER@$HOST:$TARGET/wp-content/themes/"
-
-      # ---------- WP-CONFIG (optional) ----------
-      - name: Generate & deploy wp-config.php (optional)
-        if: ${{ env.ALLOW_WPCONFIG_DEPLOY == 'true' && hashFiles('.wtp/wp-config.tpl.php') != '' }}
+      - name: Sync plugins (respect protected list)
         env:
-          WTP_AGENT_TOKEN:  ${{ secrets.WTP_AGENT_TOKEN }}
-          WTP_GH_SYNC_PAT:  ${{ secrets.WTP_GH_SYNC_PAT }}
-          WTP_GH_SECRET:    ${{ secrets.WTP_GH_SECRET }}
-          WTP_BRIDGE_KEY:   ${{ secrets.WTP_BRIDGE_KEY }}
-          WTP_BRIDGE_HMAC:  ${{ secrets.WTP_BRIDGE_HMAC }}
-          RUNNER_URL:       ${{ secrets.RUNNER_URL }}
+          EX: ${{ steps.ex.outputs.exclude_file }}
         run: |
-          python3 - <<'PYCODE'
-          import os, re, io
-          tpl = io.open('.wtp/wp-config.tpl.php','r',encoding='utf-8').read()
-          rendered = re.sub(r'\{\{(\w+)\}\}', lambda m: os.environ.get(m.group(1),''), tpl)
-          io.open('wp-config.php','w',encoding='utf-8').write(rendered)
-          PYCODE
-          rsync -avz \
-            -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
-            wp-config.php "$USER@$HOST:$TARGET/wp-config.php"
+          set -euo pipefail
+          RSYNC="sshpass -p \"$PASS\" rsync -az --delete -e \"ssh -p $PORT -o StrictHostKeyChecking=no\""
+          if [ -s "$EX" ]; then
+            echo "Using --exclude-from=$EX"
+            eval $RSYNC --exclude-from=\"$EX\" \"plugins/\" \"$USER@$HOST:${TARGET%/}/wp-content/plugins/\"
+          else
+            echo "No protected plugins. Full sync with --delete."
+            eval $RSYNC \"plugins/\" \"$USER@$HOST:${TARGET%/}/wp-content/plugins/\"
+          fi
 
-      # ---------- MARKER ----------
-      - name: Write deploy marker
+      - name: Post-deploy: list remote plugin dirs
+        continue-on-error: true
         run: |
-          echo "deploy $(date -u +%FT%TZ)" > .deploy.txt
-          rsync -avz -e "sshpass -p '$PASS' ssh -p $PORT -o StrictHostKeyChecking=no" \
-            .deploy.txt "$USER@$HOST:$TARGET/.wtp-bot/deploy.txt"
+          set -e
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+            "ls -1 '${TARGET%/}/wp-content/plugins' || true"
