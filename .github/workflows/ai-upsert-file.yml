@@ -20,7 +20,7 @@ on:
         required: false
         type: string
       sha256:
-        description: 'Opcjonalny SHA-256 zdekodowanej treści (dla weryfikacji)'
+        description: 'Opcjonalny SHA-256 zdekodowanej treści (weryfikacja)'
         required: false
         type: string
       branch:
@@ -49,7 +49,6 @@ jobs:
         with:
           script: |
             const crypto = require('crypto');
-
             const ev = context.eventName;
 
             // ---- read inputs ----
