@@ -1,0 +1,83 @@
+<?php
+/**
+ * Plugin Name: WTP SEO → Theme Bridge
+ * Description: Podmienia <title> i meta description w head na wartości z WTP SEO (_wtp_seo_title_LANG, _wtp_seo_desc_LANG), z uwzględnieniem „SEO always”.
+ * Version: 1.0.0
+ */
+
+if (!defined('ABSPATH')) { exit; }
+
+/**
+ * Lokalny helper: weź język tak, jak widzi to motyw / wtyczki.
+ */
+function wtpseo_bridge_detect_lang() {
+    if (function_exists('wtp_detect_lang')) {
+        return wtp_detect_lang();
+    }
+    // fallback
+    if (!empty($_GET['lang'])) return sanitize_text_field($_GET['lang']);
+    if (!empty($_COOKIE['wtp_lang'])) return sanitize_text_field($_COOKIE['wtp_lang']);
+    if (!empty($_SERVER['HTTP_ACCEPT_LANGUAGE'])) return strtolower(substr($_SERVER['HTTP_ACCEPT_LANGUAGE'],0,2));
+    return 'en';
+}
+
+/**
+ * Title: podmień tylko na singlu i stronach (post/page), gdy mamy SEO meta.
+ */
+add_filter('pre_get_document_title', function ($title) {
+    if (is_admin()) return $title;
+
+    if (is_singular()) {
+        $post_id = get_queried_object_id();
+        if ($post_id) {
+            // użyj funkcji z core SEO, jeśli dostępne (zachowujemy słabą zależność)
+            if (function_exists('wtpseo_get_title_for_lang')) {
+                $lang  = wtpseo_bridge_detect_lang();
+                $t = wtpseo_get_title_for_lang($post_id, $lang);
+                if ($t) return $t;
+            }
+        }
+    }
+    return $title;
+}, 20);
+
+/**
+ * Meta description: do head — wykorzystaj buffer lub wp_head hook.
+ */
+add_action('wp_head', function () {
+    if (!is_singular()) return;
+    if (!function_exists('wtpseo_get_desc_for_lang')) return;
+
+    $post_id = get_queried_object_id();
+    if (!$post_id) return;
+
+    $lang = wtpseo_bridge_detect_lang();
+    $desc = wtpseo_get_desc_for_lang($post_id, $lang);
+    if ($desc) {
+        $desc = esc_attr($desc);
+        echo "\n<meta name=\"description\" content=\"{$desc}\" />\n";
+    }
+}, 3);
+
+/**
+ * W razie gdyby motyw używał ogólnych filtrowanych miejsc na title/meta — dodaj też klasyczne filtry.
+ */
+add_filter('wpseo_title', function ($t) {
+    if (!function_exists('wtpseo_get_title_for_lang')) return $t;
+    if (!is_singular()) return $t;
+    $post_id = get_queried_object_id();
+    if (!$post_id) return $t;
+    $lang = wtpseo_bridge_detect_lang();
+    $val = wtpseo_get_title_for_lang($post_id, $lang);
+    return $val ? $val : $t;
+}, 20, 1);
+
+add_filter('wpseo_metadesc', function ($d) {
+    if (!function_exists('wtpseo_get_desc_for_lang')) return $d;
+    if (!is_singular()) return $d;
+    $post_id = get_queried_object_id();
+    if (!$post_id) return $d;
+    $lang = wtpseo_bridge_detect_lang();
+    $val = wtpseo_get_desc_for_lang($post_id, $lang);
+    return $val ? $val : $d;
+}, 20, 1);
