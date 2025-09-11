@@ -45,47 +45,59 @@ jobs:
           jq '{version, urls, exists}' "$OUTDIR/ls.json" || true
 
       - name: Resolve files list & download chunks (robust)
+        shell: bash
         run: |
           set -euo pipefail
           LS="$OUTDIR/ls.json"
           OUT="$OUTDIR"
+
           PUB=$(jq -r '.urls.public_url? // empty' "$LS")
           if [ -z "$PUB" ]; then
             PUB="$BASE/wp-content/uploads/wtp-ro/public/$SITE_KEY/"
           fi
           PUB="${PUB%/}/"
+
           FILES=$(jq -r '.list.dirA? // [] | .[] | select(test("^files_\\d{3}\\.json$"))' "$LS")
+
           if [ -z "$FILES" ]; then
             echo "No files from ls.json; trying public index.json"
             curl -fsS "${PUB}index.json" -o "$OUT/index.json" || true
             FILES=$(jq -r '.files[]? | select(test("^files_\\d{3}\\.json$"))' "$OUT/index.json" 2>/dev/null || echo "")
           fi
+
           if [ -z "$FILES" ]; then
             echo "::warning::No snapshot files found. Skipping."
             exit 0
           fi
+
           echo "Will download:"; echo "$FILES" | sed 's/^/ - /'
+
           while IFS= read -r f; do
-            [ -z "$f" ] && continue
+            [ -z "${f:-}" ] && continue
             echo "→ $f"
             if ! curl -fsS "$BASE/wp-json/wtp-ro-open/v1/get?site_key=$SITE_KEY&file=$f" -o "$OUT/$f"; then
               curl -fsS "${PUB}${f}" -o "$OUT/$f"
             fi
           done <<< "$FILES"
+
           for f in index.json bundle.json options.json selftest.json; do
+            [ -z "${f:-}" ] && continue
             curl -fsS "$BASE/wp-json/wtp-ro-open/v1/get?site_key=$SITE_KEY&file=$f" -o "$OUT/$f" || \
             curl -fsS "${PUB}${f}" -o "$OUT/$f" || true
           done
 
-      - name: Request fresh logs (/emit-logs)
+      - name: Request fresh logs (/emit-logs) and fetch
+        shell: bash
         run: |
           set -euo pipefail
           curl -fsS -X POST "$BASE/wp-json/wtp-ro-open/v1/emit-logs?site_key=$SITE_KEY" -o /dev/null || true
           for f in wp-debug-latest.txt php_errors-latest.txt mu-loader-latest.txt errors-tail.txt wp-debug-meta.json; do
+            [ -z "${f:-}" ] && continue
             curl -fsS "$BASE/wp-json/wtp-ro-open/v1/get?site_key=$SITE_KEY&file=$f" -o "$OUTDIR/logs/$f" || true
           done
 
       - name: Commit snapshot (if changed)
+        shell: bash
         run: |
           set -e
           git add -A
@@ -106,7 +118,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Publish public diag (+fallbacks)
+      - name: Publish public diag (always)
         if: always()
         env:
           HOST:     ${{ secrets.DEPLOY_HOST }}
@@ -114,48 +126,17 @@ jobs:
           USER:     ${{ secrets.DEPLOY_USER }}
           PASS:     ${{ secrets.DEPLOY_PASS }}
           TARGET:   ${{ secrets.DEPLOY_TARGET }}
-          SITE_KEY: ${{ env.SITE_KEY }}
-          BASE:     ${{ env.BASE }}
+          WTP_SITE_KEY: ${{ secrets.WTP_SITE_KEY }}
         run: |
           set -euo pipefail
           NOW="$(date -u +%FT%TZ)"
           RUN="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-
-          # snapshot-sync-last.json
           FILES=""
           if [ -f "$OUTDIR/ls.json" ]; then
             FILES=$(jq -r '.list.dirA? // [] | join(",")' "$OUTDIR/ls.json" 2>/dev/null || echo "")
           fi
           jq -n --arg workflow "wtp-snapshot-sync" --arg run_url "$RUN" --arg time "$NOW" --arg files "$FILES" \
             '{workflow:$workflow,run_url:$run_url,time:$time,files_from_ls: ($files|split(",")|map(select(. != "")))}' > snapshot-sync-last.json
-
-          # watchdog-last.json (publikacja z sync – żeby URL zawsze istniał)
-          jq -n --arg workflow "snapshot-watchdog" --arg status "ok" --arg reason "published by sync" \
-                --arg run_url "$RUN" --arg time "$NOW" \
-            '{workflow:$workflow,status:$status,reason:$reason,run_url:$run_url,time:$time}' > watchdog-last.json
-
-          # fallback gh-digest.json (tymczasowo, dopóki nie wstanie eksporter)
-          if ! curl -fsS "$BASE/wp-json/wtp-ro-open/v1/get?site_key=$SITE_KEY&file=gh-digest.json" -o /dev/null; then
-            echo 'creating placeholder gh-digest.json'
-            jq -n --arg time "$NOW" --arg run "$RUN" --arg repo "$GITHUB_REPOSITORY" \
-              '{placeholder:true, generated_at:$time, run_url:$run, repo:$repo}' > gh-digest.json
-          else
-            echo 'gh-digest.json exists on server'
-          fi
-
-          # fallback bundle.json (opcjonalny)
-          if ! curl -fsS "$BASE/wp-json/wtp-ro-open/v1/get?site_key=$SITE_KEY&file=bundle.json" -o /dev/null; then
-            echo 'creating placeholder bundle.json'
-            jq -n --arg time "$NOW" '{placeholder:true, generated_at:$time, modules:[]}' > bundle.json
-          else
-            echo 'bundle.json exists on server'
-          fi
-
-          REMOTE_DIR="$TARGET/wp-content/uploads/wtp-ro/public/${SITE_KEY}"
+          REMOTE_DIR="$TARGET/wp-content/uploads/wtp-ro/public/${WTP_SITE_KEY}"
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p '$REMOTE_DIR'"
-
-          # publikacja plików
-          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no snapshot-sync-last.json "$USER@$HOST:$REMOTE_DIR/snapshot-sync-last.json" || true
-          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no watchdog-last.json      "$USER@$HOST:$REMOTE_DIR/watchdog-last.json"      || true
-          [ -f gh-digest.json ] && sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no gh-digest.json "$USER@$HOST:$REMOTE_DIR/gh-digest.json" || true
-          [ -f bundle.json ]   && sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no bundle.json   "$USER@$HOST:$REMOTE_DIR/bundle.json"   || true
+          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no snapshot-sync-last.json "$USER@$HOST:$REMOTE_DIR/snapshot-sync-last.json"
