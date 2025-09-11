@@ -28,6 +28,7 @@ on:
         required: false
         default: 'main'
         type: string
+
   repository_dispatch:
     types: [ai-upsert-file]
 
@@ -49,50 +50,52 @@ jobs:
           script: |
             const crypto = require('crypto');
 
-            const getStr = (name, def='') => (core.getInput(name, { required: false }) || def).trim();
-
             const ev = context.eventName;
-            let path, message, branch, content_b64, content_plain, sha256;
 
-            if (ev === 'repository_dispatch') {
+            // ---- read inputs ----
+            let path = '', message = '', branch = 'main', content_b64 = '', content_plain = '', sha256 = '';
+
+            if (ev === 'workflow_dispatch') {
+              const inp = context.payload?.inputs || {};
+              path          = (inp.path || '').trim();
+              message       = (inp.message || '').trim();
+              branch        = (inp.branch || 'main').trim();
+              content_b64   = (inp.content_b64 || '').trim();
+              content_plain = (inp.content_plain || '').trim();
+              sha256        = (inp.sha256 || '').trim().toLowerCase();
+            } else if (ev === 'repository_dispatch') {
               const p = context.payload?.client_payload || {};
               path          = (p.path || '').trim();
               message       = (p.message || '').trim();
-              branch        = (p.branch  || 'main').trim();
-              content_b64   = (p.content_b64   || '').trim();
+              branch        = (p.branch || 'main').trim();
+              content_b64   = (p.content_b64 || '').trim();
               content_plain = (p.content_plain || '').trim();
               sha256        = (p.sha256 || '').trim().toLowerCase();
             } else {
-              path          = getStr('path','');
-              message       = getStr('message','');
-              branch        = getStr('branch','main');
-              content_b64   = getStr('content_b64','');
-              content_plain = getStr('content_plain','');
-              sha256        = getStr('sha256','').toLowerCase();
+              core.setFailed(`Unsupported event: ${ev}`);
+              return;
             }
 
             core.info(`event=${ev}`);
             core.info(`path="${path}", branch="${branch}"`);
             core.info(`has_plain=${content_plain !== ''}, has_b64=${content_b64 !== ''}`);
 
-            // Wymagane pola
+            // ---- validations ----
             if (!path) return core.setFailed('Input "path" is required.');
             if (!message) return core.setFailed('Input "message" is required.');
-
-            // Path sanity
             if (path.startsWith('/')) return core.setFailed('Path musi być repo-relative (bez wiodącego "/").');
 
-            // Dokładnie jedno ze źródeł treści
-            if ((content_plain === '' && content_b64 === '') || (content_plain !== '' && content_b64 !== '')) {
+            const both = (content_plain !== '' && content_b64 !== '');
+            const none = (content_plain === '' && content_b64 === '');
+            if (both || none) {
               return core.setFailed('Podaj DOKŁADNIE jedno: content_plain ALBO content_b64.');
             }
 
-            // Przygotuj bufor treści
             let buf;
             if (content_b64 !== '') {
               try {
                 buf = Buffer.from(content_b64, 'base64');
-                if (buf.toString('base64') !== content_b64) throw new Error('Bad base64');
+                if (buf.toString('base64') !== content_b64) throw new Error('bad b64');
               } catch {
                 return core.setFailed('content_b64 nie jest prawidłowym Base64.');
               }
@@ -101,7 +104,6 @@ jobs:
               content_b64 = buf.toString('base64');
             }
 
-            // Opcjonalna weryfikacja SHA-256 (po zdekodowaniu)
             if (sha256) {
               const calc = crypto.createHash('sha256').update(buf).digest('hex');
               core.info(`sha256(user)=${sha256}`);
@@ -111,7 +113,7 @@ jobs:
 
             const { owner, repo } = context.repo;
 
-            // pobierz sha istniejącego pliku
+            // ---- read existing file sha (if any) ----
             let sha;
             try {
               const { data } = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
@@ -121,10 +123,10 @@ jobs:
               core.info(`Existing sha=${sha || '(new file)'}`);
             } catch (e) {
               if (e.status !== 404) return core.setFailed(`getContent failed: ${e.message}`);
-              core.info('File does not exist yet (creating new).');
+              core.info('File does not exist (creating).');
             }
 
-            // PUT (create/update)
+            // ---- upsert ----
             try {
               const res = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
                 owner, repo, path, message, branch, content: content_b64, sha
@@ -142,5 +144,5 @@ jobs:
                 .write();
               core.info(`OK: commit ${commitSha}`);
             } catch (e) {
-              return core.setFailed(`PUT failed: ${e.message}`);
+              core.setFailed(`PUT failed: ${e.message}`);
             }
