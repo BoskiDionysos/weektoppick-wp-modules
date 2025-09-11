@@ -1,0 +1,132 @@
+<?php
+/**
+ * Plugin Name: WTP Push Runner (Cron -> GitHub Dispatch)
+ * Description: Co 10 min sprawdza, czy snapshot się zmienił; jeśli tak, wyzwala GitHub Actions (workflow_dispatch).
+ * Version: 1.0.0
+ */
+if ( ! defined('ABSPATH') ) { exit; }
+
+add_action('wtp_runner_check_event', 'wtp_runner_check_and_dispatch');
+
+register_activation_hook(__FILE__, function(){
+    if ( ! wp_next_scheduled('wtp_runner_check_event') ) {
+        wp_schedule_event(time() + 60, 'ten_minutes', 'wtp_runner_check_event');
+    }
+});
+
+register_deactivation_hook(__FILE__, function(){
+    $ts = wp_next_scheduled('wtp_runner_check_event');
+    if ( $ts ) wp_unschedule_event($ts, 'wtp_runner_check_event');
+});
+
+// Dodatkowy interwał 10 min
+add_filter('cron_schedules', function($s){
+    if ( ! isset($s['ten_minutes']) ) {
+        $s['ten_minutes'] = ['interval' => 600, 'display' => 'Every 10 Minutes'];
+    }
+    return $s;
+});
+
+/**
+ * Główny checker:
+ * - czyta index.json przez lokalny dysk (szybciej) lub REST fallback
+ * - jeśli generated_at/mtime > ostatnio znane -> wyzwala dispatch workflow
+ */
+function wtp_runner_check_and_dispatch() {
+    $site_key = defined('WTP_SITE_KEY') ? WTP_SITE_KEY : '';
+    if ( ! $site_key || ! preg_match('/^[A-Za-z0-9]{8,64}$/', $site_key) ) {
+        error_log('[WTP Runner] Missing/invalid WTP_SITE_KEY');
+        return;
+    }
+
+    // ścieżki
+    $index_path = ABSPATH . 'wp-content/uploads/wtp-ro/public/' . $site_key . '/index.json';
+    $last_opt_key = 'wtp_runner_last_generated_at';
+
+    // spróbuj z dysku
+    $generated_at = 0;
+    if ( file_exists($index_path) && is_readable($index_path) ) {
+        $raw = file_get_contents($index_path);
+        if ( $raw !== false ) {
+            $j = json_decode($raw, true);
+            if ( is_array($j) && !empty($j['generated_at']) ) {
+                $generated_at = intval($j['generated_at']);
+            } else {
+                // fallback: mtime pliku
+                $generated_at = @filemtime($index_path) ?: 0;
+            }
+        }
+    } else {
+        // fallback przez REST (nasz MU endpoint /get)
+        $url = home_url('/wp-json/wtp-ro-open/v1/get?site_key=' . rawurlencode($site_key) . '&file=index.json');
+        $res = wp_remote_get($url, ['timeout' => 10]);
+        if ( ! is_wp_error($res) && wp_remote_retrieve_response_code($res) === 200 ) {
+            $body = wp_remote_retrieve_body($res);
+            $j = json_decode($body, true);
+            if ( is_array($j) && !empty($j['generated_at']) ) {
+                $generated_at = intval($j['generated_at']);
+            }
+        }
+    }
+
+    if ( ! $generated_at ) {
+        // nic nie rób – brak danych
+        return;
+    }
+
+    $last = intval( get_option($last_opt_key, 0) );
+    if ( $generated_at <= $last ) {
+        // snapshot bez zmian
+        return;
+    }
+
+    // zmiana wykryta: zapisz nową wartość i wyzwól dispatch
+    update_option($last_opt_key, $generated_at, false);
+    wtp_runner_dispatch_workflow($site_key);
+}
+
+/**
+ * Wywołuje GitHub Actions workflow_dispatch z inputs.site_key
+ */
+function wtp_runner_dispatch_workflow($site_key) {
+    $owner   = defined('WTP_GH_OWNER')    ? WTP_GH_OWNER    : '';
+    $repo    = defined('WTP_GH_REPO')     ? WTP_GH_REPO     : '';
+    $workflow= defined('WTP_GH_WORKFLOW') ? WTP_GH_WORKFLOW : 'wtp-snapshot-sync.yml';
+    $token   = defined('WTP_GH_TOKEN')    ? WTP_GH_TOKEN    : '';
+
+    if ( ! $owner || ! $repo || ! $workflow || ! $token ) {
+        error_log('[WTP Runner] Missing GitHub config (owner/repo/workflow/token)');
+        return;
+    }
+
+    $url = "https://api.github.com/repos/{$owner}/{$repo}/actions/workflows/{$workflow}/dispatches";
+    $payload = json_encode([
+        'ref' => 'main',
+        'inputs' => [
+            'site_key' => $site_key,
+            'rest_base'=> home_url('/wp-json/wtp-ro-open/v1'),
+        ],
+    ]);
+
+    $args = [
+        'timeout' => 20,
+        'headers' => [
+            'Authorization' => 'Bearer ' . $token,
+            'Accept'        => 'application/vnd.github+json',
+            'User-Agent'    => 'wtp-push-runner',
+        ],
+        'body' => $payload,
+    ];
+
+    $res = wp_remote_post($url, $args);
+    if ( is_wp_error($res) ) {
+        error_log('[WTP Runner] GitHub dispatch error: ' . $res->get_error_message());
+        return;
+    }
+    $code = wp_remote_retrieve_response_code($res);
+    if ( $code !== 204 ) {
+        error_log('[WTP Runner] GitHub dispatch HTTP ' . $code . ' body: ' . wp_remote_retrieve_body($res));
+    } else {
+        error_log('[WTP Runner] GitHub dispatch OK for site_key=' . $site_key);
+    }
+}
