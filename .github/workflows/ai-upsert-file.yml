@@ -28,12 +28,12 @@ on:
         required: false
         default: 'main'
         type: string
+
   repository_dispatch:
     types: [ai-upsert-file]
 
 permissions:
   contents: write
-  workflows: write   # <-- to odblokowuje zapis do .github/workflows/*
 
 concurrency:
   group: ai-upsert-file
@@ -47,6 +47,10 @@ jobs:
       - name: Upsert file (UI or repository_dispatch)
         uses: actions/github-script@v7
         with:
+          # UŻYJ PAT-a ze scope `repo` + `workflow` (np. secret: WTP_GITHUB_PAT).
+          # Jeśli nie ustawisz, zostanie użyty wbudowany GITHUB_TOKEN, który NIE może
+          # modyfikować plików w .github/workflows/.
+          github-token: ${{ secrets.WTP_GITHUB_PAT || github.token }}
           script: |
             const crypto = require('crypto');
             const ev = context.eventName;
