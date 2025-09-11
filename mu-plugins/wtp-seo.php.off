@@ -1,0 +1,340 @@
+<?php
+/**
+ * Plugin Name: WTP SEO Core (MU)
+ * Description: Minimal, bezpieczny i kompletny SEO layer: tytuły, meta, canonical, og/twitter, hreflang, schema. Zero zależności, bez konfliktów.
+ * Author: WTP
+ * Version: 1.0.0
+ */
+
+if (!defined('ABSPATH')) { exit; }
+
+/* ----------------------------------------------------------------
+ * 1) KONFIG – możesz zmienić tylko tutaj (opcjonalnie)
+ * ---------------------------------------------------------------- */
+if (!defined('WTP_SEO_BRAND'))      define('WTP_SEO_BRAND', 'WeekTopPick');
+if (!defined('WTP_SEO_TITLE_SUFFIX')) define('WTP_SEO_TITLE_SUFFIX', ' | '.WTP_SEO_BRAND);
+if (!defined('WTP_SEO_LANGS'))      define('WTP_SEO_LANGS', 'en,pl,it,pt'); // kolejność ważna
+if (!defined('WTP_SEO_STRIP_QS'))   define('WTP_SEO_STRIP_QS', 'utm_,gclid,fbclid,_ga'); // prefiksy/klucze do wycięcia z canonical
+if (!defined('WTP_SEO_MAX_TITLE'))  define('WTP_SEO_MAX_TITLE', 60);
+if (!defined('WTP_SEO_MAX_DESC'))   define('WTP_SEO_MAX_DESC', 160);
+
+/* ----------------------------------------------------------------
+ * 2) MAŁE HELPERY (bez redeclare — unikalne prefixy)
+ * ---------------------------------------------------------------- */
+if (!function_exists('wtp_seo_is_front')) {
+    function wtp_seo_is_front(): bool {
+        return function_exists('is_front_page') && is_front_page();
+    }
+}
+if (!function_exists('wtp_seo_lang_current')) {
+    function wtp_seo_lang_current(): string {
+        // 1) honoruj stałe jeśli istnieją
+        if (defined('WTP_SITE_LANG') && WTP_SITE_LANG) {
+            return strtolower((string)WTP_SITE_LANG);
+        }
+        // 2) TranslatePress
+        if (function_exists('trp_get_current_language')) {
+            $l = trp_get_current_language();
+            if ($l) return strtolower($l);
+        }
+        // 3) z URL (pierwszy segment /en /pl ...)
+        $seg = trim(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/', '/');
+        $parts = explode('/', $seg);
+        $first = isset($parts[0]) ? strtolower($parts[0]) : '';
+        $allowed = array_map('trim', explode(',', WTP_SEO_LANGS));
+        if (in_array($first, $allowed, true)) return $first;
+        // fallback
+        return $allowed[0] ?? 'en';
+    }
+}
+if (!function_exists('wtp_seo_h')) {
+    function wtp_seo_h(string $s): string {
+        return esc_attr(wp_strip_all_tags($s ?? ''));
+    }
+}
+if (!function_exists('wtp_seo_trim')) {
+    function wtp_seo_trim(string $s, int $max): string {
+        $s = trim(preg_replace('/\s+/', ' ', wp_strip_all_tags($s)));
+        if (mb_strlen($s) > $max) {
+            $s = rtrim(mb_substr($s, 0, $max-1), " \t.,;-:").'…';
+        }
+        return $s;
+    }
+}
+if (!function_exists('wtp_seo_site_name')) {
+    function wtp_seo_site_name(): string {
+        $n = get_bloginfo('name');
+        return $n ? $n : WTP_SEO_BRAND;
+    }
+}
+if (!function_exists('wtp_seo_clean_canonical')) {
+    function wtp_seo_clean_canonical(string $url): string {
+        $parts = wp_parse_url($url);
+        if (!$parts) return home_url(add_query_arg([])); // fallback
+
+        $base = (isset($parts['scheme']) ? $parts['scheme'].'://' : '').
+                ($parts['host'] ?? $_SERVER['HTTP_HOST'] ?? '').
+                (isset($parts['port']) ? ':'.$parts['port'] : '').
+                ($parts['path'] ?? '/');
+
+        // zbuduj czyste QS (usuń marketingowe i puste)
+        $stripKeys = array_map('trim', explode(',', WTP_SEO_STRIP_QS));
+        $qs = [];
+        if (!empty($parts['query'])) {
+            parse_str($parts['query'], $qsIn);
+            foreach ($qsIn as $k => $v) {
+                $skip = false;
+                foreach ($stripKeys as $pat) {
+                    if ($pat === '') continue;
+                    if (str_starts_with($k, $pat) || $k === $pat) { $skip = true; break; }
+                }
+                if (!$skip && $v !== '' && $v !== null) $qs[$k] = $v;
+            }
+        }
+        $q = $qs ? ('?'.http_build_query($qs)) : '';
+        $frag = ''; // fragmenty nie do canonical
+        return $base.$q.$frag;
+    }
+}
+if (!function_exists('wtp_seo_current_canonical')) {
+    function wtp_seo_current_canonical(): string {
+        // 1) per-post override (ACF/meta)
+        if (is_singular()) {
+            $meta = get_post_meta(get_queried_object_id(), 'wtp_seo_canonical', true);
+            if ($meta) return wtp_seo_clean_canonical($meta);
+        }
+        // 2) buduj z requestu (strip QS)
+        $req = (is_ssl() ? 'https://' : 'http://').($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '');
+        $req .= $_SERVER['REQUEST_URI'] ?? '/';
+        $canon = wtp_seo_clean_canonical($req);
+
+        // 3) paginacja – dodaj /page/X do canonical (WordPressowy standard zostaje)
+        if (get_query_var('paged') > 1 && !is_singular()) {
+            // nic nie zmieniamy — WP zwykle dodaje /page/2; canonical wciąż sensowny po clean_qs
+        }
+        return $canon;
+    }
+}
+
+/* ----------------------------------------------------------------
+ * 3) TYTUŁ + OPIS
+ * ---------------------------------------------------------------- */
+if (!function_exists('wtp_seo_build_title')) {
+    function wtp_seo_build_title(): string {
+        // Priorytet: per-post -> SEO Title (meta) -> WP Title -> Brand
+        $t = '';
+        if (is_singular()) {
+            $metaTitle = get_post_meta(get_queried_object_id(), 'wtp_seo_title', true);
+            if ($metaTitle) $t = $metaTitle;
+        }
+        if (!$t) {
+            $core = wp_get_document_title(); // korzysta z motywu, ale my post-process
+            if (!$core || $core === get_bloginfo('name')) {
+                if (is_singular()) $core = get_the_title(get_queried_object_id());
+                elseif (is_category() || is_tag() || is_tax()) $core = single_term_title('', false);
+                elseif (is_search()) $core = sprintf(__('Search results for “%s”','wtp'), get_search_query());
+                elseif (is_404()) $core = __('Page not found','wtp');
+                else $core = get_bloginfo('description') ?: wtp_seo_site_name();
+            }
+            $t = $core;
+        }
+        // suffix brand (nie dubluj)
+        $brand = wtp_seo_site_name();
+        $suffix = ' | '.$brand;
+        if (!str_contains($t, $brand)) $t .= $suffix;
+
+        return wtp_seo_trim($t, WTP_SEO_MAX_TITLE);
+    }
+}
+if (!function_exists('wtp_seo_build_desc')) {
+    function wtp_seo_build_desc(): string {
+        $d = '';
+        if (is_singular()) {
+            $d = get_post_meta(get_queried_object_id(), 'wtp_seo_desc', true);
+            if (!$d) {
+                $excerpt = has_excerpt(get_queried_object_id()) ? get_the_excerpt(get_queried_object_id()) : '';
+                if ($excerpt) $d = $excerpt;
+            }
+            if (!$d) {
+                $content = get_post_field('post_content', get_queried_object_id());
+                if ($content) $d = wp_strip_all_tags(wp_trim_words($content, 36, '…'));
+            }
+        } else {
+            $d = get_bloginfo('description') ?: wtp_seo_site_name().' – '.$_SERVER['HTTP_HOST'];
+        }
+        return wtp_seo_trim($d ?: wtp_seo_site_name(), WTP_SEO_MAX_DESC);
+    }
+}
+
+/* ----------------------------------------------------------------
+ * 4) Hreflang (TranslatePress / fallback z segmentów)
+ * ---------------------------------------------------------------- */
+if (!function_exists('wtp_seo_hreflangs')) {
+    function wtp_seo_hreflangs(): array {
+        $langs = array_map('trim', explode(',', WTP_SEO_LANGS));
+        $current = wtp_seo_lang_current();
+
+        $alternates = [];
+
+        // Jeśli TranslatePress dostępny – użyj ich mapowania
+        if (function_exists('trp_get_languages') && function_exists('trp_permalink')) {
+            $trp = trp_get_languages(); // ['en'=>'English', 'pl'=>'Polski', ...]
+            if (is_array($trp)) {
+                foreach (array_keys($trp) as $code) {
+                    $url = trp_permalink(get_permalink(), $code);
+                    if ($url) $alternates[strtolower($code)] = $url;
+                }
+            }
+        }
+
+        // Fallback: zamiana pierwszego segmentu na kod języka
+        if (!$alternates) {
+            $reqPath = trim(parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?? '/', '/');
+            $parts = $reqPath === '' ? [] : explode('/', $reqPath);
+            $first = isset($parts[0]) ? strtolower($parts[0]) : '';
+            $allowed = $langs;
+
+            foreach ($allowed as $lang) {
+                $lang = strtolower($lang);
+                $newParts = $parts;
+                if ($first && in_array($first, $allowed, true)) {
+                    $newParts[0] = $lang;
+                } else {
+                    array_unshift($newParts, $lang);
+                }
+                $path = '/'.implode('/', array_filter($newParts, fn($p) => $p !== ''));
+                $alternates[$lang] = home_url($path);
+            }
+        }
+
+        // x-default → preferuj EN, albo pierwszy z listy
+        if (!isset($alternates['x-default'])) {
+            $xd = $alternates['en'] ?? reset($alternates);
+            if ($xd) $alternates['x-default'] = $xd;
+        }
+
+        return $alternates;
+    }
+}
+
+/* ----------------------------------------------------------------
+ * 5) RENDER: <title>, meta, canonical, og, twitter, hreflang, robots
+ * ---------------------------------------------------------------- */
+add_action('wp_head', function () {
+    if (is_admin()) return;
+
+    // ROBOTS – noindex dla 404, podstron wyników wyszukiwania, feedów, podstron paginacji tax?
+    $noindex = false;
+    if (is_404() || is_search() || is_feed()) $noindex = true;
+
+    $title = wtp_seo_build_title();
+    $desc  = wtp_seo_build_desc();
+    $canon = wtp_seo_current_canonical();
+
+    // gdy noindex – canonical zostawiamy, to ok
+    echo "\n".'<!-- WTP SEO Core -->'."\n";
+    echo '<meta name="description" content="'.wtp_seo_h($desc).'" />'."\n";
+    echo '<link rel="canonical" href="'.esc_url($canon).'" />'."\n";
+    if ($noindex) {
+        echo '<meta name="robots" content="noindex,follow" />'."\n";
+    }
+
+    // OpenGraph
+    $ogType = (is_singular() ? 'article' : 'website');
+    $img = '';
+    if (is_singular()) {
+        $pid = get_queried_object_id();
+        $thumb = get_the_post_thumbnail_url($pid, 'large');
+        if ($thumb) $img = $thumb;
+    }
+    echo '<meta property="og:title" content="'.wtp_seo_h($title).'" />'."\n";
+    echo '<meta property="og:description" content="'.wtp_seo_h($desc).'" />'."\n";
+    echo '<meta property="og:type" content="'.$ogType.'" />'."\n";
+    echo '<meta property="og:url" content="'.esc_url($canon).'" />'."\n";
+    echo '<meta property="og:site_name" content="'.wtp_seo_h(wtp_seo_site_name()).'" />'."\n";
+    if ($img) echo '<meta property="og:image" content="'.esc_url($img).'" />'."\n";
+
+    // Twitter
+    echo '<meta name="twitter:card" content="'.($img ? 'summary_large_image' : 'summary').'" />'."\n";
+    echo '<meta name="twitter:title" content="'.wtp_seo_h($title).'" />'."\n";
+    echo '<meta name="twitter:description" content="'.wtp_seo_h($desc).'" />'."\n";
+    if ($img) echo '<meta name="twitter:image" content="'.esc_url($img).'" />'."\n";
+
+    // hreflang
+    $alts = wtp_seo_hreflangs();
+    foreach ($alts as $code => $url) {
+        $rel = ($code === 'x-default') ? 'x-default' : strtolower($code);
+        echo '<link rel="alternate" href="'.esc_url($url).'" hreflang="'.wtp_seo_h($rel).'" />'."\n";
+    }
+
+    // JSON-LD (Organization + WebSite)
+    $org = [
+        '@context' => 'https://schema.org',
+        '@type'    => 'Organization',
+        'name'     => wtp_seo_site_name(),
+        'url'      => home_url('/'),
+        'logo'     => get_site_icon_url() ?: '',
+    ];
+    $site = [
+        '@context' => 'https://schema.org',
+        '@type'    => 'WebSite',
+        'name'     => wtp_seo_site_name(),
+        'url'      => home_url('/'),
+        'potentialAction' => [
+            '@type' => 'SearchAction',
+            'target' => home_url('/?s={search_term_string}'),
+            'query-input' => 'required name=search_term_string'
+        ]
+    ];
+    echo '<script type="application/ld+json">'.wp_json_encode($org, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE).'</script>'."\n";
+    echo '<script type="application/ld+json">'.wp_json_encode($site, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE).'</script>'."\n";
+    echo '<!-- /WTP SEO Core -->'."\n";
+}, 1); // wcześniejszy head, żeby nie zdublować z motywem
+
+/* ----------------------------------------------------------------
+ * 6) USTAW <title> przez filtr (nie wymaga motywu)
+ * ---------------------------------------------------------------- */
+add_filter('pre_get_document_title', function($title){
+    if (is_admin()) return $title;
+    return wtp_seo_build_title();
+}, 20);
+
+/* ----------------------------------------------------------------
+ * 7) AWARYJNY FIX: usuń duplikaty meta (gdy motyw coś wtrąci)
+ *    – bardzo łagodnie: nie kasujemy nic agresywnie
+ * ---------------------------------------------------------------- */
+add_action('wp_head', function(){
+    // Nic nie robimy jeśli Yoast/RankMath są aktywne — nie walczymy z nimi.
+    if (defined('WPSEO_VERSION') || defined('RANK_MATH_VERSION')) return;
+    // (Mamy już nasze meta powyżej — to wystarczy.)
+}, 999);
+
+/* ----------------------------------------------------------------
+ * 8) ADMIN: minimalna pomoc (pola meta)
+ * ---------------------------------------------------------------- */
+add_action('add_meta_boxes', function(){
+    add_meta_box('wtp_seo_meta', 'WTP SEO', function(){
+        $id = get_the_ID();
+        $t = get_post_meta($id, 'wtp_seo_title', true);
+        $d = get_post_meta($id, 'wtp_seo_desc', true);
+        $c = get_post_meta($id, 'wtp_seo_canonical', true);
+        echo '<p><label>SEO Title<br><input type="text" name="wtp_seo_title" value="'.esc_attr($t).'" style="width:100%"></label></p>';
+        echo '<p><label>Meta Description<br><textarea name="wtp_seo_desc" rows="3" style="width:100%">'.esc_textarea($d).'</textarea></label></p>';
+        echo '<p><label>Canonical (opcjonalnie)<br><input type="url" name="wtp_seo_canonical" value="'.esc_attr($c).'" style="width:100%"></label></p>';
+        echo '<p style="opacity:.7">Title ≤ '.WTP_SEO_MAX_TITLE.' znaków, Description ≤ '.WTP_SEO_MAX_DESC.'.</p>';
+        wp_nonce_field('wtp_seo_meta_save','wtp_seo_nonce');
+    }, ['post','page'], 'normal', 'default');
+});
+add_action('save_post', function($post_id){
+    if (!isset($_POST['wtp_seo_nonce']) || !wp_verify_nonce($_POST['wtp_seo_nonce'], 'wtp_seo_meta_save')) return;
+    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) return;
+    if (!current_user_can('edit_post', $post_id)) return;
+
+    foreach (['wtp_seo_title','wtp_seo_desc','wtp_seo_canonical'] as $key) {
+        if (isset($_POST[$key])) {
+            $val = is_string($_POST[$key]) ? trim($_POST[$key]) : '';
+            if ($key === 'wtp_seo_canonical') $val = esc_url_raw($val);
+            update_post_meta($post_id, $key, $val);
+        }
+    }
+}, 10, 1);
