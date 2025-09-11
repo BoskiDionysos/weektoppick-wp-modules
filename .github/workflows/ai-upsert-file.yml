@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       path:
-        description: 'Target path in repo (np. mu-plugins/00-mu-safe-loader.php)'
+        description: 'Target path in repo (np. mu-plugins/00-mu-safe-loader.php lub .github/workflows/xyz.yml)'
         required: true
         type: string
       message:
@@ -12,11 +12,11 @@ on:
         required: true
         type: string
       content_plain:
-        description: 'File content (PLAIN). Zostaw puste jeśli podajesz content_b64'
+        description: 'File content (PLAIN). Zostaw puste, jeśli podajesz content_b64'
         required: false
         type: string
       content_b64:
-        description: 'File content (Base64). Zostaw puste jeśli podajesz content_plain'
+        description: 'File content (Base64). Zostaw puste, jeśli podajesz content_plain'
         required: false
         type: string
       sha256:
@@ -28,12 +28,12 @@ on:
         required: false
         default: 'main'
         type: string
-
   repository_dispatch:
     types: [ai-upsert-file]
 
 permissions:
   contents: write
+  workflows: write   # <— to pozwala modyfikować pliki workflow
 
 concurrency:
   group: ai-upsert-file
@@ -49,6 +49,7 @@ jobs:
         with:
           script: |
             const crypto = require('crypto');
+
             const ev = context.eventName;
 
             // ---- read inputs ----
