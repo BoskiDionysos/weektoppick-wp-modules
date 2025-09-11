@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       path:
-        description: 'Target path in repo (e.g., mu-plugins/00-mu-safe-loader.php)'
+        description: 'Target path in repo (np. mu-plugins/00-mu-safe-loader.php)'
         required: true
         type: string
       message:
@@ -12,11 +12,11 @@ on:
         required: true
         type: string
       content_plain:
-        description: 'File content (plain). Will be Base64-encoded'
+        description: 'File content (PLAIN). Jeśli podasz – workflow sam zakoduje do Base64'
         required: false
         type: string
       content_b64:
-        description: 'File content (Base64). Leave empty if you use content_plain'
+        description: 'File content (Base64). Zostaw puste, jeśli używasz content_plain'
         required: false
         type: string
       branch:
@@ -35,134 +35,53 @@ concurrency:
 jobs:
   upsert:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
     steps:
-      - name: Prepare payload
-        id: prep
-        shell: bash
-        run: |
-          set -euo pipefail
+      - name: Upsert file via GitHub API
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const path = core.getInput('path', { required: true });
+            const message = core.getInput('message', { required: true });
+            const branch = core.getInput('branch') || 'main';
+            let content_b64 = core.getInput('content_b64') || '';
+            const content_plain = core.getInput('content_plain') || '';
 
-          PATH_IN="${{ inputs.path }}"
-          MESSAGE="${{ inputs.message }}"
-          BRANCH="${{ inputs.branch }}"
-          CONTENT_PLAIN="${{ inputs.content_plain }}"
-          CONTENT_B64="${{ inputs.content_b64 }}"
+            if (!content_b64 && !content_plain) {
+              core.setFailed('Provide either content_plain or content_b64.');
+              return;
+            }
+            if (!content_b64) {
+              content_b64 = Buffer.from(content_plain, 'utf8').toString('base64');
+            }
 
-          if [ -z "$PATH_IN" ] || [ -z "$MESSAGE" ]; then
-            echo "::error::Missing required inputs: path/message"
-            exit 1
-          fi
+            const { owner, repo } = context.repo;
 
-          # Jeśli podano plain → zamień na Base64 (bez łamań linii)
-          if [ -z "$CONTENT_B64" ] && [ -n "$CONTENT_PLAIN" ]; then
-            CONTENT_B64="$(python3 - <<'PY'
-import base64, os
-print(base64.b64encode(os.environ["CONTENT_PLAIN"].encode("utf-8")).decode("ascii"))
-PY
-)"
-          fi
+            // spróbuj pobrać SHA (jeśli plik istnieje)
+            let sha;
+            try {
+              const { data } = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
+                owner, repo, path, ref: branch,
+              });
+              if (data && data.sha) sha = data.sha;
+            } catch (e) {
+              if (e.status !== 404) {
+                core.setFailed(`getContent failed: ${e.message}`);
+                return;
+              }
+              core.info('File does not exist yet (creating new).');
+            }
 
-          if [ -z "$CONTENT_B64" ]; then
-            echo "::error::Provide either content_plain or content_b64"
-            exit 1
-          fi
+            // PUT create/update
+            const res = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+              owner, repo, path, message, branch, content: content_b64, sha
+            });
 
-          {
-            echo "path=${PATH_IN}"
-            echo "branch=${BRANCH}"
-            echo "message<<EOF"
-            echo "${MESSAGE}"
-            echo "EOF"
-            echo "content_b64<<EOF"
-            echo "${CONTENT_B64}"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Get current file SHA (if exists)
-        id: cur
-        env:
-          REPO:    ${{ github.repository }}
-          PATH_IN: ${{ steps.prep.outputs.path }}
-          BRANCH:  ${{ steps.prep.outputs.branch }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          TOKEN="${GITHUB_TOKEN}"
-          PATH_ENC="$(python3 - <<'PY'
-import urllib.parse, os
-print(urllib.parse.quote(os.environ["PATH_IN"], safe=""))
-PY
-)"
-          API="https://api.github.com/repos/${REPO}/contents/${PATH_ENC}?ref=${BRANCH}"
-          echo "GET $API"
-          set +e
-          RESP="$(curl -fsS -H "Authorization: Bearer ${TOKEN}" -H "Accept: application/vnd.github+json" "$API")"
-          CODE=$?
-          set -e
-          if [ $CODE -eq 0 ]; then
-            SHA="$(python3 - <<'PY'
-import json, os
-j=json.loads(os.environ["RESP"])
-print(j.get("sha",""))
-PY
-)"
-            echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
-          else
-            echo "sha=" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Create/Update file
-        env:
-          REPO:    ${{ github.repository }}
-          PATH_IN: ${{ steps.prep.outputs.path }}
-          BRANCH:  ${{ steps.prep.outputs.branch }}
-          MESSAGE: ${{ steps.prep.outputs.message }}
-          B64:     ${{ steps.prep.outputs.content_b64 }}
-          CUR_SHA: ${{ steps.cur.outputs.sha }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          TOKEN="${GITHUB_TOKEN}"
-
-          BODY="$(python3 - <<'PY'
-import json, os
-payload = {
-  "message": os.environ["MESSAGE"],
-  "content": os.environ["B64"],
-  "branch":  os.environ["BRANCH"],
-}
-sha = os.environ.get("CUR_SHA","")
-if sha:
-    payload["sha"] = sha
-print(json.dumps(payload, separators=(",",":")))
-PY
-)"
-          PATH_ENC="$(python3 - <<'PY'
-import urllib.parse, os
-print(urllib.parse.quote(os.environ["PATH_IN"], safe=""))
-PY
-)"
-          API="https://api.github.com/repos/${REPO}/contents/${PATH_ENC}"
-          echo "PUT $API"
-          RESP="$(curl -fsS -X PUT "$API" \
-            -H "Authorization: Bearer ${TOKEN}" \
-            -H "Accept: application/vnd.github+json" \
-            -d "$BODY")"
-
-          echo "$RESP" | python3 - <<'PY'
-import json, sys
-r=json.loads(sys.stdin.read())
-ok = ("content" in r) or ("commit" in r)
-print(json.dumps({
-  "ok": ok,
-  "path": (r.get("content") or {}).get("path",""),
-  "commit": (r.get("commit") or {}).get("sha","")
-}, indent=2))
-sys.exit(0 if ok else 1)
-PY
-
-      - name: Summary
-        run: |
-          echo "✅ Upserted: ${{ steps.prep.outputs.path }} on branch ${{ steps.prep.outputs.branch }}"
+            core.info(`OK: ${res.status}, commit: ${res.data.commit?.sha}`);
+            await core.summary
+              .addHeading('AI Upsert File')
+              .addList([
+                `path: ${path}`,
+                `branch: ${branch}`,
+                `commit: ${res.data.commit?.sha || ''}`
+              ])
+              .write();
