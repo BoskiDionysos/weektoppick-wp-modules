@@ -28,12 +28,12 @@ on:
         required: false
         default: 'main'
         type: string
+
   repository_dispatch:
     types: [ai-upsert-file]
 
 permissions:
-  contents: write
-  workflows: write   # <— to pozwala modyfikować pliki workflow
+  contents: write   # wystarczy, resztę załatwia PAT z workflow scope
 
 concurrency:
   group: ai-upsert-file
@@ -47,6 +47,7 @@ jobs:
       - name: Upsert file via GitHub API (UI or repository_dispatch)
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.WTP_GITHUB_PAT || secrets.GITHUB_TOKEN }}
           script: |
             const crypto = require('crypto');
 
