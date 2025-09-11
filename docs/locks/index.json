@@ -1,0 +1,41 @@
+{
+  "version": "3.0.0",
+  "locks": "docs/locks/WeekTopPick_LOCKS_v3.0.md",
+
+  "snapshots": {
+    "manifest": "https://weektoppick.com/wp-json/wtp-ro/v1/snap?file=manifest.json",
+    "bundle":   "https://weektoppick.com/wp-json/wtp-ro/v1/snap?file=bundle.json",
+    "index":    "https://weektoppick.com/wp-json/wtp-ro/v1/snap?file=index.json",
+    "files": [
+      "https://weektoppick.com/wp-json/wtp-ro/v1/snap?file=files_000.json",
+      "https://weektoppick.com/wp-json/wtp-ro/v1/snap?file=files_001.json",
+      "https://weektoppick.com/wp-json/wtp-ro/v1/snap?file=files_002.json",
+      "https://weektoppick.com/wp-json/wtp-ro/v1/snap?file=files_003.json",
+      "https://weektoppick.com/wp-json/wtp-ro/v1/snap?file=files_004.json",
+      "https://weektoppick.com/wp-json/wtp-ro/v1/snap?file=files_005.json",
+      "https://weektoppick.com/wp-json/wtp-ro/v1/snap?file=files_006.json"
+    ]
+  },
+
+  "state": {
+    "dir": ".wtp/state/",
+    "daily_tech": ".wtp/state/daily_tech_report.json",
+    "weekly_biz": ".wtp/state/weekly_business_report.json",
+    "charity": ".wtp/state/charity_report.json"
+  },
+
+  "workflows": {
+    "deploy": ".github/workflows/deploy-to-hostinger.yml",
+    "ai_upsert": ".github/workflows/ai-upsert-file.yml",
+    "agent_push": ".github/workflows/agent-push.yml",
+    "watchdog": ".github/workflows/snapshot-watchdog.yml"
+  },
+
+  "releases": {
+    "plugins": "releases/plugins/",
+    "themes": "releases/themes/",
+    "workflows": "releases/workflows/"
+  },
+
+  "audits": "audits/"
+}
