@@ -1,0 +1,147 @@
+<?php
+/**
+ * Plugin Name: WTP Patcher — Theme (GitHub → WP)
+ * Description: Pobiera theme-bundle.json z GitHuba i zapisuje pliki do aktywnego motywu (z backupem .bak). Endpoint: /wp-json/wtp-ro/v1/patch-theme?key=SECRET
+ * Version: 1.0.0
+ */
+if (!defined('ABSPATH')) exit;
+
+/**
+ * WYMAGANE:
+ *   define('WTP_GH_SECRET', 'twoj_bardzo_tajny_sekret'); // w wp-config.php (JUŻ masz)
+ *
+ * OPCJONALNE (możesz zostawić domyślne):
+ *   define('WTP_PATCH_THEME_URL', 'https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/theme-bundle.json');
+ */
+
+if (!defined('WTP_PATCH_THEME_URL')) {
+    define('WTP_PATCH_THEME_URL', 'https://raw.githubusercontent.com/BoskiDionysos/weektoppick-wp-modules/main/theme-bundle.json');
+}
+
+add_action('rest_api_init', function () {
+    register_rest_route('wtp-ro/v1', '/patch-theme', [
+        'methods'  => 'GET',
+        'permission_callback' => '__return_true', // publiczny, ale sprawdzamy SECRET niżej
+        'callback' => 'wtp_patch_theme_run',
+        'args'     => [
+            'key'  => ['type'=>'string','required'=>false],
+            'url'  => ['type'=>'string','required'=>false], // opcjonalny override URL
+            'dry'  => ['type'=>'boolean','required'=>false], // podgląd bez zapisu
+        ],
+    ]);
+});
+
+function wtp_patch_theme_run(WP_REST_Request $req) {
+    // --- auth przez sekret ---
+    if (!defined('WTP_GH_SECRET')) {
+        return new WP_REST_Response(['ok'=>false,'error'=>'missing-secret'], 403);
+    }
+    $key = (string)$req->get_param('key');
+    if ($key === '' || !hash_equals(WTP_GH_SECRET, $key)) {
+        return new WP_REST_Response(['ok'=>false,'error'=>'forbidden'], 403);
+    }
+
+    // --- ustal źródło bundle ---
+    $url = (string)($req->get_param('url') ?: WTP_PATCH_THEME_URL);
+
+    // pobierz JSON
+    $res = wp_remote_get($url, [
+        'timeout' => 30,
+        'headers' => [
+            'Accept'     => 'application/json',
+            'User-Agent' => 'WTP-Patcher/1.0',
+        ],
+    ]);
+    $code = wp_remote_retrieve_response_code($res);
+    if ($code !== 200) {
+        return new WP_REST_Response(['ok'=>false,'error'=>"fetch-failed:$code"], 500);
+    }
+    $body = wp_remote_retrieve_body($res);
+    $bundle = json_decode($body, true);
+    if (!is_array($bundle)) {
+        return new WP_REST_Response(['ok'=>false,'error'=>'invalid-json'], 500);
+    }
+
+    // --- katalog motywu ---
+    $theme_dir = wp_normalize_path(get_stylesheet_directory());
+    if (!$theme_dir || !is_dir($theme_dir) || !is_writable($theme_dir)) {
+        return new WP_REST_Response(['ok'=>false,'error'=>'theme-dir-not-writable'], 500);
+    }
+
+    $dry = filter_var($req->get_param('dry'), FILTER_VALIDATE_BOOLEAN);
+
+    $updated = [];
+    $created = [];
+    $skipped = [];
+    $errors  = [];
+
+    foreach ($bundle as $keyPath => $content) {
+        // Oczekujemy kluczy typu "theme/rel/plik.php"
+        if (strpos($keyPath, 'theme/') !== 0) {
+            $skipped[] = $keyPath;
+            continue;
+        }
+        $rel = substr($keyPath, strlen('theme/')); // relatywnie do motywu
+
+        // sanity path: bez ../, bez początkowego slasha
+        if ($rel === '' || strpos($rel, '..') !== false || $rel[0] === '/') {
+            $errors[] = ['file'=>$keyPath,'error'=>'bad-relpath'];
+            continue;
+        }
+
+        $target = wp_normalize_path($theme_dir . '/' . $rel);
+        // dopuszczalne rozszerzenia — lekkie sito
+        $ext = strtolower(pathinfo($target, PATHINFO_EXTENSION));
+        if (!in_array($ext, ['php','css','js','json','svg','txt','md','html','po','mo'], true)) {
+            $skipped[] = $keyPath;
+            continue;
+        }
+
+        // utwórz katalog
+        $dir = dirname($target);
+        if (!is_dir($dir)) {
+            if (!$dry) {
+                if (!wp_mkdir_p($dir)) {
+                    $errors[] = ['file'=>$keyPath,'error'=>'mkdir-failed'];
+                    continue;
+                }
+            }
+        }
+
+        $exists = file_exists($target);
+        if (!$dry) {
+            // zrób backup .bak (tylko jeżeli istniał)
+            if ($exists) {
+                $bak = $target . '.bak';
+                // żeby nie nadpisywać istniejącego .bak, dopisz timestamp
+                if (file_exists($bak)) {
+                    $bak = $target . '.' . date('Ymd_His') . '.bak';
+                }
+                if (!@copy($target, $bak)) {
+                    $errors[] = ['file'=>$keyPath,'error'=>'backup-failed'];
+                    continue;
+                }
+            }
+            // zapisz nową treść
+            $ok = @file_put_contents($target, $content);
+            if ($ok === false) {
+                $errors[] = ['file'=>$keyPath,'error'=>'write-failed'];
+                continue;
+            }
+        }
+
+        if ($exists) { $updated[] = $rel; } else { $created[] = $rel; }
+    }
+
+    $ok = empty($errors);
+    return new WP_REST_Response([
+        'ok'       => $ok,
+        'dry_run'  => (bool)$dry,
+        'source'   => $url,
+        'theme'    => basename($theme_dir),
+        'created'  => $created,
+        'updated'  => $updated,
+        'skipped'  => $skipped,
+        'errors'   => $errors
+    ], $ok ? 200 : 500);
+}
