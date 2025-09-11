@@ -44,17 +44,24 @@ jobs:
     timeout-minutes: 10
     env:
       GH_REPO: ${{ github.repository }}
-      # Użyj prywatnego PAT jeśli jest; inaczej fallback do wbudowanego tokena
-      GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT != '' && secrets.WTP_GITHUB_PAT || github.token }}
+      PAT1:    ${{ secrets.WTP_GITHUB_PAT }}
+      GHTK:    ${{ github.token }}
 
     steps:
-      - name: Resolve inputs / payload (UI vs repository_dispatch)
+      - name: Resolve inputs / payload
         id: inp
         shell: bash
         run: |
           set -euo pipefail
 
-          # Domyślne wartości (UI)
+          # Prefer PAT if provided, else use default GITHUB_TOKEN
+          GH_TOKEN="${PAT1:-}"
+          if [ -z "$GH_TOKEN" ]; then
+            GH_TOKEN="${GHTK}"
+          fi
+          echo "gh_token_set=true" >> "$GITHUB_OUTPUT"
+
+          # Defaults from UI
           PATH_IN="${{ inputs.path }}"
           CONTENT_B64="${{ inputs.content_b64 }}"
           CONTENT_PLAIN="${{ inputs.content_plain }}"
@@ -62,58 +69,57 @@ jobs:
           BRANCH="${{ inputs.branch }}"
           SHA256_OPT="${{ inputs.sha256 }}"
 
-          # Jeśli event to repository_dispatch – nadpisz danymi z client_payload
+          # If repository_dispatch, override from client_payload
           if [ "${GITHUB_EVENT_NAME}" = "repository_dispatch" ]; then
             PATH_IN="$(python3 - <<'PY'
 import json, os
-j=json.load(open(os.environ["GITHUB_EVENT_PATH"], "r"))
+j=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
 print(j.get("client_payload",{}).get("path",""))
 PY
 )"
             CONTENT_B64="$(python3 - <<'PY'
 import json, os
-j=json.load(open(os.environ["GITHUB_EVENT_PATH"], "r"))
+j=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
 print(j.get("client_payload",{}).get("content_b64",""))
 PY
 )"
             CONTENT_PLAIN="$(python3 - <<'PY'
 import json, os
-j=json.load(open(os.environ["GITHUB_EVENT_PATH"], "r"))
+j=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
 print(j.get("client_payload",{}).get("content_plain",""))
 PY
 )"
             MESSAGE="$(python3 - <<'PY'
 import json, os
-j=json.load(open(os.environ["GITHUB_EVENT_PATH"], "r"))
+j=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
 print(j.get("client_payload",{}).get("message",""))
 PY
 )"
             BRANCH="$(python3 - <<'PY'
 import json, os
-j=json.load(open(os.environ["GITHUB_EVENT_PATH"], "r"))
+j=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
 print(j.get("client_payload",{}).get("branch","main"))
 PY
 )"
             SHA256_OPT="$(python3 - <<'PY'
 import json, os
-j=json.load(open(os.environ["GITHUB_EVENT_PATH"], "r"))
+j=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
 print(j.get("client_payload",{}).get("sha256",""))
 PY
 )"
           fi
 
-          # Walidacje podstawowe
+          # Validate required
           if [ -z "${PATH_IN}" ] || [ -z "${MESSAGE}" ]; then
             echo "::error::Missing required 'path' or 'message'."
             exit 1
           fi
 
-          # Jeśli nie ma base64, a jest plain → zakoduj w Pythonie (bez łamań linii)
+          # If plain provided, encode to base64 (no wraps)
           if [ -z "${CONTENT_B64}" ] && [ -n "${CONTENT_PLAIN}" ]; then
             CONTENT_B64="$(python3 - <<'PY'
-import base64, os, sys
-data = os.environ["CONTENT_PLAIN"].encode("utf-8")
-print(base64.b64encode(data).decode("ascii"))
+import base64, os
+print(base64.b64encode(os.environ["CONTENT_PLAIN"].encode("utf-8")).decode("ascii"))
 PY
 )"
           fi
@@ -123,7 +129,7 @@ PY
             exit 1
           fi
 
-          # Opcjonalne SHA-256
+          # Optional SHA-256 check
           if [ -n "${SHA256_OPT}" ]; then
             CALC="$(python3 - <<'PY'
 import base64, hashlib, os
@@ -148,13 +154,17 @@ PY
             echo "content_b64<<EOF"
             echo "${CONTENT_B64}"
             echo "EOF"
+            echo "gh_token=${GH_TOKEN}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Get current file SHA (if exists)
         id: cur
         shell: bash
         env:
-          PATH_IN: ${{ steps.inp.outputs.path }}
+          GH_TOKEN: ${{ steps.inp.outputs.gh_token }}
+          GH_REPO:  ${{ env.GH_REPO }}
+          PATH_IN:  ${{ steps.inp.outputs.path }}
+          BRANCH:   ${{ steps.inp.outputs.branch }}
         run: |
           set -euo pipefail
           PATH_ENC="$(python3 - <<'PY'
@@ -162,7 +172,7 @@ import urllib.parse, os
 print(urllib.parse.quote(os.environ["PATH_IN"], safe=""))
 PY
 )"
-          API="https://api.github.com/repos/${GH_REPO}/contents/${PATH_ENC}?ref=${{ steps.inp.outputs.branch }}"
+          API="https://api.github.com/repos/${GH_REPO}/contents/${PATH_ENC}?ref=${BRANCH}"
           echo "GET $API"
           set +e
           RESP="$(curl -fsS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "$API")"
@@ -183,11 +193,13 @@ PY
       - name: Create/Update file (PUT)
         shell: bash
         env:
-          PATH_IN: ${{ steps.inp.outputs.path }}
-          BRANCH:  ${{ steps.inp.outputs.branch }}
-          MESSAGE: ${{ steps.inp.outputs.message }}
-          B64:     ${{ steps.inp.outputs.content_b64 }}
-          CUR_SHA: ${{ steps.cur.outputs.sha }}
+          GH_TOKEN: ${{ steps.inp.outputs.gh_token }}
+          GH_REPO:  ${{ env.GH_REPO }}
+          PATH_IN:  ${{ steps.inp.outputs.path }}
+          BRANCH:   ${{ steps.inp.outputs.branch }}
+          MESSAGE:  ${{ steps.inp.outputs.message }}
+          B64:      ${{ steps.inp.outputs.content_b64 }}
+          CUR_SHA:  ${{ steps.cur.outputs.sha }}
         run: |
           set -euo pipefail
           BODY="$(python3 - <<'PY'
@@ -197,7 +209,7 @@ payload = {
   "content": os.environ["B64"],
   "branch":  os.environ["BRANCH"],
 }
-sha = os.environ.get("CUR_SHA", "")
+sha = os.environ.get("CUR_SHA","")
 if sha:
     payload["sha"] = sha
 print(json.dumps(payload, separators=(",",":")))
