@@ -1,1 +1,6 @@
-# Katalogi wtyczek, których NIE usuwamy podczas deploya (server-managed) # Jeden wpis = nazwa folderu w wp-content/plugins/  litespeed-cache wordfence translatepress-multilingual cookie-law-info  # dopisuj kolejne według potrzeb…
+# Katalogi wtyczek, których NIE usuwamy podczas deploya (server-managed) # Jeden wpis = nazwa folderu w wp-content/plugins/  
+litespeed-cache
+wordfence
+translatepress-multilingual
+cookie-law-info 
+# dopisuj kolejne według potrzeb…
