@@ -5,21 +5,22 @@ on:
     inputs:
       path:
         description: 'Target path in repo (np. mu-plugins/00-mu-safe-loader.php)'
-        required: false
-        default: 'sandbox/ai-upsert-test.txt'
+        required: true
         type: string
       message:
         description: 'Commit message'
-        required: false
-        default: 'chore(upsert): test commit from UI'
+        required: true
         type: string
       content_plain:
-        description: 'File content (PLAIN). Jeśli podasz – workflow sam zakoduje do Base64'
+        description: 'File content (PLAIN). Zostaw puste jeśli podajesz content_b64'
         required: false
-        default: 'Hello from AI Upsert (default).'
         type: string
       content_b64:
-        description: 'File content (Base64). Zostaw puste, jeśli używasz content_plain'
+        description: 'File content (Base64). Zostaw puste jeśli podajesz content_plain'
+        required: false
+        type: string
+      sha256:
+        description: 'Opcjonalny SHA-256 zdekodowanej treści (dla weryfikacji)'
         required: false
         type: string
       branch:
@@ -46,69 +47,100 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const ev = context.eventName;
+            const crypto = require('crypto');
 
-            // pobierz inputs (UI) lub client_payload (repo dispatch)
             const getStr = (name, def='') => (core.getInput(name, { required: false }) || def).trim();
-            let path, message, branch, content_b64, content_plain;
+
+            const ev = context.eventName;
+            let path, message, branch, content_b64, content_plain, sha256;
 
             if (ev === 'repository_dispatch') {
               const p = context.payload?.client_payload || {};
-              path         = (p.path || 'sandbox/ai-upsert-test.txt').trim();
-              message      = (p.message || 'chore(upsert): test commit from dispatch').trim();
-              branch       = (p.branch || 'main').trim();
-              content_b64  = (p.content_b64 || '').trim();
-              content_plain= (p.content_plain || 'Hello from AI Upsert (dispatch default).').trim();
+              path          = (p.path || '').trim();
+              message       = (p.message || '').trim();
+              branch        = (p.branch  || 'main').trim();
+              content_b64   = (p.content_b64   || '').trim();
+              content_plain = (p.content_plain || '').trim();
+              sha256        = (p.sha256 || '').trim().toLowerCase();
             } else {
-              path         = getStr('path','sandbox/ai-upsert-test.txt');
-              message      = getStr('message','chore(upsert): test commit from UI');
-              branch       = getStr('branch','main');
-              content_b64  = getStr('content_b64','');
-              content_plain= getStr('content_plain','Hello from AI Upsert (default).');
+              path          = getStr('path','');
+              message       = getStr('message','');
+              branch        = getStr('branch','main');
+              content_b64   = getStr('content_b64','');
+              content_plain = getStr('content_plain','');
+              sha256        = getStr('sha256','').toLowerCase();
             }
 
             core.info(`event=${ev}`);
             core.info(`path="${path}", branch="${branch}"`);
-            core.info(`has_plain=${!!content_plain}, has_b64=${!!content_b64}`);
+            core.info(`has_plain=${content_plain !== ''}, has_b64=${content_b64 !== ''}`);
 
-            // jeśli brak b64, zakoduj plain
-            if (!content_b64) {
-              content_b64 = Buffer.from(content_plain, 'utf8').toString('base64');
+            // Wymagane pola
+            if (!path) return core.setFailed('Input "path" is required.');
+            if (!message) return core.setFailed('Input "message" is required.');
+
+            // Path sanity
+            if (path.startsWith('/')) return core.setFailed('Path musi być repo-relative (bez wiodącego "/").');
+
+            // Dokładnie jedno ze źródeł treści
+            if ((content_plain === '' && content_b64 === '') || (content_plain !== '' && content_b64 !== '')) {
+              return core.setFailed('Podaj DOKŁADNIE jedno: content_plain ALBO content_b64.');
+            }
+
+            // Przygotuj bufor treści
+            let buf;
+            if (content_b64 !== '') {
+              try {
+                buf = Buffer.from(content_b64, 'base64');
+                if (buf.toString('base64') !== content_b64) throw new Error('Bad base64');
+              } catch {
+                return core.setFailed('content_b64 nie jest prawidłowym Base64.');
+              }
+            } else {
+              buf = Buffer.from(content_plain, 'utf8');
+              content_b64 = buf.toString('base64');
+            }
+
+            // Opcjonalna weryfikacja SHA-256 (po zdekodowaniu)
+            if (sha256) {
+              const calc = crypto.createHash('sha256').update(buf).digest('hex');
+              core.info(`sha256(user)=${sha256}`);
+              core.info(`sha256(calc)=${calc}`);
+              if (calc !== sha256) return core.setFailed('SHA-256 mismatch treści.');
             }
 
             const { owner, repo } = context.repo;
 
-            // odczytaj aktualny sha (jeśli plik istnieje)
+            // pobierz sha istniejącego pliku
             let sha;
             try {
               const { data } = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
                 owner, repo, path, ref: branch,
               });
-              sha = data?.sha;
-              core.info(`Existing file sha=${sha || ''}`);
+              sha = data?.sha || undefined;
+              core.info(`Existing sha=${sha || '(new file)'}`);
             } catch (e) {
-              if (e.status === 404) {
-                core.info('File does not exist yet (creating new).');
-              } else {
-                core.setFailed(`getContent failed: ${e.message}`);
-                return;
-              }
+              if (e.status !== 404) return core.setFailed(`getContent failed: ${e.message}`);
+              core.info('File does not exist yet (creating new).');
             }
 
-            // PUT create/update
+            // PUT (create/update)
             try {
               const res = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
                 owner, repo, path, message, branch, content: content_b64, sha
               });
-              core.info(`OK: ${res.status}, commit: ${res.data.commit?.sha}`);
+              const commitSha = res.data.commit?.sha || '';
               await core.summary
                 .addHeading('AI Upsert File')
-                .addList([
-                  `path: ${path}`,
-                  `branch: ${branch}`,
-                  `commit: ${res.data.commit?.sha || ''}`
+                .addTable([
+                  [{data:'Field',header:true},{data:'Value',header:true}],
+                  ['path', path],
+                  ['branch', branch],
+                  ['commit', commitSha],
+                  ['verified_sha256', sha256 ? 'yes' : 'no']
                 ])
                 .write();
+              core.info(`OK: commit ${commitSha}`);
             } catch (e) {
-              core.setFailed(`PUT failed: ${e.message}`);
+              return core.setFailed(`PUT failed: ${e.message}`);
             }
