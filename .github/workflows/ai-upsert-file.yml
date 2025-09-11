@@ -1,34 +1,28 @@
 name: AI Upsert File
 
 on:
-  repository_dispatch:
-    types: [ai-upsert-file]
   workflow_dispatch:
     inputs:
       path:
         description: 'Target path in repo (e.g., mu-plugins/00-mu-safe-loader.php)'
         required: true
         type: string
-      content_b64:
-        description: 'File content (Base64). Leave empty if you use content_plain.'
-        required: false
-        type: string
-      content_plain:
-        description: 'File content (plain text). Will be Base64-encoded in the job.'
-        required: false
-        type: string
       message:
         description: 'Commit message'
         required: true
+        type: string
+      content_plain:
+        description: 'File content (plain). Will be Base64-encoded'
+        required: false
+        type: string
+      content_b64:
+        description: 'File content (Base64). Leave empty if you use content_plain'
+        required: false
         type: string
       branch:
         description: 'Target branch'
         required: false
         default: 'main'
-        type: string
-      sha256:
-        description: 'Optional SHA-256 of decoded content'
-        required: false
         type: string
 
 permissions:
@@ -42,81 +36,27 @@ jobs:
   upsert:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      GH_REPO: ${{ github.repository }}
-      PAT1:    ${{ secrets.WTP_GITHUB_PAT }}
-      GHTK:    ${{ github.token }}
 
     steps:
-      - name: Resolve inputs / payload
-        id: inp
+      - name: Prepare payload
+        id: prep
         shell: bash
         run: |
           set -euo pipefail
 
-          # Prefer PAT if provided, else use default GITHUB_TOKEN
-          GH_TOKEN="${PAT1:-}"
-          if [ -z "$GH_TOKEN" ]; then
-            GH_TOKEN="${GHTK}"
-          fi
-          echo "gh_token_set=true" >> "$GITHUB_OUTPUT"
-
-          # Defaults from UI
           PATH_IN="${{ inputs.path }}"
-          CONTENT_B64="${{ inputs.content_b64 }}"
-          CONTENT_PLAIN="${{ inputs.content_plain }}"
           MESSAGE="${{ inputs.message }}"
           BRANCH="${{ inputs.branch }}"
-          SHA256_OPT="${{ inputs.sha256 }}"
+          CONTENT_PLAIN="${{ inputs.content_plain }}"
+          CONTENT_B64="${{ inputs.content_b64 }}"
 
-          # If repository_dispatch, override from client_payload
-          if [ "${GITHUB_EVENT_NAME}" = "repository_dispatch" ]; then
-            PATH_IN="$(python3 - <<'PY'
-import json, os
-j=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
-print(j.get("client_payload",{}).get("path",""))
-PY
-)"
-            CONTENT_B64="$(python3 - <<'PY'
-import json, os
-j=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
-print(j.get("client_payload",{}).get("content_b64",""))
-PY
-)"
-            CONTENT_PLAIN="$(python3 - <<'PY'
-import json, os
-j=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
-print(j.get("client_payload",{}).get("content_plain",""))
-PY
-)"
-            MESSAGE="$(python3 - <<'PY'
-import json, os
-j=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
-print(j.get("client_payload",{}).get("message",""))
-PY
-)"
-            BRANCH="$(python3 - <<'PY'
-import json, os
-j=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
-print(j.get("client_payload",{}).get("branch","main"))
-PY
-)"
-            SHA256_OPT="$(python3 - <<'PY'
-import json, os
-j=json.load(open(os.environ["GITHUB_EVENT_PATH"]))
-print(j.get("client_payload",{}).get("sha256",""))
-PY
-)"
-          fi
-
-          # Validate required
-          if [ -z "${PATH_IN}" ] || [ -z "${MESSAGE}" ]; then
-            echo "::error::Missing required 'path' or 'message'."
+          if [ -z "$PATH_IN" ] || [ -z "$MESSAGE" ]; then
+            echo "::error::Missing required inputs: path/message"
             exit 1
           fi
 
-          # If plain provided, encode to base64 (no wraps)
-          if [ -z "${CONTENT_B64}" ] && [ -n "${CONTENT_PLAIN}" ]; then
+          # Jeśli podano plain → zamień na Base64 (bez łamań linii)
+          if [ -z "$CONTENT_B64" ] && [ -n "$CONTENT_PLAIN" ]; then
             CONTENT_B64="$(python3 - <<'PY'
 import base64, os
 print(base64.b64encode(os.environ["CONTENT_PLAIN"].encode("utf-8")).decode("ascii"))
@@ -124,25 +64,9 @@ PY
 )"
           fi
 
-          if [ -z "${CONTENT_B64}" ]; then
-            echo "::error::Provide content_b64 or content_plain."
+          if [ -z "$CONTENT_B64" ]; then
+            echo "::error::Provide either content_plain or content_b64"
             exit 1
-          fi
-
-          # Optional SHA-256 check
-          if [ -n "${SHA256_OPT}" ]; then
-            CALC="$(python3 - <<'PY'
-import base64, hashlib, os
-raw = base64.b64decode(os.environ["CONTENT_B64"].encode("ascii"), validate=True)
-print(hashlib.sha256(raw).hexdigest())
-PY
-)"
-            echo "expected=${SHA256_OPT}"
-            echo "calculated=${CALC}"
-            if [ "${SHA256_OPT}" != "${CALC}" ]; then
-              echo "::error::SHA-256 mismatch."
-              exit 1
-            fi
           fi
 
           {
@@ -154,28 +78,27 @@ PY
             echo "content_b64<<EOF"
             echo "${CONTENT_B64}"
             echo "EOF"
-            echo "gh_token=${GH_TOKEN}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Get current file SHA (if exists)
         id: cur
-        shell: bash
         env:
-          GH_TOKEN: ${{ steps.inp.outputs.gh_token }}
-          GH_REPO:  ${{ env.GH_REPO }}
-          PATH_IN:  ${{ steps.inp.outputs.path }}
-          BRANCH:   ${{ steps.inp.outputs.branch }}
+          REPO:    ${{ github.repository }}
+          PATH_IN: ${{ steps.prep.outputs.path }}
+          BRANCH:  ${{ steps.prep.outputs.branch }}
+        shell: bash
         run: |
           set -euo pipefail
+          TOKEN="${GITHUB_TOKEN}"
           PATH_ENC="$(python3 - <<'PY'
 import urllib.parse, os
 print(urllib.parse.quote(os.environ["PATH_IN"], safe=""))
 PY
 )"
-          API="https://api.github.com/repos/${GH_REPO}/contents/${PATH_ENC}?ref=${BRANCH}"
+          API="https://api.github.com/repos/${REPO}/contents/${PATH_ENC}?ref=${BRANCH}"
           echo "GET $API"
           set +e
-          RESP="$(curl -fsS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "$API")"
+          RESP="$(curl -fsS -H "Authorization: Bearer ${TOKEN}" -H "Accept: application/vnd.github+json" "$API")"
           CODE=$?
           set -e
           if [ $CODE -eq 0 ]; then
@@ -190,18 +113,19 @@ PY
             echo "sha=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create/Update file (PUT)
-        shell: bash
+      - name: Create/Update file
         env:
-          GH_TOKEN: ${{ steps.inp.outputs.gh_token }}
-          GH_REPO:  ${{ env.GH_REPO }}
-          PATH_IN:  ${{ steps.inp.outputs.path }}
-          BRANCH:   ${{ steps.inp.outputs.branch }}
-          MESSAGE:  ${{ steps.inp.outputs.message }}
-          B64:      ${{ steps.inp.outputs.content_b64 }}
-          CUR_SHA:  ${{ steps.cur.outputs.sha }}
+          REPO:    ${{ github.repository }}
+          PATH_IN: ${{ steps.prep.outputs.path }}
+          BRANCH:  ${{ steps.prep.outputs.branch }}
+          MESSAGE: ${{ steps.prep.outputs.message }}
+          B64:     ${{ steps.prep.outputs.content_b64 }}
+          CUR_SHA: ${{ steps.cur.outputs.sha }}
+        shell: bash
         run: |
           set -euo pipefail
+          TOKEN="${GITHUB_TOKEN}"
+
           BODY="$(python3 - <<'PY'
 import json, os
 payload = {
@@ -220,12 +144,13 @@ import urllib.parse, os
 print(urllib.parse.quote(os.environ["PATH_IN"], safe=""))
 PY
 )"
-          API="https://api.github.com/repos/${GH_REPO}/contents/${PATH_ENC}"
+          API="https://api.github.com/repos/${REPO}/contents/${PATH_ENC}"
           echo "PUT $API"
           RESP="$(curl -fsS -X PUT "$API" \
-            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Authorization: Bearer ${TOKEN}" \
             -H "Accept: application/vnd.github+json" \
             -d "$BODY")"
+
           echo "$RESP" | python3 - <<'PY'
 import json, sys
 r=json.loads(sys.stdin.read())
@@ -240,4 +165,4 @@ PY
 
       - name: Summary
         run: |
-          echo "✅ Upserted: ${{ steps.inp.outputs.path }} on branch ${{ steps.inp.outputs.branch }}"
+          echo "✅ Upserted: ${{ steps.prep.outputs.path }} on branch ${{ steps.prep.outputs.branch }}"
