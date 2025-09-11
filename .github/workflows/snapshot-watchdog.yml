@@ -56,18 +56,22 @@ jobs:
             local url="${BASE}/wp-json/wtp-ro-open/v1/get?site_key=${SITE_KEY}&file=${f}"
             local h="${OPS}/headers/${f}.hdr"
             local b="${OPS}/bodies/${f}.json"
+
             echo "GET $url"
             if ! curl -A "$UA" -fsS --show-error --retry 2 --retry-delay 2 --retry-connrefused \
-                 --connect-timeout 10 --max-time 30 -D "$h" "$url" -o "$b"; then
+                 --connect-timeout 10 --max-time 30 \
+                 -D "$h" "$url" -o "$b"; then
               echo "::error::curl failed for $f"
               return 1
             fi
+
             local code
             code=$(awk 'NR==1{print $2}' "$h")
             if [ "${code:-}" != "200" ]; then
               echo "::error::HTTP ${code:-?} for $f"
               return 1
             fi
+
             if ! jq -e type "$b" >/dev/null 2>&1; then
               echo "::error::invalid JSON for $f"
               return 1
@@ -75,8 +79,9 @@ jobs:
             return 0
           }
 
-          while read -r f; do
-            [ -z "$f" ] && continue
+          # iterate required list safely
+          while IFS= read -r f; do
+            [ -z "${f:-}" ] && continue
             if fetch_one "$f"; then
               OK_COUNT=$((OK_COUNT+1))
             else
@@ -100,6 +105,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           fetch_opt () {
             local f="$1"
             local url="${BASE}/wp-json/wtp-ro-open/v1/get?site_key=${SITE_KEY}&file=${f}"
@@ -107,14 +113,16 @@ jobs:
             local b="${OPS}/bodies/${f}.json"
             echo "GET $url"
             if curl -A "$UA" -fsS --show-error --retry 2 --retry-delay 2 --retry-connrefused \
-                 --connect-timeout 10 --max-time 30 -D "$h" "$url" -o "$b"; then
+                 --connect-timeout 10 --max-time 30 \
+                 -D "$h" "$url" -o "$b"; then
               jq -e type "$b" >/dev/null 2>&1 || echo "::warning::optional invalid JSON for $f"
             else
               echo "::warning::optional fetch failed for $f"
             fi
           }
-          while read -r f; do
-            [ -z "$f" ] && continue
+
+          while IFS= read -r f; do
+            [ -z "${f:-}" ] && continue
             fetch_opt "$f"
           done <<< "$OPTIONAL"
 
@@ -125,7 +133,33 @@ jobs:
           path: ops-snapshot-watchdog/**
           retention-days: 7
 
-      # Publikujemy "watchdog-last.json" ZAWSZE do katalogu opartego o env.SITE_KEY
+      - name: Create Issue on failure
+        if: ${{ steps.req.outputs.status != 'ok' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const status = '${{ steps.req.outputs.status }}';
+            const reason = `${{ toJson(steps.req.outputs.reason) }}`;
+            const urlRun = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const files = ['manifest.json','files_000.json','gh-digest.json','index.json','bundle.json'];
+            let body = `Watchdog **${status.toUpperCase()}**\n\nReason: ${reason}\n\nRun: ${urlRun}\n\n`;
+            for (const f of files) {
+              try {
+                const h = fs.readFileSync(`ops-snapshot-watchdog/headers/${f}.hdr`, 'utf8');
+                const b = fs.readFileSync(`ops-snapshot-watchdog/bodies/${f}.json`, 'utf8');
+                body += `### ${f}\n`;
+                body += `**Headers (first 600 chars)**\n\n\`\`\`\n${h.slice(0,600)}\n\`\`\`\n`;
+                body += `**Body (first 1000 chars)**\n\n\`\`\`json\n${b.slice(0,1000)}\n\`\`\`\n\n`;
+              } catch (e) {}
+            }
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Snapshot watchdog: ${status.toUpperCase()} (${context.runNumber})`,
+              body
+            });
+
       - name: Publish public diag (always)
         if: always()
         env:
@@ -134,7 +168,7 @@ jobs:
           USER:     ${{ secrets.DEPLOY_USER }}
           PASS:     ${{ secrets.DEPLOY_PASS }}
           TARGET:   ${{ secrets.DEPLOY_TARGET }}
-          SITE_KEY: ${{ env.SITE_KEY }}
+          SITE_KEY: ${{ secrets.WTP_SITE_KEY }}
         run: |
           set -euo pipefail
           STATUS="${{ steps.req.outputs.status || 'unknown' }}"
