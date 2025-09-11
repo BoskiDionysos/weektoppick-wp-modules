@@ -1,19 +1,17 @@
-# .github/workflows/deploy-to-hostinger.yml
-
-name: Deploy to Hostinger (SFTP, changed files only)
+name: Deploy to Hostinger (SFTP changed files + rsync plugins protect, no new secrets)
 
 on:
   push:
     branches: [ main ]
     paths:
-      - 'mu-plugins/'
-      - 'plugins/'
-      - 'themes/'
-      - 'wp-content/'
-      - '!snapshots/'
-      - '!server-sync/'
-      - '!ops/'
-      - '!.wtp/'
+      - 'mu-plugins/**'
+      - 'plugins/**'
+      - 'themes/**'
+      - 'wp-content/**'
+      - '!snapshots/**'
+      - '!server-sync/**'
+      - '!ops/**'
+      - '!.wtp/**'
   workflow_dispatch: {}
 
 jobs:
@@ -21,13 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: List changed files vs previous commit
+      - name: Compute changed files vs previous commit
         id: diff
         run: |
           set -euo pipefail
@@ -37,33 +36,101 @@ jobs:
           else
             git diff --name-only "$BASE_SHA"...HEAD > changed.txt
           fi
-          echo "Changed files:"
-          cat changed.txt
+          echo "Changed files:"; cat changed.txt || true
 
-      - name: Filter deployable files
+      - name: Keep only deployable paths
+        id: filter
         run: |
-          awk '
-            $0 ~ /^(mu-plugins|plugins|themes|wp-content)\// {print}
-          ' changed.txt > deploy.txt
-          echo "To deploy:"
-          cat deploy.txt || true
+          set -euo pipefail
+          awk '/^(mu-plugins|plugins|themes|wp-content)\// {print}' changed.txt > deploy.txt
+
+          awk '/^plugins\// {print}' deploy.txt > plugins_deploy.txt || true
+          awk '!/^plugins\// {print}' deploy.txt > nonplugins_deploy.txt || true
+
+          echo "=== To deploy (all) ==="; cat deploy.txt || true
+          echo "=== Plugins-only ==="; cat plugins_deploy.txt || true
+          echo "=== Non-plugins ==="; cat nonplugins_deploy.txt || true
+
+          if [ -s plugins_deploy.txt ]; then echo "plugins_changed=true" >> "$GITHUB_OUTPUT"; else echo "plugins_changed=false" >> "$GITHUB_OUTPUT"; fi
+          if [ -s nonplugins_deploy.txt ]; then echo "nonplugins_changed=true" >> "$GITHUB_OUTPUT"; else echo "nonplugins_changed=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Stop if nothing to deploy
+        if: ${{ steps.filter.outputs.plugins_changed == 'false' && steps.filter.outputs.nonplugins_changed == 'false' }}
+        run: echo "No deployable changes."
+
+      #######################################################################
+      # 1) NON-PLUGINS → SFTP (changed files only)
+      #######################################################################
+      - name: Upload non-plugins via SFTP (changed files only)
+        if: ${{ steps.filter.outputs.nonplugins_changed == 'true' }}
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASS }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          target: ${{ secrets.DEPLOY_TARGET }}
+          source: |
+            $(cat nonplugins_deploy.txt)
+          strip_components: 0
+          overwrite: true
+
+      #######################################################################
+      # 2) PLUGINS → RSYNC (pełna sync + PROTECT) po SSH z hasłem (sshpass)
+      #######################################################################
+      - name: Install rsync & sshpass
+        if: ${{ steps.filter.outputs.plugins_changed == 'true' }}
         run: |
-          if [ ! -s deploy.txt ]; then
-            echo "No deployable changes."
+          sudo apt-get update -y
+          sudo apt-get install -y rsync sshpass
+
+      - name: Build rsync protect filter
+        if: ${{ steps.filter.outputs.plugins_changed == 'true' }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/rsync-protect.filter <<'EOF'
+          # Protect these plugin dirs from being modified/removed on target
+          P litespeed-cache/**
+          P wordfence/**
+          P translatepress-multilingual/**
+          P cookie-law-info/**
+          EOF
+          echo "Protect filter created:"
+          wc -l /tmp/rsync-protect.filter
+          tail -n +1 /tmp/rsync-protect.filter
+
+      - name: rsync plugins (with protect & delete) over SSH password
+        if: ${{ steps.filter.outputs.plugins_changed == 'true' }}
+        env:
+          DEPLOY_HOST:   ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER:   ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PASS:   ${{ secrets.DEPLOY_PASS }}
+          DEPLOY_PORT:   ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_TARGET: ${{ secrets.DEPLOY_TARGET }}
+        run: |
+          set -euo pipefail
+
+          # Wymagane: absolutna ścieżka WP root na serwerze (z sekretu)
+          WP_ROOT="${DEPLOY_TARGET%/}"
+          SRC_DIR="./plugins/"
+          DEST_DIR="${WP_ROOT}/wp-content/plugins/"
+
+          echo "Check remote rsync availability..."
+          if sshpass -p "$DEPLOY_PASS" ssh -p "${DEPLOY_PORT:-22}" -o StrictHostKeyChecking=no "${DEPLOY_USER}@${DEPLOY_HOST}" "command -v rsync >/dev/null 2>&1"; then
+            echo "Remote rsync found."
+          else
+            echo "::warning::Remote 'rsync' not found. Skipping plugins rsync step."
             exit 0
           fi
 
-      - name: Upload changed files via SFTP
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.SFTP_HOST }}       
-          username: ${{ secrets.SFTP_USER }}    
-          password: ${{ secrets.SFTP_PASS }}    
-          port: ${{ secrets.SFTP_PORT }}        
-          target: /home/u493676300/domains/weektoppick.com/public_html
-          source: |
-            $(cat deploy.txt)
-          strip_components: 0
-          overwrite: true
+          export RSYNC_RSH="sshpass -p $DEPLOY_PASS ssh -p ${DEPLOY_PORT:-22} -o StrictHostKeyChecking=no"
+
+          echo
+          echo "Sync (plugins): ${SRC_DIR} -> ${DEPLOY_USER}@${DEPLOY_HOST}:${DEST_DIR}"
+          echo
+
+          rsync -avz --delete \
+            --filter="merge /tmp/rsync-protect.filter" \
+            "${SRC_DIR}" "${DEPLOY_USER}@${DEPLOY_HOST}:${DEST_DIR}"
+
+          echo "Plugins rsync finished."
