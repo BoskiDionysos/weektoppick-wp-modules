@@ -1,0 +1,171 @@
+<?php
+/**
+ * Plugin Name: WTP Translate (mu-plugin)
+ * Description: Tłumaczenia treści per język (mock + hak na AI), batch + panel Tools. Szanuje „SEO always”.
+ * Version: 1.0.0
+ */
+if (!defined('ABSPATH')) exit;
+
+/** Domyślne języki jeśli motyw nie poda */
+if (!isset($WTP_LANGS) || !is_array($WTP_LANGS) || !$WTP_LANGS) {
+  $WTP_LANGS = [
+    'en'=>['flag'=>'🇬🇧','name'=>'English'],
+    'pl'=>['flag'=>'🇵🇱','name'=>'Polski'],
+    'de'=>['flag'=>'🇩🇪','name'=>'Deutsch'],
+    'fr'=>['flag'=>'🇫🇷','name'=>'Français'],
+    'it'=>['flag'=>'🇮🇹','name'=>'Italiano'],
+    'es'=>['flag'=>'🇪🇸','name'=>'Español'],
+    'pt'=>['flag'=>'🇵🇹','name'=>'Português'],
+    'cs'=>['flag'=>'🇨🇿','name'=>'Čeština'],
+    'sk'=>['flag'=>'🇸🇰','name'=>'Slovenčina'],
+  ];
+}
+
+/** Ustawienia jakości per język (0=off, 1=fast, 2=mid, 3=full) */
+function wtp_tr_defaults(){
+  $langs = array_keys($GLOBALS['WTP_LANGS']);
+  $levels = [];
+  foreach($langs as $l){ $levels[$l] = ($l==='en')?3:1; } // EN full, reszta fast
+  return ['levels'=>$levels];
+}
+function wtp_tr_getopt(){
+  $o = get_option('wtp_tr_options');
+  if (!is_array($o)) $o=[];
+  return array_replace_recursive(wtp_tr_defaults(), $o);
+}
+add_action('admin_menu', function(){
+  add_submenu_page('tools.php','WTP Translate','WTP Translate','manage_options','wtp-translate','wtp_tr_tools_page');
+});
+add_action('admin_init', function(){
+  register_setting('wtp_tr_group','wtp_tr_options',[
+    'type'=>'array','sanitize_callback'=>'wtp_tr_sanitize','default'=>wtp_tr_defaults()
+  ]);
+});
+function wtp_tr_sanitize($in){
+  $d = wtp_tr_defaults(); $out = is_array($in)?$in:[];
+  $levels = $out['levels'] ?? [];
+  $out['levels']=[];
+  foreach(array_keys($GLOBALS['WTP_LANGS']) as $l){
+    $v = isset($levels[$l])? intval($levels[$l]) : $d['levels'][$l];
+    $out['levels'][$l] = max(0,min(3,$v));
+  }
+  return $out;
+}
+function wtp_tr_tools_page(){
+  if (!current_user_can('manage_options')) return;
+  $o = wtp_tr_getopt();
+  ?>
+  <div class="wrap">
+    <h1>WTP Translate</h1>
+    <form method="post" action="options.php">
+      <?php settings_fields('wtp_tr_group'); ?>
+      <h2>Jakość tłumaczeń per język</h2>
+      <table class="form-table">
+        <tr><th>Język</th><th>Poziom</th></tr>
+        <?php foreach($GLOBALS['WTP_LANGS'] as $code=>$meta): ?>
+          <tr>
+            <th><?php echo esc_html($meta['flag'].' '.$meta['name'].' ('.$code.')'); ?></th>
+            <td>
+              <select name="wtp_tr_options[levels][<?php echo esc_attr($code);?>]">
+                <?php
+                $opts = [0=>'OFF',1=>'FAST',2=>'MID',3=>'FULL'];
+                foreach($opts as $k=>$lbl){
+                  printf('<option value="%d"%s>%s</option>',$k, selected($o['levels'][$code]??1,$k,false), esc_html($lbl));
+                }
+                ?>
+              </select>
+            </td>
+          </tr>
+        <?php endforeach; ?>
+      </table>
+      <?php submit_button(); ?>
+    </form>
+
+    <hr>
+    <h2>Batch tłumaczeń</h2>
+    <p>Wypełnia brakujące tłumaczenia (mock jeżeli brak AI). Możesz puścić po postach lub kategoriach.</p>
+    <p>
+      <a class="button button-primary" href="<?php echo esc_url(admin_url('admin-post.php?action=wtp_tr_batch&scope=posts')); ?>">Posty</a>
+      <a class="button" href="<?php echo esc_url(admin_url('admin-post.php?action=wtp_tr_batch&scope=terms')); ?>">Kategorie</a>
+    </p>
+    <p>Albo URL-em (z telefonu): <code><?php echo esc_html(site_url('/wp-json/wtp-ro/v1/tr/batch?secret=')); ?><strong>TWÓJ_SEKRET</strong>&amp;scope=posts|terms</code></p>
+  </div>
+  <?php
+}
+
+/** Batch – przyciski + REST */
+add_action('admin_post_wtp_tr_batch', function(){
+  if (!current_user_can('manage_options')) wp_die('forbidden');
+  $scope = sanitize_text_field($_GET['scope'] ?? 'posts');
+  $done = wtp_tr_run_batch($scope);
+  wp_safe_redirect(add_query_arg(['page'=>'wtp-translate','done'=>$done], admin_url('tools.php')));
+  exit;
+});
+add_action('rest_api_init', function(){
+  register_rest_route('wtp-ro/v1','/tr/batch',[
+    'methods'=>'GET','permission_callback'=>'__return_true',
+    'callback'=>function(WP_REST_Request $req){
+        $secret = $req->get_param('secret');
+        if (!$secret || ($secret !== (defined('WTP_GH_SECRET')? constant('WTP_GH_SECRET') : ''))) {
+          return new WP_REST_Response(['ok'=>false,'error'=>'forbidden'],403);
+        }
+        $scope = $req->get_param('scope') ?: 'posts';
+        $done = wtp_tr_run_batch($scope);
+        return new WP_REST_Response(['ok'=>true,'done'=>$done],200);
+    }
+  ]);
+});
+
+/** Rdzeń: wypełnij brakujące tłumaczenia (mock albo przez filtr AI) */
+function wtp_tr_run_batch($scope='posts'){
+  $langs = array_keys($GLOBALS['WTP_LANGS']); $count=0;
+
+  if ($scope==='posts') {
+    $q = new WP_Query(['post_type'=>'post','post_status'=>'publish','posts_per_page'=>300,'no_found_rows'=>true]);
+    foreach($q->posts as $p){
+      $src = [
+        'title'=>get_the_title($p),
+        'excerpt'=>wp_strip_all_tags(wp_trim_words(get_post_field('post_content',$p),60,'')),
+      ];
+      foreach($langs as $l){
+        // pola docelowe (to przykładowe klucze – możesz zmienić wg potrzeb)
+        $have = get_post_meta($p->ID, "_wtp_tr_excerpt_{$l}", true);
+        if ($have===''){
+          $text = apply_filters('wtp_translate_generate', null, $src, $l, $p->ID);
+          if (!is_string($text) || $text===''){
+            // mock fallback
+            $text = '['.$l.'] '.$src['excerpt'];
+          }
+          update_post_meta($p->ID, "_wtp_tr_excerpt_{$l}", $text);
+          $count++;
+        }
+      }
+    }
+  } else {
+    $terms = get_terms(['taxonomy'=>'category','hide_empty'=>false]);
+    foreach($terms as $t){
+      $src = ['name'=>$t->name,'desc'=>$t->description ?: $t->name];
+      foreach($langs as $l){
+        $have = get_term_meta($t->term_id, "_wtp_tr_desc_{$l}", true);
+        if ($have===''){
+          $text = apply_filters('wtp_translate_generate', null, $src, $l, $t->term_id);
+          if (!is_string($text) || $text===''){
+            $text = '['.$l.'] '.$src['desc'];
+          }
+          update_term_meta($t->term_id, "_wtp_tr_desc_{$l}", $text);
+          $count++;
+        }
+      }
+    }
+  }
+  return $count;
+}
+
+/**
+ * Przykład integracji z AI (DOCS):
+ *
+ * add_filter('wtp_translate_generate', function($out, $src, $lang, $object_id){
+ *   // Tu wywołaj swój serwis AI i zwróć string
+ *   return my_ai_call($src['excerpt'] ?? $src['desc'], $lang);
+ * }, 10, 4);
+ */
