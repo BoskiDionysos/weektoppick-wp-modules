@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       path:
-        description: 'Target path in repo (np. mu-plugins/00-mu-safe-loader.php lub .github/workflows/xyz.yml)'
+        description: 'Target path in repo (np. mu-plugins/00-mu-safe-loader.php)'
         required: true
         type: string
       message:
@@ -12,11 +12,11 @@ on:
         required: true
         type: string
       content_plain:
-        description: 'File content (PLAIN). Zostaw puste, jeśli podajesz content_b64'
+        description: 'File content (PLAIN). Zostaw puste jeśli podajesz content_b64'
         required: false
         type: string
       content_b64:
-        description: 'File content (Base64). Zostaw puste, jeśli podajesz content_plain'
+        description: 'File content (Base64). Zostaw puste jeśli podajesz content_plain'
         required: false
         type: string
       sha256:
@@ -28,12 +28,12 @@ on:
         required: false
         default: 'main'
         type: string
-
   repository_dispatch:
     types: [ai-upsert-file]
 
 permissions:
-  contents: write   # wystarczy, resztę załatwia PAT z workflow scope
+  contents: write
+  workflows: write   # <-- to odblokowuje zapis do .github/workflows/*
 
 concurrency:
   group: ai-upsert-file
@@ -44,16 +44,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Upsert file via GitHub API (UI or repository_dispatch)
+      - name: Upsert file (UI or repository_dispatch)
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.WTP_GITHUB_PAT || secrets.GITHUB_TOKEN }}
           script: |
             const crypto = require('crypto');
-
             const ev = context.eventName;
 
-            // ---- read inputs ----
             let path = '', message = '', branch = 'main', content_b64 = '', content_plain = '', sha256 = '';
 
             if (ev === 'workflow_dispatch') {
@@ -73,33 +70,25 @@ jobs:
               content_plain = (p.content_plain || '').trim();
               sha256        = (p.sha256 || '').trim().toLowerCase();
             } else {
-              core.setFailed(`Unsupported event: ${ev}`);
-              return;
+              core.setFailed(`Unsupported event: ${ev}`); return;
             }
 
             core.info(`event=${ev}`);
             core.info(`path="${path}", branch="${branch}"`);
             core.info(`has_plain=${content_plain !== ''}, has_b64=${content_b64 !== ''}`);
 
-            // ---- validations ----
-            if (!path) return core.setFailed('Input "path" is required.');
+            if (!path)    return core.setFailed('Input "path" is required.');
             if (!message) return core.setFailed('Input "message" is required.');
             if (path.startsWith('/')) return core.setFailed('Path musi być repo-relative (bez wiodącego "/").');
 
             const both = (content_plain !== '' && content_b64 !== '');
             const none = (content_plain === '' && content_b64 === '');
-            if (both || none) {
-              return core.setFailed('Podaj DOKŁADNIE jedno: content_plain ALBO content_b64.');
-            }
+            if (both || none) return core.setFailed('Podaj dokładnie jedno: content_plain ALBO content_b64.');
 
             let buf;
-            if (content_b64 !== '') {
-              try {
-                buf = Buffer.from(content_b64, 'base64');
-                if (buf.toString('base64') !== content_b64) throw new Error('bad b64');
-              } catch {
-                return core.setFailed('content_b64 nie jest prawidłowym Base64.');
-              }
+            if (content_b64) {
+              try { buf = Buffer.from(content_b64, 'base64'); if (buf.toString('base64') !== content_b64) throw 0; }
+              catch { return core.setFailed('content_b64 nie jest prawidłowym Base64.'); }
             } else {
               buf = Buffer.from(content_plain, 'utf8');
               content_b64 = buf.toString('base64');
@@ -114,7 +103,7 @@ jobs:
 
             const { owner, repo } = context.repo;
 
-            // ---- read existing file sha (if any) ----
+            // read existing sha if any
             let sha;
             try {
               const { data } = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
@@ -127,7 +116,6 @@ jobs:
               core.info('File does not exist (creating).');
             }
 
-            // ---- upsert ----
             try {
               const res = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
                 owner, repo, path, message, branch, content: content_b64, sha
