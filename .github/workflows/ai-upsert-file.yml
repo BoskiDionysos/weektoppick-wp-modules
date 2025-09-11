@@ -1,141 +1,189 @@
-name: Export GH Digest (full repo snapshot for diagnostics)
+name: AI Upsert File
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - 'mu-plugins/**'
-      - 'plugins/**'
-      - 'themes/**'
-      - 'wp-content/themes/**'
-      - '.github/workflows/**'
-  schedule:
-    - cron: '*/30 * * * *'
-  workflow_dispatch: {}
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  repository_dispatch:
+    types: [ai-upsert-file]
+  workflow_dispatch:
+    inputs:
+      path:
+        description: 'Target path in repo (e.g., mu-plugins/00-mu-safe-loader.php)'
+        required: true
+        type: string
+      content_b64:
+        description: 'File content (Base64). Leave empty if you use content_plain.'
+        required: false
+        type: string
+      content_plain:
+        description: 'File content (plain text). Will be Base64-encoded in the job.'
+        required: false
+        type: string
+      message:
+        description: 'Commit message'
+        required: true
+        type: string
+      branch:
+        description: 'Target branch'
+        required: false
+        default: 'main'
+        type: string
+      sha256:
+        description: 'Optional SHA-256 of decoded content for verification'
+        required: false
+        type: string
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: ai-upsert-file
+  cancel-in-progress: true
 
 jobs:
-  build-and-publish:
+  upsert:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
+    timeout-minutes: 10
     env:
-      HOST:     ${{ secrets.DEPLOY_HOST }}
-      PORT:     ${{ secrets.DEPLOY_PORT }}
-      USER:     ${{ secrets.DEPLOY_USER }}
-      PASS:     ${{ secrets.DEPLOY_PASS }}
-      TARGET:   ${{ secrets.DEPLOY_TARGET }}
-      SITE_KEY: ${{ secrets.WTP_SITE_KEY }}
-
+      GH_REPO: ${{ github.repository }}
+      GH_TOKEN: ${{ secrets.WTP_GITHUB_PAT || github.token }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Ensure tools
+      - name: Resolve inputs / payload
+        id: inp
         shell: bash
         run: |
+          set -euo pipefail
+
+          # Read from repository_dispatch (client_payload) OR workflow_dispatch (inputs)
+          if [[ "${GITHUB_EVENT_NAME}" == "repository_dispatch" ]]; then
+            PATH_IN="$(jq -r '.client_payload.path // empty' "$GITHUB_EVENT_PATH")"
+            CONTENT_B64="$(jq -r '.client_payload.content_b64 // empty' "$GITHUB_EVENT_PATH")"
+            CONTENT_PLAIN="$(jq -r '.client_payload.content_plain // empty' "$GITHUB_EVENT_PATH")"
+            MESSAGE="$(jq -r '.client_payload.message // empty' "$GITHUB_EVENT_PATH")"
+            BRANCH="$(jq -r '.client_payload.branch // "main"' "$GITHUB_EVENT_PATH")"
+            SHA256_OPT="$(jq -r '.client_payload.sha256 // empty' "$GITHUB_EVENT_PATH")"
+          else
+            PATH_IN="${{ inputs.path }}"
+            CONTENT_B64="${{ inputs.content_b64 }}"
+            CONTENT_PLAIN="${{ inputs.content_plain }}"
+            MESSAGE="${{ inputs.message }}"
+            BRANCH="${{ inputs.branch }}"
+            SHA256_OPT="${{ inputs.sha256 }}"
+          fi
+
+          # Ensure path/message provided
+          [[ -n "${PATH_IN}" && -n "${MESSAGE}" ]] || { echo "::error::Missing required 'path' or 'message'"; exit 1; }
+
+          # If only plain provided, encode to Base64 (no line wraps)
+          if [[ -z "${CONTENT_B64}" && -n "${CONTENT_PLAIN}" ]]; then
+            CONTENT_B64="$(python3 - <<'PY'
+import base64, sys, json, os
+data = os.environ["CONTENT_PLAIN"].encode("utf-8")
+print(base64.b64encode(data).decode("ascii"))
+PY
+)"
+          fi
+
+          # Final content presence check
+          [[ -n "${CONTENT_B64}" ]] || { echo "::error::Provide content_b64 or content_plain"; exit 1; }
+
+          # Optional SHA-256 verification against decoded content
+          if [[ -n "${SHA256_OPT}" ]]; then
+            GOT="$(python3 - <<'PY'
+import base64, hashlib, os
+b64 = os.environ["CONTENT_B64"]
+raw = base64.b64decode(b64.encode("ascii"), validate=True)
+print(hashlib.sha256(raw).hexdigest())
+PY
+)"
+            echo "expected=${SHA256_OPT}"
+            echo "calculated=${GOT}"
+            [[ "${SHA256_OPT}" == "${GOT}" ]] || { echo "::error::SHA-256 mismatch"; exit 1; }
+          fi
+
+          {
+            echo "path=${PATH_IN}"
+            echo "branch=${BRANCH}"
+            echo "message<<EOF"
+            echo "${MESSAGE}"
+            echo "EOF"
+            echo "content_b64<<EOF"
+            echo "${CONTENT_B64}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Get current file SHA (if exists)
+        id: cur
+        shell: bash
+        run: |
+          set -euo pipefail
+          PATH_ENC="$(python3 - <<'PY'
+import urllib.parse, os
+print(urllib.parse.quote(os.environ["PATH_IN"], safe=""))
+PY
+)"
+          BRANCH="${{ steps.inp.outputs.branch }}"
+          API="https://api.github.com/repos/${GH_REPO}/contents/${PATH_ENC}?ref=${BRANCH}"
+          echo "GET $API"
+          set +e
+          RESP="$(curl -fsS -H "Authorization: Bearer ${GH_TOKEN}" -H "Accept: application/vnd.github+json" "$API")"
+          CODE=$?
           set -e
-          for i in {1..3}; do
-            sudo apt-get update -y && sudo apt-get install -y jq sshpass && break || sleep 5
-          done
+          if [[ $CODE -eq 0 ]]; then
+            SHA="$(python3 - <<'PY'
+import json,sys,os
+j=json.loads(os.environ["RESP"])
+print(j.get("sha",""))
+PY
+)"
+            echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Build digest JSON
-        id: digest
+      - name: Create/Update file (PUT)
         shell: bash
         run: |
           set -euo pipefail
 
-          make_list () {
-            local root="$1"
-            [ -d "$root" ] || { echo "[]"; return; }
-            mapfile -d '' files < <(cd "$root" && find . -type f -print0 | LC_ALL=C sort -z)
-            local arr="[]"
-            for rel in "${files[@]}"; do
-              rel="${rel#./}"
-              local fpath="${root%/}/$rel"
-              local size sha last last_hash last_ts
-              size=$(stat -c%s "$fpath" 2>/dev/null || echo 0)
-              sha=$(sha256sum "$fpath" 2>/dev/null | awk '{print $1}')
-              last="$(git log -1 --format='%h %ct' -- "$fpath" 2>/dev/null || true)"
-              last_hash=$(echo "$last" | awk '{print $1}')
-              last_ts=$(echo "$last"  | awk '{print $2}')
-              item=$(jq -n \
-                --arg path "$rel" \
-                --argjson size "${size:-0}" \
-                --arg sha256 "${sha:-}" \
-                --arg last_hash "${last_hash:-}" \
-                --argjson last_ts "${last_ts:-0}" \
-                '{path:$path,size:$size,sha256:$sha256,last_commit:{hash:$last_hash,ts:$last_ts}}')
-              arr=$(jq -c --argjson it "$item" '. + [$it]' <<<"$arr")
-            done
-            echo "$arr"
-          }
+          # Build request body in Python to avoid jq dependence/quoting issues
+          BODY="$(python3 - <<'PY'
+import json, os
+payload = {
+  "message": os.environ["MSG"],
+  "content": os.environ["B64"],
+  "branch":  os.environ["BR"],
+}
+sha = os.environ.get("CUR_SHA","")
+if sha:
+    payload["sha"] = sha
+print(json.dumps(payload, separators=(",",":")))
+PY
+)"
+          PATH_ENC="$(python3 - <<'PY'
+import urllib.parse, os
+print(urllib.parse.quote(os.environ["PATH_IN"], safe=""))
+PY
+)"
+          API="https://api.github.com/repos/${GH_REPO}/contents/${PATH_ENC}"
+          echo "PUT $API"
+          RESP="$(curl -fsS -X PUT "$API" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            -d "$BODY")"
+          echo "$RESP" | python3 - <<'PY'
+# Fail fast if response doesn't contain content or commit
+import json, sys, os
+r=json.loads(sys.stdin.read())
+ok = ("content" in r) or ("commit" in r)
+print(json.dumps({"ok":ok, "path": r.get("content",{}).get("path",""), "commit":(r.get("commit",{}) or {}).get("sha","")}, indent=2))
+sys.exit(0 if ok else 1)
+PY
+        env:
+          PATH_IN: ${{ steps.inp.outputs.path }}
+          BR:      ${{ steps.inp.outputs.branch }}
+          MSG:     ${{ steps.inp.outputs.message }}
+          B64:     ${{ steps.inp.outputs.content_b64 }}
+          CUR_SHA: ${{ steps.cur.outputs.sha }}
 
-          mu_plugins=$(make_list "mu-plugins")
-          plugins=$(make_list "plugins")
-          themes=$(make_list "themes")
-          wp_themes=$(make_list "wp-content/themes")
-          workflows=$(make_list ".github/workflows")
-
-          head_hash="$(git rev-parse HEAD)"
-          head_ts="$(git log -1 --format='%ct' || echo 0)"
-          repo="${{ github.repository }}"
-          branch="${{ github.ref_name }}"
-          gen_time="$(date -u +%FT%TZ)"
-
-          jq -n \
-            --arg repo "$repo" \
-            --arg branch "$branch" \
-            --arg head "$head_hash" \
-            --argjson head_ts "${head_ts:-0}" \
-            --arg site_key "${SITE_KEY:-}" \
-            --arg target "${TARGET:-}" \
-            --arg host   "${HOST:-}" \
-            --arg port   "${PORT:-}" \
-            --arg user   "${USER:-}" \
-            --arg time   "$gen_time" \
-            --argjson mu   "$mu_plugins" \
-            --argjson plg  "$plugins" \
-            --argjson thm  "$themes" \
-            --argjson wpt  "$wp_themes" \
-            --argjson wfs  "$workflows" \
-            '{
-              meta:{ repo:$repo, branch:$branch, head:$head, head_ts:$head_ts, generated_at:$time },
-              deploy:{ host:$host, port:$port, target:$target, user:$user },
-              site_key:$site_key,
-              trees:{ mu_plugins:$mu, plugins:$plg, themes:$thm, wp_content_themes:$wpt, workflows:$wfs }
-            }' > gh-digest.json
-
-          echo "Built gh-digest.json:"
-          jq -C '.meta, {counts:{
-              mu: .trees.mu_plugins|length,
-              plg:.trees.plugins|length,
-              thm:.trees.themes|length,
-              wpt:.trees.wp_content_themes|length,
-              wfs:.trees.workflows|length
-          }}' gh-digest.json || true
-
-      - name: Upload digest to snapshot folder (SFTP)
-        if: ${{ env.HOST != '' && env.USER != '' && env.PASS != '' && env.TARGET != '' && env.SITE_KEY != '' }}
-        shell: bash
+      - name: Summary
         run: |
-          set -euo pipefail
-          REMOTE_DIR="$TARGET/wp-content/uploads/wtp-ro/public/$SITE_KEY"
-          echo "Remote dir: $REMOTE_DIR"
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "mkdir -p '$REMOTE_DIR'"
-          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no gh-digest.json "$USER@$HOST:$REMOTE_DIR/gh-digest.json"
-
-      - name: Upload artifact (for inspection)
-        uses: actions/upload-artifact@v4
-        with:
-          name: gh-digest
-          path: gh-digest.json
-          retention-days: 7
+          echo "✅ Upserted: ${{ steps.inp.outputs.path }} on branch ${{ steps.inp.outputs.branch }}"
