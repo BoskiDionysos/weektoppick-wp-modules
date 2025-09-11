@@ -1,0 +1,35 @@
+<?php
+/**
+ * Plugin Name: WTP Dev – Plugins Manifest (read-only)
+ * Description: Zwraca listę wtyczek (aktywne/nieaktywne) + wersje przez REST.
+ */
+if (!defined('ABSPATH')) exit;
+
+add_action('rest_api_init', function () {
+    register_rest_route('wtp-dev/v1', '/plugins', [
+        'methods'  => 'GET',
+        'permission_callback' => '__return_true',
+        'callback' => function (WP_REST_Request $req) {
+            $secret = $req->get_param('key');
+            if (!is_string($secret) || $secret !== '7e4c9f0e41ac8f2d92e71c0c47ddbb7a46ef7d6ff6e0c09a6c54a28dcd320baf') {
+                return new WP_REST_Response(['ok'=>false,'error'=>'forbidden'], 403);
+            }
+            if (!function_exists('get_plugins')) require_once ABSPATH.'wp-admin/includes/plugin.php';
+            $all = get_plugins();
+            $active = get_option('active_plugins', []);
+            $out = [];
+            foreach ($all as $file => $data) {
+                $slug = strtok($file, '/');
+                $out[] = [
+                    'slug'     => $slug,
+                    'file'     => $file,
+                    'name'     => $data['Name'] ?? $slug,
+                    'version'  => $data['Version'] ?? '',
+                    'author'   => $data['Author'] ?? '',
+                    'is_active'=> in_array($file, $active, true),
+                ];
+            }
+            return ['ok'=>true, 'count'=>count($out), 'plugins'=>$out];
+        }
+    ]);
+});
