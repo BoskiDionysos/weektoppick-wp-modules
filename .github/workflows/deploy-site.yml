@@ -1,30 +1,29 @@
-name: Deploy Site (MU, plugins, themes, wp-config)
+name: Deploy Site (MU, plugins, themes)
 
 on:
   workflow_dispatch: {}
   push:
     branches: [ main ]
     paths:
-      - "mu-plugins/**"
-      - "plugins/**"
-      - "themes/**"
-      - "wp-content/themes/**"
-      - ".wtp/**"
-      - "wtp/**"
-      - ".github/workflows/deploy-site.yml"
+      - 'mu-plugins/**'
+      - 'plugins/**'
+      - 'themes/**'
+      - 'wp-content/themes/**'
+      - 'wtp/**'
+      - '.wtp/**'
+      - '.github/workflows/deploy-site.yml'
+
+permissions:
+  contents: read
 
 concurrency:
   group: deploy-site
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
+    timeout-minutes: 30
     env:
       HOST:   ${{ secrets.DEPLOY_HOST }}
       PORT:   ${{ secrets.DEPLOY_PORT }}
@@ -40,76 +39,66 @@ jobs:
         run: |
           sudo apt-get update -y
           sudo apt-get install -y rsync sshpass jq
+          mkdir -p ops-deploy
 
-      - name: Build exclude list for server-managed plugins
-        id: ex
+      - name: Build rsync filter (protected plugins)
+        id: filt
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p .wtp
-          EX=".wtp/rsync-protected-plugins.txt"
-          : > "$EX"
+          FILTER="ops-deploy/protected-plugins.filter"
+          : > "$FILTER"
 
           SRC=""
-          if   [ -f ".wtp/protected-plugins.txt" ]; then SRC=".wtp/protected-plugins.txt"
-          elif [ -f "wtp/protected-plugins.txt"  ]; then SRC="wtp/protected-plugins.txt"
-          fi
+          [ -f ".wtp/protected-plugins.txt" ] && SRC=".wtp/protected-plugins.txt"
+          [ -z "$SRC" ] && [ -f "wtp/protected-plugins.txt" ] && SRC="wtp/protected-plugins.txt"
 
           if [ -n "$SRC" ]; then
-            echo "Using protect list: $SRC"
-            # Każda nazwa katalogu wtyczki -> linia 'katalog/' w exclude-from
-            # Puste linie i komentarze (#) pomijamy
+            echo "# using $SRC" >&2
             while IFS= read -r line; do
-              line="${line%%#*}"; line="${line//[$'\t\r\n ']/}"
-              [ -z "$line" ] && continue
-              echo "${line}/" >> "$EX"
+              l="${line%%#*}"            # utnij komentarz po #
+              l="$(echo "$l" | xargs)"   # trim
+              [ -z "$l" ] && continue
+              echo "P plugins/${l}/" >> "$FILTER"
             done < "$SRC"
-          else
-            echo "No protected-plugins list found."
           fi
 
-          echo "--- BUILT EXCLUDE FILE (.wtp/rsync-protected-plugins.txt) ---"
-          if [ -s "$EX" ]; then cat "$EX"; else echo "(empty)"; fi
-          echo "exclude_file=$EX" >> "$GITHUB_OUTPUT"
+          # bezpieczne domyślne (jeśli nie podano)
+          grep -q 'plugins/wordfence/' "$FILTER" 2>/dev/null || echo "P plugins/wordfence/" >> "$FILTER"
+          grep -q 'plugins/litespeed-cache/' "$FILTER" 2>/dev/null || echo "P plugins/litespeed-cache/" >> "$FILTER"
 
-      - name: Pre-deploy: list remote plugin dirs
-        continue-on-error: true
-        env:
-          EX: ${{ steps.ex.outputs.exclude_file }}
-        run: |
-          set -e
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
-            "ls -1 '${TARGET%/}/wp-content/plugins' || true"
+          echo "filter_path=$FILTER" >> "$GITHUB_OUTPUT"
+          echo "---- filter ----"; cat "$FILTER" || true; echo "--------------"
 
-      - name: Sync MU plugins
+      - name: Deploy MU plugins
+        if: ${{ env.HOST != '' && env.USER != '' && env.PASS != '' && env.TARGET != '' }}
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" rsync -az --delete -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
-            "mu-plugins/" "$USER@$HOST:${TARGET%/}/wp-content/mu-plugins/"
+          SRC="mu-plugins/"
+          DEST="$TARGET/wp-content/mu-plugins/"
+          sshpass -p "$PASS" rsync -e "ssh -p $PORT -o StrictHostKeyChecking=no" -avz --delete "$SRC" "$USER@$HOST:$DEST"
 
-      - name: Sync themes (repo-managed)
+      - name: Deploy plugins (respect protected filter)
+        if: ${{ env.HOST != '' && env.USER != '' && env.PASS != '' && env.TARGET != '' }}
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" rsync -az --delete -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
-            "wp-content/themes/" "$USER@$HOST:${TARGET%/}/wp-content/themes/"
-
-      - name: Sync plugins (respect protected list)
-        env:
-          EX: ${{ steps.ex.outputs.exclude_file }}
-        run: |
-          set -euo pipefail
-          RSYNC="sshpass -p \"$PASS\" rsync -az --delete -e \"ssh -p $PORT -o StrictHostKeyChecking=no\""
-          if [ -s "$EX" ]; then
-            echo "Using --exclude-from=$EX"
-            eval $RSYNC --exclude-from=\"$EX\" \"plugins/\" \"$USER@$HOST:${TARGET%/}/wp-content/plugins/\"
+          SRC="plugins/"
+          DEST="$TARGET/wp-content/plugins/"
+          FILTER="${{ steps.filt.outputs.filter_path }}"
+          if [ -f "$FILTER" ]; then
+            sshpass -p "$PASS" rsync -e "ssh -p $PORT -o StrictHostKeyChecking=no" -avz --delete --filter="merge $FILTER" "$SRC" "$USER@$HOST:$DEST"
           else
-            echo "No protected plugins. Full sync with --delete."
-            eval $RSYNC \"plugins/\" \"$USER@$HOST:${TARGET%/}/wp-content/plugins/\"
+            sshpass -p "$PASS" rsync -e "ssh -p $PORT -o StrictHostKeyChecking=no" -avz --delete "$SRC" "$USER@$HOST:$DEST"
           fi
 
-      - name: Post-deploy: list remote plugin dirs
-        continue-on-error: true
+      - name: Deploy themes
+        if: ${{ env.HOST != '' && env.USER != '' && env.PASS != '' && env.TARGET != '' }}
         run: |
-          set -e
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
-            "ls -1 '${TARGET%/}/wp-content/plugins' || true"
+          set -euo pipefail
+          SRC="wp-content/themes/"
+          DEST="$TARGET/wp-content/themes/"
+          sshpass -p "$PASS" rsync -e "ssh -p $PORT -o StrictHostKeyChecking=no" -avz --delete "$SRC" "$USER@$HOST:$DEST"
+
+      - name: Summary
+        run: |
+          echo "✅ Deploy finished." >> "$GITHUB_STEP_SUMMARY"
