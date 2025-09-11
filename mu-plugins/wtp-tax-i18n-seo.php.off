@@ -1,0 +1,272 @@
+<?php
+/**
+ * Plugin Name: WTP Taxonomy i18n + SEO (mu-plugin)
+ * Description: Tłumaczenia i SEO (title/desc) dla kategorii/podkategorii (taksonomie). UI w edycji terminu + kolejka + REST.
+ * Version: 1.0.0
+ */
+if (!defined('ABSPATH')) exit;
+
+/** Wspólne z translate/seo */
+if (!defined('WTP_ALLOWED_LANGS')) define('WTP_ALLOWED_LANGS','en,pl,de,fr,it,es,pt,cs,sk');
+if (!defined('WTP_TAX_OPT')) define('WTP_TAX_OPT','wtp_tax_settings');
+if (!defined('WTP_TR_OPTION')) define('WTP_TR_OPTION','wtp_translate_settings'); // użyjemy quality + seo_always z WTP Translate
+
+// Kolejka terminów
+const WTP_TAX_QUEUE = 'wtp_tax_queue_items'; // tablica stringów "tax:term_id"
+
+// Meta klucze (term meta)
+function wtp_tax_key_name($lang){ return "_wtp_tr_name_{$lang}"; }
+function wtp_tax_key_desc($lang){ return "_wtp_tr_desc_{$lang}"; }
+function wtp_tax_key_seo_t($lang){ return "_wtp_seo_title_{$lang}"; }
+function wtp_tax_key_seo_d($lang){ return "_wtp_seo_desc_{$lang}"; }
+
+// Języki
+function wtp_tax_langs(){ $codes=array_filter(array_map('trim',explode(',',WTP_ALLOWED_LANGS))); return $codes?:['en']; }
+function wtp_tax_current_lang(){
+    if (isset($_GET['lang'])) { $x=strtolower(sanitize_text_field($_GET['lang'])); if (in_array($x, wtp_tax_langs(), true)) return $x; }
+    if (isset($_COOKIE['wtp_lang'])) { $x=strtolower(sanitize_text_field($_COOKIE['wtp_lang'])); if (in_array($x, wtp_tax_langs(), true)) return $x; }
+    return 'en';
+}
+
+// Pobranie ustawień jakości/sealw z WTP Translate (fallback domyślne)
+function wtp_tax_get_tr_settings(){
+    $def_quality = ['en'=>'off','pl'=>'full','de'=>'mid','fr'=>'mid','it'=>'rough','es'=>'rough','pt'=>'rough','cs'=>'rough','sk'=>'rough'];
+    $tr = get_option(WTP_TR_OPTION, []);
+    $quality = isset($tr['quality']) && is_array($tr['quality']) ? array_merge($def_quality,$tr['quality']) : $def_quality;
+    $seo_always = isset($tr['seo_always']) ? (int)$tr['seo_always'] : 1;
+    $model = isset($tr['model']) ? sanitize_text_field($tr['model']) : 'gpt-4o-mini';
+    $max_batch = isset($tr['max_batch']) ? max(1,(int)$tr['max_batch']) : 5;
+    return compact('quality','seo_always','model','max_batch');
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * UI w edycji terminu (kategorie/podkategorie)
+ * ──────────────────────────────────────────────────────────────────────────── */
+add_action('edit_term_form_fields', function($term){
+    if (!current_user_can('manage_categories')) return;
+    $langs = wtp_tax_langs();
+    $active = wtp_tax_current_lang();
+    echo '<tr class="form-field"><th colspan="2"><h3>WTP: Tłumaczenia i SEO (per język)</h3></th></tr>';
+    echo '<tr class="form-field"><th scope="row">Aktywny język</th><td><strong>'.esc_html(strtoupper($active)).'</strong> (możesz przełączyć ?lang=xx w URL)</td></tr>';
+
+    // Pola tylko dla aktywnego języka, żeby nie przeładowywać UI
+    $t = get_term_meta($term->term_id, wtp_tax_key_name($active), true);
+    $d = get_term_meta($term->term_id, wtp_tax_key_desc($active), true);
+    $st= get_term_meta($term->term_id, wtp_tax_key_seo_t($active), true);
+    $sd= get_term_meta($term->term_id, wtp_tax_key_seo_d($active), true);
+
+    echo '<tr class="form-field"><th scope="row"><label>Nazwa ('.$active.')</label></th><td><input type="text" name="wtp_tax_name" value="'.esc_attr($t).'" style="width:100%"></td></tr>';
+    echo '<tr class="form-field"><th scope="row"><label>Opis ('.$active.')</label></th><td><textarea name="wtp_tax_desc" rows="3" style="width:100%">'.esc_textarea($d).'</textarea></td></tr>';
+    echo '<tr class="form-field"><th scope="row"><label>SEO Title ('.$active.')</label></th><td><input type="text" name="wtp_tax_seo_t" value="'.esc_attr($st).'" style="width:100%"></td></tr>';
+    echo '<tr class="form-field"><th scope="row"><label>SEO Description ('.$active.')</label></th><td><textarea name="wtp_tax_seo_d" rows="2" style="width:100%">'.esc_textarea($sd).'</textarea></td></tr>';
+    wp_nonce_field('wtp_tax_save','wtp_tax_nonce');
+}, 10, 1);
+
+add_action('edited_term', function($term_id){
+    if (!isset($_POST['wtp_tax_nonce']) || !wp_verify_nonce($_POST['wtp_tax_nonce'],'wtp_tax_save')) return;
+    $lang = wtp_tax_current_lang();
+    $name = isset($_POST['wtp_tax_name']) ? wp_strip_all_tags(wp_unslash($_POST['wtp_tax_name'])) : '';
+    $desc = isset($_POST['wtp_tax_desc']) ? wp_strip_all_tags(wp_unslash($_POST['wtp_tax_desc'])) : '';
+    $st   = isset($_POST['wtp_tax_seo_t']) ? wp_strip_all_tags(wp_unslash($_POST['wtp_tax_seo_t'])) : '';
+    $sd   = isset($_POST['wtp_tax_seo_d']) ? wp_strip_all_tags(wp_unslash($_POST['wtp_tax_seo_d'])) : '';
+
+    update_term_meta($term_id, wtp_tax_key_name($lang), $name);
+    update_term_meta($term_id, wtp_tax_key_desc($lang), $desc);
+    update_term_meta($term_id, wtp_tax_key_seo_t($lang), $st);
+    update_term_meta($term_id, wtp_tax_key_seo_d($lang), $sd);
+
+    // wpisz do kolejki automatycznie
+    if (!empty($_POST['taxonomy'])) {
+        wtp_tax_enqueue((string)sanitize_key($_POST['taxonomy']), (int)$term_id);
+    }
+}, 10, 1);
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Kolejka: enqueue przy tworzeniu/edycji + cron
+ * ──────────────────────────────────────────────────────────────────────────── */
+function wtp_tax_enqueue(string $tax, int $term_id){
+    $key = $tax.':'.$term_id;
+    $q = get_option(WTP_TAX_QUEUE,[]);
+    if (!is_array($q)) $q=[];
+    if (!in_array($key,$q,true)) { $q[]=$key; update_option(WTP_TAX_QUEUE,$q,false); }
+}
+add_action('created_term', function($term_id,$tt_id,$taxonomy){ wtp_tax_enqueue((string)$taxonomy,(int)$term_id); }, 10, 3);
+add_action('edited_term',  function($term_id,$tt_id,$taxonomy){ wtp_tax_enqueue((string)$taxonomy,(int)$term_id); }, 10, 3);
+
+// Cron co 10 min
+add_filter('cron_schedules', function($s){ if(!isset($s['wtp_10min'])) $s['wtp_10min']=['interval'=>600,'display'=>'WTP every 10 min']; return $s; });
+add_action('wtp_tax_cron','wtp_tax_process_batch');
+if (!wp_next_scheduled('wtp_tax_cron')) wp_schedule_event(time()+420, 'wtp_10min', 'wtp_tax_cron');
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Przetwarzanie batch
+ * ──────────────────────────────────────────────────────────────────────────── */
+function wtp_tax_process_batch(){
+    $cfg = wtp_tax_get_tr_settings();
+    $q = get_option(WTP_TAX_QUEUE,[]);
+    if (empty($q)) return;
+    $batch = array_splice($q,0,$cfg['max_batch']);
+    update_option(WTP_TAX_QUEUE,$q,false);
+
+    foreach ($batch as $item){
+        if (strpos($item,':')===false) continue;
+        [$tax,$id] = explode(':',$item,2);
+        $term = get_term((int)$id,(string)$tax);
+        if (!$term || is_wp_error($term)) continue;
+        wtp_tax_process_term_all_langs($term,$cfg);
+    }
+}
+
+function wtp_tax_process_term_all_langs(WP_Term $term, array $cfg){
+    $langs = wtp_tax_langs();
+    foreach ($langs as $lang){
+        // pomijamy EN treść — ale SEO zawsze, jeśli włączone
+        $want_content = ($lang!=='en' && (($cfg['quality'][$lang]??'off')!=='off'));
+        $want_seo = (int)$cfg['seo_always']===1;
+        if ($want_content){
+            [$nm,$ds] = wtp_tax_ai_translate($term->name, term_description($term) ?: '', $lang, $cfg['quality'][$lang]);
+            update_term_meta($term->term_id, wtp_tax_key_name($lang), $nm);
+            update_term_meta($term->term_id, wtp_tax_key_desc($lang), $ds);
+        }
+        if ($want_seo){
+            [$st,$sd] = wtp_tax_ai_make_seo($term->name, term_description($term) ?: '', $lang);
+            update_term_meta($term->term_id, wtp_tax_key_seo_t($lang), $st);
+            update_term_meta($term->term_id, wtp_tax_key_seo_d($lang), $sd);
+        }
+    }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * „AI” — real/symulacja (spójnie z WTP Translate)
+ * ──────────────────────────────────────────────────────────────────────────── */
+function wtp_tax_ai_translate($name,$desc,$lang,$quality){
+    if (!defined('WTP_OPENAI_KEY') || !WTP_OPENAI_KEY) {
+        return ["[{$lang}/{$quality}] ".$name, "[{$lang}/{$quality}] ".mb_substr(wp_strip_all_tags($desc),0,400)];
+    }
+    $prompt = "Translate taxonomy term (category) to {$lang} with quality {$quality}. Return:\nName:\n<one line>\nDescription:\n<short paragraph>";
+    $resp = wp_remote_post('https://api.openai.com/v1/chat/completions',[
+        'timeout'=>30,'headers'=>['Authorization'=>'Bearer '.WTP_OPENAI_KEY,'Content-Type'=>'application/json'],
+        'body'=>json_encode([
+            'model'=>'gpt-4o-mini',
+            'messages'=>[
+                ['role'=>'system','content'=>'You translate taxonomy labels.'],
+                ['role'=>'user','content'=>"SOURCE NAME:\n{$name}\n\nSOURCE DESCRIPTION:\n{$desc}\n\n".$prompt],
+            ],
+            'temperature'=>($quality==='full'?0.4:($quality==='mid'?0.5:0.7)),
+        ])
+    ]);
+    if (is_wp_error($resp)) return [$name,$desc];
+    $txt = json_decode(wp_remote_retrieve_body($resp),true)['choices'][0]['message']['content'] ?? '';
+    if (!$txt) return [$name,$desc];
+    $lines = preg_split("/\r?\n/",$txt);
+    $nm = trim($lines[0] ?? $name);
+    $ds = trim($txt);
+    return [$nm,$ds];
+}
+function wtp_tax_ai_make_seo($name,$desc,$lang){
+    if (!defined('WTP_OPENAI_KEY') || !WTP_OPENAI_KEY) {
+        return ["[SEO {$lang}] ".mb_substr($name,0,58), "[SEO {$lang}] ".mb_substr(wp_strip_all_tags($desc),0,155)];
+    }
+    $prompt = "Make SEO for taxonomy archive in {$lang}. Title <=60 chars, Description 140-160. Return as:\nTitle: ...\nDescription: ...";
+    $resp = wp_remote_post('https://api.openai.com/v1/chat/completions',[
+        'timeout'=>30,'headers'=>['Authorization'=>'Bearer '.WTP_OPENAI_KEY,'Content-Type'=>'application/json'],
+        'body'=>json_encode([
+            'model'=>'gpt-4o-mini',
+            'messages'=>[
+                ['role'=>'system','content'=>'You are an SEO assistant.'],
+                ['role'=>'user','content'=>"NAME:\n{$name}\n\nDESCRIPTION:\n".mb_substr(wp_strip_all_tags($desc),0,1000)."\n\n".$prompt],
+            ],
+            'temperature'=>0.4,
+        ])
+    ]);
+    if (is_wp_error($resp)) return ["[SEO {$lang}] ".mb_substr($name,0,58), "[SEO {$lang}] ".mb_substr(wp_strip_all_tags($desc),0,155)];
+    $txt = json_decode(wp_remote_retrieve_body($resp),true)['choices'][0]['message']['content'] ?? '';
+    if (!$txt) return ["[SEO {$lang}] ".mb_substr($name,0,58), "[SEO {$lang}] ".mb_substr(wp_strip_all_tags($desc),0,155)];
+    $seoT=$seoD='';
+    foreach (preg_split("/\r?\n/",$txt) as $ln){
+        if (!$seoT && stripos($ln,'title:')===0) $seoT=trim(substr($ln,6));
+        if (!$seoD && stripos($ln,'description:')===0) $seoD=trim(substr($ln,12));
+    }
+    $seoT = $seoT ?: mb_substr($name,0,60);
+    $seoD = $seoD ?: mb_substr(wp_strip_all_tags($desc),0,155);
+    return [$seoT,$seoD];
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Wystaw SEO meta/schema na stronach archiwów taksonomii
+ * ──────────────────────────────────────────────────────────────────────────── */
+add_action('wp_head', function(){
+    if (!is_category() && !is_tag() && !is_tax()) return;
+    $term = get_queried_object();
+    if (!$term || !($term instanceof WP_Term)) return;
+    $lang = wtp_tax_current_lang();
+
+    $st = get_term_meta($term->term_id, wtp_tax_key_seo_t($lang), true);
+    $sd = get_term_meta($term->term_id, wtp_tax_key_seo_d($lang), true);
+    $nm = get_term_meta($term->term_id, wtp_tax_key_name($lang), true) ?: $term->name;
+
+    if (!$st) $st = $nm;
+    if (!$sd) $sd = wp_strip_all_tags( term_description($term) ?: '' );
+    echo '<meta name="description" content="'.esc_attr($sd).'">'."\n";
+
+    $data = [
+        '@context'=>'https://schema.org',
+        '@type'=>'CollectionPage',
+        'name'=>$st,
+        'inLanguage'=>$lang,
+        'description'=>$sd,
+        'url'=>get_term_link($term),
+    ];
+    echo '<script type="application/ld+json">'.wp_json_encode($data).'</script>'."\n";
+}, 98);
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * REST: status/run/one
+ * ──────────────────────────────────────────────────────────────────────────── */
+add_action('rest_api_init', function(){
+    // status
+    register_rest_route('wtp-ro/v1','/translate/terms/status',[
+        'methods'=>'GET','permission_callback'=>'__return_true',
+        'callback'=>function(){ $q=get_option(WTP_TAX_QUEUE,[]); return ['ok'=>true,'queued'=>is_array($q)?count($q):0];}
+    ]);
+    // batch run
+    register_rest_route('wtp-ro/v1','/translate/terms/run',[
+        'methods'=>'GET','permission_callback'=>'__return_true',
+        'callback'=>function(WP_REST_Request $r){
+            $secret = $r->get_param('key');
+            if (!defined('WTP_GH_SECRET') || $secret!==constant('WTP_GH_SECRET')) return new WP_REST_Response(['ok'=>false,'error'=>'forbidden'],403);
+            wtp_tax_process_batch();
+            return ['ok'=>true];
+        }
+    ]);
+    // single term
+    register_rest_route('wtp-ro/v1','/translate/term',[
+        'methods'=>'GET','permission_callback'=>'__return_true',
+        'callback'=>function(WP_REST_Request $r){
+            $secret = $r->get_param('key');
+            if (!defined('WTP_GH_SECRET') || $secret!==constant('WTP_GH_SECRET')) return new WP_REST_Response(['ok'=>false,'error'=>'forbidden'],403);
+            $tax = sanitize_key($r->get_param('tax') ?: 'category');
+            $id  = (int)$r->get_param('term');
+            $lang= strtolower(sanitize_text_field($r->get_param('lang') ?: 'pl'));
+            $term = get_term($id,$tax);
+            if (!$term || is_wp_error($term)) return new WP_REST_Response(['ok'=>false,'error'=>'no-term'],404);
+            if (!in_array($lang, wtp_tax_langs(), true)) return new WP_REST_Response(['ok'=>false,'error'=>'bad-lang'],400);
+
+            $cfg = wtp_tax_get_tr_settings();
+            $q = $cfg['quality'][$lang] ?? 'rough';
+
+            // treść (jeśli nie en) + SEO always
+            if ($lang!=='en' && $q!=='off'){
+                [$nm,$ds] = wtp_tax_ai_translate($term->name, term_description($term) ?: '', $lang, $q);
+                update_term_meta($term->term_id, wtp_tax_key_name($lang), $nm);
+                update_term_meta($term->term_id, wtp_tax_key_desc($lang), $ds);
+            }
+            if ((int)$cfg['seo_always']===1){
+                [$st,$sd] = wtp_tax_ai_make_seo($term->name, term_description($term) ?: '', $lang);
+                update_term_meta($term->term_id, wtp_tax_key_seo_t($lang), $st);
+                update_term_meta($term->term_id, wtp_tax_key_seo_d($lang), $sd);
+            }
+            return ['ok'=>true,'term'=>$id,'tax'=>$tax,'lang'=>$lang];
+        }
+    ]);
+});
