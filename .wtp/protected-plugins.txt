@@ -1,1 +1,1 @@
-# list of plugins not overwritten by rsync
+# Wtyczki chronione (nie nadpisywane rsync) wordfence litespeed-cache translatepress-multilingual cookie-law-info rank-math pretty-link wpml
