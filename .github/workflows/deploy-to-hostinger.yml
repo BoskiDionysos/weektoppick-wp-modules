@@ -1,28 +1,161 @@
-name: Deploy to Hostinger (stub sanity)
+name: Deploy to Hostinger (Atomic GH→WP)
 
 on:
   push:
     branches: [ main ]
     paths:
-      - '.github/workflows/deploy-to-hostinger.yml'
+      - 'mu-plugins/**'
+      - 'plugins/**'
+      - 'themes/**'
+      - 'wp-content/**'
+      - '!snapshots/**'
+      - '!server-sync/**'
+      - '!ops/**'
+      - '!.wtp/**'
+      - 'docs/locks/**'
   workflow_dispatch: {}
 
 jobs:
-  stub:
+  deploy:
     runs-on: ubuntu-latest
-    steps:
-      - name: Check out
-        uses: actions/checkout@v4
+    permissions:
+      contents: read
 
-      - name: SSH ping + health (127.0.0.1)
-        uses: appleboy/ssh-action@v1.0.3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
-          host:     ${{ secrets.DEPLOY_HOST }}
+          fetch-depth: 0
+
+      - name: Compute changed files
+        id: diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_SHA=$(git rev-parse HEAD~1 || echo "")
+          if [ -z "$BASE_SHA" ]; then
+            git ls-files > changed.txt
+          else
+            git diff --name-only "$BASE_SHA"...HEAD > changed.txt
+          fi
+          awk '/^(mu-plugins|plugins|themes|wp-content)\// {print}' changed.txt > deploy.txt || true
+          if [ ! -s deploy.txt ]; then
+            echo "nothing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "nothing=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Changed (filtered):"
+          cat deploy.txt || true
+
+      - name: Stop when nothing to deploy
+        if: ${{ steps.diff.outputs.nothing == 'true' }}
+        run: echo "No deployable changes."
+
+      - name: Install rsync
+        if: ${{ steps.diff.outputs.nothing != 'true' }}
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y rsync
+
+      - name: Prepare release bundle
+        id: prep
+        if: ${{ steps.diff.outputs.nothing != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REL="release_${GITHUB_SHA::7}"
+          mkdir -p "$REL"
+          rsync -a \
+            --include='mu-plugins/**' \
+            --include='plugins/**' \
+            --include='themes/**' \
+            --include='wp-content/**' \
+            --exclude='*' ./ "$REL"/
+          tar -czf "${REL}.tar.gz" "$REL"
+          echo "REL=${REL}" >> "$GITHUB_OUTPUT"
+          ls -lah "${REL}.tar.gz"
+
+      - name: Dry-run sanity
+        if: ${{ steps.diff.outputs.nothing != 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REL="${{ steps.prep.outputs.REL }}"
+          echo "=== Bundle tree (first 200) ==="
+          tar -tzf "${REL}.tar.gz" | head -n 200 || true
+          echo "=== Verify expected dirs ==="
+          if tar -tzf "${REL}.tar.gz" | grep -E "^${REL}/(plugins|themes|mu-plugins)/" >/dev/null; then
+            echo "OK: expected dirs present"
+          else
+            echo "::error::Bundle missing expected dirs"
+            exit 2
+          fi
+          echo "=== File count ==="
+          tar -tzf "${REL}.tar.gz" | wc -l
+
+      - name: Upload bundle
+        if: ${{ steps.diff.outputs.nothing != 'true' }}
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASS }}
-          port:     ${{ secrets.DEPLOY_PORT }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          source: ${{ steps.prep.outputs.REL }}.tar.gz
+          target: ${{ secrets.DEPLOY_TARGET }}
+
+      - name: Atomic switch on server
+        if: ${{ steps.diff.outputs.nothing != 'true' }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASS }}
+          port: ${{ secrets.DEPLOY_PORT }}
           script: |
-            set -e
-            echo "Ping server OK"
-            curl -fsS "http://127.0.0.1/wp-json/wtp-ro-open/v1/health" >/dev/null
-            echo "Health OK"
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_TARGET }}"
+            REL_TGZ=$(ls -1 release_*.tar.gz | tail -n1)
+            [ -n "$REL_TGZ" ] || { echo "No release_*.tar.gz found"; exit 3; }
+            REL_DIR="${REL_TGZ%.tar.gz}"
+
+            mkdir -p "releases/${REL_DIR}"
+            tar -xzf "$REL_TGZ" -C "releases/${REL_DIR}" --strip-components=1
+
+            mkdir -p wp-content/plugins wp-content/themes wp-content/mu-plugins
+
+            cat > /tmp/wtp-protect.filter <<'EOF'
+            P wp-content/plugins/litespeed-cache/**
+            P wp-content/plugins/wordfence/**
+            P wp-content/plugins/translatepress-multilingual/**
+            P wp-content/plugins/cookie-law-info/**
+            EOF
+
+            [ -d "releases/${REL_DIR}/plugins" ] && rsync -a --delete --filter="merge /tmp/wtp-protect.filter" "releases/${REL_DIR}/plugins/" "wp-content/plugins/" || true
+            [ -d "releases/${REL_DIR}/themes" ] && rsync -a --delete "releases/${REL_DIR}/themes/" "wp-content/themes/" || true
+            [ -d "releases/${REL_DIR}/mu-plugins" ] && rsync -a --delete "releases/${REL_DIR}/mu-plugins/" "wp-content/mu-plugins/" || true
+
+            date > "wp-content/.wtp_last_deploy"
+
+      - name: Post-deploy health
+        if: ${{ steps.diff.outputs.nothing != 'true' }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASS }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: |
+            set -euo pipefail
+            curl -fsS "http://127.0.0.1/wp-json/wtp-ro-open/v1/health" && echo "Health OK"
+
+      - name: Purge LiteSpeed cache
+        if: ${{ steps.diff.outputs.nothing != 'true' }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASS }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: |
+            curl -sS "http://127.0.0.1/?LSCWP_CTRL=purge" >/dev/null || true
