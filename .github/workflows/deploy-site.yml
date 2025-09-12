@@ -1,4 +1,4 @@
-name: Deploy Site (MU, plugins, themes)
+name: Deploy Site (MU, plugins, themes, wp-config)
 
 on:
   workflow_dispatch: {}
@@ -8,7 +8,7 @@ on:
       - 'mu-plugins/**'
       - 'plugins/**'
       - 'themes/**'
-      - 'wp-content/**'
+      - 'wp-content/themes/**'
       - 'wtp/**'
       - '.wtp/**'
       - '.github/workflows/deploy-site.yml'
@@ -39,131 +39,120 @@ jobs:
 
       - name: Tools
         run: |
+          set -euo pipefail
           sudo apt-get update -y
-          sudo apt-get install -y rsync sshpass jq dos2unix
+          sudo apt-get install -y rsync sshpass jq
 
-      - name: Verify secrets
+      - name: Verify deploy secrets
+        run: |
+          set -euo pipefail
+          test -n "${HOST:-}"   && \
+          test -n "${PORT:-}"   && \
+          test -n "${USER:-}"   && \
+          test -n "${PASS:-}"   && \
+          test -n "${TARGET:-}" || { echo "::error::Missing deploy secrets"; exit 1; }
+
+      # >>> TO JEST TEN KROK: generujemy listę exclude dla rsync z protected-plugins.txt
+      - name: Build rsync excludes from .wtp/protected-plugins.txt
+        id: excl
         shell: bash
         run: |
           set -euo pipefail
-          test -n "${HOST:-}" && test -n "${PORT:-}" && test -n "${USER:-}" && test -n "${PASS:-}" && test -n "${TARGET:-}" \
-            || { echo "::error::Missing deploy secrets"; exit 1; }
+          OUT=".wtp/rsync-exclude.txt"
+          > "$OUT"
 
-      - name: Build excludes list (protected plugins)
-        id: lists
-        shell: bash
-        run: |
-          set -euo pipefail
+          # akceptujemy listę z .wtp/ lub wtp/ (fallback)
           SRC=""
           if   [ -f ".wtp/protected-plugins.txt" ]; then SRC=".wtp/protected-plugins.txt"
           elif [ -f "wtp/protected-plugins.txt"  ]; then SRC="wtp/protected-plugins.txt"
           fi
-          EXCLUDE_FILE="$(mktemp)"; : > "$EXCLUDE_FILE"
-          if [ -n "$SRC" ]; then
-            cp "$SRC" _tmp.txt || true
-            dos2unix -q _tmp.txt || true
-            perl -CS -pe 's/^\x{FEFF}// if $.==1' _tmp.txt > _clean.txt
-            while IFS= read -r line; do
-              line="${line%%#*}"; line="$(echo "$line" | xargs)"
-              [ -z "$line" ] && continue
-              echo "${line}/***" >> "$EXCLUDE_FILE"
-            done < _clean.txt
-            rm -f _tmp.txt _clean.txt
-          fi
-          echo "exclude=$EXCLUDE_FILE" >> "$GITHUB_OUTPUT"
-          echo "---- EXCLUDES ----"
-          if [ -s "$EXCLUDE_FILE" ]; then cat "$EXCLUDE_FILE"; else echo "(empty)"; fi
 
-      - name: Ensure remote dirs
+          if [ -n "$SRC" ]; then
+            echo "Using protect list: $SRC"
+            # normalizacja CRLF/BOM, obcięcie komentarzy i pustych linii
+            sed -e 's/\r$//' "$SRC" | sed 's/^\xEF\xBB\xBF//' | while IFS= read -r name; do
+              name="${name%%#*}"; name="$(echo "$name" | xargs)"
+              [ -z "$name" ] && continue
+              echo "wp-content/plugins/$name/***" >> "$OUT"
+            done
+          else
+            echo "No protected list found; rsync will fully manage plugins (with --delete)."
+          fi
+
+          echo "exclude_file=$OUT" >> "$GITHUB_OUTPUT"
+          echo "---- RSYNC EXCLUDES ----"
+          if [ -s "$OUT" ]; then cat "$OUT"; else echo "(empty)"; fi
+          echo "------------------------"
+
+      - name: Remote plugins BEFORE
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+            "ls -1 '$TARGET/wp-content/plugins' || true"
+
+      - name: Sync MU plugins (if present)
         shell: bash
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "
-            set -e
-            mkdir -p '$TARGET/wp-content/plugins' \
-                     '$TARGET/wp-content/themes' \
-                     '$TARGET/wp-content/mu-plugins'
-          "
+          SRC="mu-plugins"
+          if [ -d "$SRC" ]; then
+            echo "Sync: $SRC -> $TARGET/wp-content/mu-plugins/"
+            sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
+              -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
+              "$SRC/" "$USER@$HOST:$TARGET/wp-content/mu-plugins/"
+          else
+            echo "Skip: $SRC does not exist in repo."
+          fi
 
-      - name: Detect mu-plugins
-        id: mu
-        shell: bash
-        run: |
-          if   [ -d "mu-plugins" ]; then echo "src=mu-plugins" >> "$GITHUB_OUTPUT"
-          elif [ -d "wp-content/mu-plugins" ]; then echo "src=wp-content/mu-plugins" >> "$GITHUB_OUTPUT"
-          else echo "src=" >> "$GITHUB_OUTPUT"; fi
-
-      - name: Detect plugins
-        id: plg
-        shell: bash
-        run: |
-          if   [ -d "plugins" ]; then echo "src=plugins" >> "$GITHUB_OUTPUT"
-          elif [ -d "wp-content/plugins" ]; then echo "src=wp-content/plugins" >> "$GITHUB_OUTPUT"
-          else echo "src=" >> "$GITHUB_OUTPUT"; fi
-
-      - name: Detect themes
+      - name: Detect themes directory in repo
         id: thm
         shell: bash
         run: |
+          set -euo pipefail
           if   [ -d "themes" ]; then echo "src=themes" >> "$GITHUB_OUTPUT"
           elif [ -d "wp-content/themes" ]; then echo "src=wp-content/themes" >> "$GITHUB_OUTPUT"
-          else echo "src=" >> "$GITHUB_OUTPUT"; fi
-
-      - name: Sync MU plugins
-        if: ${{ steps.mu.outputs.src != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          SRC="${{ steps.mu.outputs.src }}"
-          echo "Sync: $SRC -> $TARGET/wp-content/mu-plugins/"
-          set +e
-          sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
-            -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
-            "$SRC/" "$USER@$HOST:$TARGET/wp-content/mu-plugins/"
-          RC=$?; set -e
-          if [ $RC -ne 0 ] && [ $RC -ne 23 ] && [ $RC -ne 24 ]; then
-            echo "::error::rsync MU failed (rc=$RC)"; exit $RC
+          else echo "src=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Sync plugins (exclude-from + tolerant rc 23/24)
-        if: ${{ steps.plg.outputs.src != '' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          SRC="${{ steps.plg.outputs.src }}"
-          declare -a EX_OPT=()
-          if [ -s "${{ steps.lists.outputs.exclude }}" ]; then
-            echo "Use excludes:"; cat "${{ steps.lists.outputs.exclude }}"
-            EX_OPT=( --exclude-from="${{ steps.lists.outputs.exclude }}" )
-          else
-            echo "No excludes file."
-          fi
-          echo "Sync: $SRC -> $TARGET/wp-content/plugins/ (with --delete)"
-          set +e
-          sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
-            "${EX_OPT[@]}" \
-            -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
-            "$SRC/" "$USER@$HOST:$TARGET/wp-content/plugins/"
-          RC=$?; set -e
-          if [ $RC -ne 0 ] && [ $RC -ne 23 ] && [ $RC -ne 24 ]; then
-            echo "::error::rsync PLUGINS failed (rc=$RC)"; exit $RC
-          fi
-
-      - name: Sync themes
+      - name: Sync themes (if present)
         if: ${{ steps.thm.outputs.src != '' }}
         shell: bash
         run: |
           set -euo pipefail
           SRC="${{ steps.thm.outputs.src }}"
           echo "Sync: $SRC -> $TARGET/wp-content/themes/"
-          set +e
           sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
             -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
             "$SRC/" "$USER@$HOST:$TARGET/wp-content/themes/"
-          RC=$?; set -e
-          if [ $RC -ne 0 ] && [ $RC -ne 23 ] && [ $RC -ne 24 ]; then
-            echo "::error::rsync THEMES failed (rc=$RC)"; exit $RC
+
+      - name: Sync plugins (respect protected list via --exclude-from)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="plugins"
+          if [ -d "$SRC" ]; then
+            echo "Sync: $SRC -> $TARGET/wp-content/plugins/"
+            sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
+              --exclude-from="${{ steps.excl.outputs.exclude_file }}" \
+              -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
+              "$SRC/" "$USER@$HOST:$TARGET/wp-content/plugins/"
+          else
+            echo "Skip: $SRC does not exist in repo."
           fi
+
+      - name: Remote plugins AFTER
+        run: |
+          set -euo pipefail
+          echo "---- REMOTE PLUGINS AFTER ----"
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+            "ls -1 '$TARGET/wp-content/plugins' || true"
+          echo "--------------------------------"
+
+      - name: Post-deploy health (non-fatal)
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+            'curl -fsS "http://127.0.0.1/wp-json/wtp-ro-open/v1/health" && echo "Health OK" || echo "::warning::health endpoint missing or failed"'
 
       - name: Done
         run: echo "Deploy finished."
