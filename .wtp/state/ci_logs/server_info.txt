@@ -1,15 +1,15 @@
 === whoami / uname / date ===
 u493676300
 Linux de-fra-web2061.main-hosting.eu 5.14.0-570.28.1.el9_6.x86_64 #1 SMP PREEMPT_DYNAMIC Tue Jul 22 07:56:01 EDT 2025 x86_64 x86_64 x86_64 GNU/Linux
-Fri Sep 12 04:52:08 PM UTC 2025
+Fri Sep 12 04:55:27 PM UTC 2025
 
 === TARGET ===
 /home/u493676300/domains/weektoppick.com/public_html/
 
-=== pwd after cd ===
+=== pwd ===
 /home/u493676300/domains/weektoppick.com/public_html
 
-=== ls -la (top) ===
+=== top ls ===
 total 7500
 drwxr-xr-x 13 u493676300 o1007709962    4096 Sep 12 14:44 .
 drwxr-xr-x  5 u493676300 o1007709962    4096 Sep  8 16:07 ..
@@ -49,8 +49,8 @@ drwxr-xr-x 30 u493676300 o1007709962   16384 Sep  8 18:58 wp-includes
 -rw-r--r--  1 u493676300 o1007709962   34516 Sep  8 18:58 wp-signup.php
 -rw-r--r--  1 u493676300 o1007709962    5102 Sep  8 18:58 wp-trackback.php
 drwxr-xr-x  3 u493676300 o1007709962    4096 Sep 12 16:23 .wtp
--rw-r--r--  1 u493676300 o1007709962      99 Sep 12 16:11 .wtp-allowed-plugins.norm
--rw-r--r--  1 u493676300 o1007709962     209 Sep 12 16:52 .wtp-allowed-plugins.txt
+-rw-r--r--  1 u493676300 o1007709962     209 Sep 12 16:52 .wtp-allowed-plugins.norm
+-rw-r--r--  1 u493676300 o1007709962     209 Sep 12 16:55 .wtp-allowed-plugins.txt
 drwxr-xr-x  2 u493676300 o1007709962    4096 Sep 11 19:40 .wtp-bot
 drwxr-xr-x  2 u493676300 o1007709962    4096 Sep 12 12:05 .wtp-state
 drwxr-xr-x  2 u493676300 o1007709962    4096 Sep 12 13:25 .wtp-vendor
