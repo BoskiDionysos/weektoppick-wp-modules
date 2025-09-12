@@ -1,4 +1,4 @@
-name: Deploy Site (MU, plugins, themes, wp-config)
+name: WP Deploy (code + diagnostics)
 
 on:
   workflow_dispatch: {}
@@ -39,6 +39,7 @@ jobs:
 
       - name: Tools
         run: |
+          set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y rsync sshpass jq
 
@@ -52,7 +53,36 @@ jobs:
           : "${TARGET:?Missing DEPLOY_TARGET}"
           echo "Secrets OK -> ${USER}@${HOST}:${TARGET}"
 
-      - name: Remote plugins BEFORE (optional)
+      - name: Remote sanity (environment check)
+        run: |
+          set -euo pipefail
+          echo "TARGET=${TARGET}"
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" /bin/bash <<'RMT'
+            set -euo pipefail
+            echo "=== whoami / uname / pwd ==="
+            whoami || true
+            uname -a || true
+            pwd || true
+
+            echo "=== try cd to TARGET and ls ==="
+            cd "$TARGET" || { echo "::error::Cannot cd to TARGET ($TARGET)"; exit 1; }
+            pwd
+            ls -la | head -n 100
+
+            echo "=== check wp-config.php presence ==="
+            if [ -f wp-config.php ]; then
+              echo "wp-config.php present"
+            else
+              echo "::error::wp-config.php NOT found in TARGET ($TARGET)"
+              exit 1
+            fi
+
+            echo "=== php & curl availability ==="
+            php -v || { echo "::error::php CLI not available"; exit 1; }
+            curl -Is https://api.wordpress.org/ | head -n1 || true
+          RMT
+
+      - name: Remote plugins BEFORE
         run: |
           set -eo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
@@ -70,35 +100,45 @@ jobs:
             echo "Skip: mu-plugins not present."
           fi
 
-      - name: Rsync plugins (build exclude from .wtp/protected-plugins.txt)
+      - name: Build rsync exclude from protected-plugins.txt
+        id: excl
         run: |
-          set -eo pipefail
-          : "${HOST:?}"; : "${PORT:?}"; : "${USER:?}"; : "${PASS:?}"; : "${TARGET:?}"
-
-          # 1) Zbuduj listę wykluczeń dla rsync (chronione katalogi wtyczek)
+          set -euo pipefail
           mkdir -p .wtp
           EXCLUDE_FILE=".wtp/rsync-exclude.txt"
-          if [ -f ".wtp/protected-plugins.txt" ]; then
-            awk 'NF{print "wp-content/plugins/" $0 "/***"}' .wtp/protected-plugins.txt > "$EXCLUDE_FILE"
-          elif [ -f "wtp/protected-plugins.txt" ]; then
-            awk 'NF{print "wp-content/plugins/" $0 "/***"}' wtp/protected-plugins.txt > "$EXCLUDE_FILE"
+          : > "$EXCLUDE_FILE"
+
+          # prefer .wtp/, fallback to wtp/
+          SRC=""
+          if   [ -f ".wtp/protected-plugins.txt" ]; then SRC=".wtp/protected-plugins.txt"
+          elif [ -f "wtp/protected-plugins.txt"  ]; then SRC="wtp/protected-plugins.txt"
+          fi
+
+          if [ -n "$SRC" ]; then
+            echo "Using protect list: $SRC"
+            sed -e 's/\r$//' "$SRC" | sed 's/^\xEF\xBB\xBF//' \
+              | sed 's/#.*$//' | awk 'NF{print "wp-content/plugins/" $0 "/***"}' \
+              >> "$EXCLUDE_FILE"
           else
-            : > "$EXCLUDE_FILE"
+            echo "No protected list found; rsync will fully manage plugins (with --delete)."
           fi
 
           echo "---- RSYNC EXCLUDES ----"
           if [ -s "$EXCLUDE_FILE" ]; then cat "$EXCLUDE_FILE"; else echo "(empty)"; fi
           echo "------------------------"
+          echo "file=$EXCLUDE_FILE" >> "$GITHUB_OUTPUT"
 
-          # 2) Wypchnij katalog plugins z honorowaniem exclude
+      - name: Sync plugins (rsync with excludes)
+        run: |
+          set -eo pipefail
           if [ -d "plugins" ]; then
             echo "Sync: plugins -> ${TARGET}/wp-content/plugins/"
             sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
-              --exclude-from="$EXCLUDE_FILE" \
+              --exclude-from="${{ steps.excl.outputs.file }}" \
               -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" \
               "plugins/" "${USER}@${HOST}:${TARGET}/wp-content/plugins/"
           else
-            echo "Skip: plugins not present."
+            echo "Skip: repo does not contain 'plugins/'"
           fi
 
       - name: Detect themes directory in repo
@@ -120,7 +160,7 @@ jobs:
             -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" \
             "$SRC/" "${USER}@${HOST}:${TARGET}/wp-content/themes/"
 
-      - name: Remote plugins AFTER (optional)
+      - name: Remote plugins AFTER
         run: |
           set -eo pipefail
           echo "---- REMOTE PLUGINS AFTER ----"
