@@ -1,1 +1,20 @@
-# Wtyczki chronione (nie nadpisywane rsync) wordfence litespeed-cache translatepress-multilingual cookie-law-info rank-math pretty-link wpml
+# Katalogi wtyczek, których NIE usuwamy podczas deploya (server-managed / komercyjne)
+# Jeden wpis = dokładna nazwa folderu w wp-content/plugins/
+
+# core infra / security / cache
+litespeed-cache
+wordfence
+cookie-law-info
+
+# tłumaczenia (komercyjne / referencyjne)
+translatepress-multilingual
+sitepress-multilingual-cms      # WPML core
+wpml-string-translation         # WPML strings
+polylang
+multilingualpress
+weglot
+
+# inne referencyjne (zostawiamy jeśli już są)
+pretty-link
+prettylinks-pro
+seo-by-rank-math
