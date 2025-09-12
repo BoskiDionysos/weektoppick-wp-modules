@@ -1,0 +1,10 @@
+{
+  "timestamp": null,
+  "health": "UNKNOWN",
+  "sitemap": "UNKNOWN",
+  "hreflang": "UNKNOWN",
+  "errors_500": 0,
+  "errors_404": 0,
+  "last_deploy_sha": null,
+  "notes": ""
+}
