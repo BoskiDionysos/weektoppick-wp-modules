@@ -1,0 +1,29 @@
+name: SSOT Guard (LOCKS & State presence)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify LOCKS & index.json
+        run: |
+          set -euo pipefail
+          test -f docs/locks/WeekTopPick_LOCKS_v3.0.md || { echo "::error::Missing docs/locks/WeekTopPick_LOCKS_v3.0.md"; exit 1; }
+          test -f docs/locks/index.json || { echo "::error::Missing docs/locks/index.json"; exit 1; }
+          echo "LOCKS & index.json present."
+
+      - name: Verify state report files
+        run: |
+          set -euo pipefail
+          for f in .wtp/state/daily_tech_report.json \
+                   .wtp/state/weekly_business_report.json \
+                   .wtp/state/charity_report.json; do
+            test -f "$f" || { echo "::error::Missing $f"; exit 1; }
+          done
+          echo "State files present."
