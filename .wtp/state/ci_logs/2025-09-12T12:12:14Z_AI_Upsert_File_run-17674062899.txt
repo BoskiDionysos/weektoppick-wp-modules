@@ -1,0 +1,283 @@
+Workflow: AI Upsert File
+Run ID:   17674062899
+Event:    workflow_dispatch
+Status:   failure
+Commit:   db5e836bf810c97f1d77b4ceb21ea289137a74de
+----- CONCATENATED JOB LOGS -----
+
+==== .wtp/state/ci_logs/2025-09-12T12:12:14Z_AI_Upsert_File_run-17674062899/0_upsert.txt ====
+﻿2025-09-12T12:12:10.2042204Z Current runner version: '2.328.0'
+2025-09-12T12:12:10.2067016Z ##[group]Runner Image Provisioner
+2025-09-12T12:12:10.2068066Z Hosted Compute Agent
+2025-09-12T12:12:10.2068597Z Version: 20250829.383
+2025-09-12T12:12:10.2069202Z Commit: 27cb235aab5b0e52e153a26cd86b4742e89dac5d
+2025-09-12T12:12:10.2069976Z Build Date: 2025-08-29T13:48:48Z
+2025-09-12T12:12:10.2070541Z ##[endgroup]
+2025-09-12T12:12:10.2071112Z ##[group]Operating System
+2025-09-12T12:12:10.2071687Z Ubuntu
+2025-09-12T12:12:10.2072179Z 24.04.3
+2025-09-12T12:12:10.2072709Z LTS
+2025-09-12T12:12:10.2073170Z ##[endgroup]
+2025-09-12T12:12:10.2073685Z ##[group]Runner Image
+2025-09-12T12:12:10.2074257Z Image: ubuntu-24.04
+2025-09-12T12:12:10.2074772Z Version: 20250907.24.1
+2025-09-12T12:12:10.2075867Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20250907.24/images/ubuntu/Ubuntu2404-Readme.md
+2025-09-12T12:12:10.2077402Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20250907.24
+2025-09-12T12:12:10.2078573Z ##[endgroup]
+2025-09-12T12:12:10.2079661Z ##[group]GITHUB_TOKEN Permissions
+2025-09-12T12:12:10.2081506Z Contents: write
+2025-09-12T12:12:10.2082029Z Metadata: read
+2025-09-12T12:12:10.2082609Z ##[endgroup]
+2025-09-12T12:12:10.2084915Z Secret source: Actions
+2025-09-12T12:12:10.2085791Z Prepare workflow directory
+2025-09-12T12:12:10.2492382Z Prepare all required actions
+2025-09-12T12:12:10.2547150Z Getting action download info
+2025-09-12T12:12:10.5609285Z Download action repository 'actions/github-script@v7' (SHA:f28e40c7f34bde8b3046d885e986cb6290c5673b)
+2025-09-12T12:12:11.6925498Z Complete job name: upsert
+2025-09-12T12:12:11.7697879Z ##[group]Run actions/github-script@v7
+2025-09-12T12:12:11.7698882Z with:
+2025-09-12T12:12:11.7699574Z   github-token: ***
+2025-09-12T12:12:11.7713834Z   script: const crypto = require('crypto');
+const ev = context.eventName;
+
+let path = '', message = '', branch = 'main', content_b64 = '', content_plain = '', sha256 = '';
+
+if (ev === 'workflow_dispatch') {
+  const inp = context.payload?.inputs || {};
+  path          = (inp.path || '').trim();
+  message       = (inp.message || '').trim();
+  branch        = (inp.branch || 'main').trim();
+  content_b64   = (inp.content_b64 || '').trim();
+  content_plain = (inp.content_plain || '').trim();
+  sha256        = (inp.sha256 || '').trim().toLowerCase();
+} else if (ev === 'repository_dispatch') {
+  const p = context.payload?.client_payload || {};
+  path          = (p.path || '').trim();
+  message       = (p.message || '').trim();
+  branch        = (p.branch || 'main').trim();
+  content_b64   = (p.content_b64 || '').trim();
+  content_plain = (p.content_plain || '').trim();
+  sha256        = (p.sha256 || '').trim().toLowerCase();
+} else {
+  core.setFailed(`Unsupported event: ${ev}`); return;
+}
+
+core.info(`event=${ev}`);
+core.info(`path="${path}", branch="${branch}"`);
+core.info(`has_plain=${content_plain !== ''}, has_b64=${content_b64 !== ''}`);
+
+if (!path)    return core.setFailed('Input "path" is required.');
+if (!message) return core.setFailed('Input "message" is required.');
+if (path.startsWith('/')) return core.setFailed('Path musi być repo-relative (bez wiodącego "/").');
+
+const both = (content_plain !== '' && content_b64 !== '');
+const none = (content_plain === '' && content_b64 === '');
+if (both || none) return core.setFailed('Podaj dokładnie jedno: content_plain ALBO content_b64.');
+
+let buf;
+if (content_b64) {
+  try { buf = Buffer.from(content_b64, 'base64'); if (buf.toString('base64') !== content_b64) throw 0; }
+  catch { return core.setFailed('content_b64 nie jest prawidłowym Base64.'); }
+} else {
+  buf = Buffer.from(content_plain, 'utf8');
+  content_b64 = buf.toString('base64');
+}
+
+if (sha256) {
+  const calc = crypto.createHash('sha256').update(buf).digest('hex');
+  core.info(`sha256(user)=${sha256}`);
+  core.info(`sha256(calc)=${calc}`);
+  if (calc !== sha256) return core.setFailed('SHA-256 mismatch treści.');
+}
+
+const { owner, repo } = context.repo;
+
+// read existing sha if any
+let sha;
+try {
+  const { data } = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
+    owner, repo, path, ref: branch,
+  });
+  sha = data?.sha || undefined;
+  core.info(`Existing sha=${sha || '(new file)'}`);
+} catch (e) {
+  if (e.status !== 404) return core.setFailed(`getContent failed: ${e.message}`);
+  core.info('File does not exist (creating).');
+}
+
+try {
+  const res = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+    owner, repo, path, message, branch, content: content_b64, sha
+  });
+  const commitSha = res.data.commit?.sha || '';
+  await core.summary
+    .addHeading('AI Upsert File')
+    .addTable([
+      [{data:'Field',header:true},{data:'Value',header:true}],
+      ['path', path],
+      ['branch', branch],
+      ['commit', commitSha],
+      ['verified_sha256', sha256 ? 'yes' : 'no']
+    ])
+    .write();
+  core.info(`OK: commit ${commitSha}`);
+} catch (e) {
+  core.setFailed(`PUT failed: ${e.message}`);
+}
+
+2025-09-12T12:12:11.7729037Z   debug: false
+2025-09-12T12:12:11.7729482Z   user-agent: actions/github-script
+2025-09-12T12:12:11.7730032Z   result-encoding: json
+2025-09-12T12:12:11.7730478Z   retries: 0
+2025-09-12T12:12:11.7730931Z   retry-exempt-status-codes: 400,401,403,404,422
+2025-09-12T12:12:11.7731839Z ##[endgroup]
+2025-09-12T12:12:11.8670921Z event=workflow_dispatch
+2025-09-12T12:12:11.8671941Z path=".github/workflows/protected-plugins-sanity.yml", branch="main"
+2025-09-12T12:12:11.8672782Z has_plain=true, has_b64=false
+2025-09-12T12:12:12.0912119Z File does not exist (creating).
+2025-09-12T12:12:12.2498145Z ##[error]PUT failed: Not Found
+2025-09-12T12:12:12.2668039Z Cleaning up orphan processes
+
+==== .wtp/state/ci_logs/2025-09-12T12:12:14Z_AI_Upsert_File_run-17674062899/upsert/1_Set up job.txt ====
+﻿2025-09-12T12:12:10.2041343Z Current runner version: '2.328.0'
+2025-09-12T12:12:10.2066992Z ##[group]Runner Image Provisioner
+2025-09-12T12:12:10.2068060Z Hosted Compute Agent
+2025-09-12T12:12:10.2068593Z Version: 20250829.383
+2025-09-12T12:12:10.2069198Z Commit: 27cb235aab5b0e52e153a26cd86b4742e89dac5d
+2025-09-12T12:12:10.2069972Z Build Date: 2025-08-29T13:48:48Z
+2025-09-12T12:12:10.2070538Z ##[endgroup]
+2025-09-12T12:12:10.2071109Z ##[group]Operating System
+2025-09-12T12:12:10.2071684Z Ubuntu
+2025-09-12T12:12:10.2072176Z 24.04.3
+2025-09-12T12:12:10.2072706Z LTS
+2025-09-12T12:12:10.2073167Z ##[endgroup]
+2025-09-12T12:12:10.2073682Z ##[group]Runner Image
+2025-09-12T12:12:10.2074219Z Image: ubuntu-24.04
+2025-09-12T12:12:10.2074769Z Version: 20250907.24.1
+2025-09-12T12:12:10.2075863Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20250907.24/images/ubuntu/Ubuntu2404-Readme.md
+2025-09-12T12:12:10.2077239Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20250907.24
+2025-09-12T12:12:10.2078568Z ##[endgroup]
+2025-09-12T12:12:10.2079569Z ##[group]GITHUB_TOKEN Permissions
+2025-09-12T12:12:10.2081449Z Contents: write
+2025-09-12T12:12:10.2082026Z Metadata: read
+2025-09-12T12:12:10.2082605Z ##[endgroup]
+2025-09-12T12:12:10.2084895Z Secret source: Actions
+2025-09-12T12:12:10.2085785Z Prepare workflow directory
+2025-09-12T12:12:10.2492344Z Prepare all required actions
+2025-09-12T12:12:10.2547123Z Getting action download info
+2025-09-12T12:12:10.5609249Z Download action repository 'actions/github-script@v7' (SHA:f28e40c7f34bde8b3046d885e986cb6290c5673b)
+2025-09-12T12:12:11.6925452Z Complete job name: upsert
+
+==== .wtp/state/ci_logs/2025-09-12T12:12:14Z_AI_Upsert_File_run-17674062899/upsert/2_Upsert file (UI or repository_dispatch).txt ====
+﻿2025-09-12T12:12:11.7697847Z ##[group]Run actions/github-script@v7
+2025-09-12T12:12:11.7698871Z with:
+2025-09-12T12:12:11.7699569Z   github-token: ***
+2025-09-12T12:12:11.7713589Z   script: const crypto = require('crypto');
+const ev = context.eventName;
+
+let path = '', message = '', branch = 'main', content_b64 = '', content_plain = '', sha256 = '';
+
+if (ev === 'workflow_dispatch') {
+  const inp = context.payload?.inputs || {};
+  path          = (inp.path || '').trim();
+  message       = (inp.message || '').trim();
+  branch        = (inp.branch || 'main').trim();
+  content_b64   = (inp.content_b64 || '').trim();
+  content_plain = (inp.content_plain || '').trim();
+  sha256        = (inp.sha256 || '').trim().toLowerCase();
+} else if (ev === 'repository_dispatch') {
+  const p = context.payload?.client_payload || {};
+  path          = (p.path || '').trim();
+  message       = (p.message || '').trim();
+  branch        = (p.branch || 'main').trim();
+  content_b64   = (p.content_b64 || '').trim();
+  content_plain = (p.content_plain || '').trim();
+  sha256        = (p.sha256 || '').trim().toLowerCase();
+} else {
+  core.setFailed(`Unsupported event: ${ev}`); return;
+}
+
+core.info(`event=${ev}`);
+core.info(`path="${path}", branch="${branch}"`);
+core.info(`has_plain=${content_plain !== ''}, has_b64=${content_b64 !== ''}`);
+
+if (!path)    return core.setFailed('Input "path" is required.');
+if (!message) return core.setFailed('Input "message" is required.');
+if (path.startsWith('/')) return core.setFailed('Path musi być repo-relative (bez wiodącego "/").');
+
+const both = (content_plain !== '' && content_b64 !== '');
+const none = (content_plain === '' && content_b64 === '');
+if (both || none) return core.setFailed('Podaj dokładnie jedno: content_plain ALBO content_b64.');
+
+let buf;
+if (content_b64) {
+  try { buf = Buffer.from(content_b64, 'base64'); if (buf.toString('base64') !== content_b64) throw 0; }
+  catch { return core.setFailed('content_b64 nie jest prawidłowym Base64.'); }
+} else {
+  buf = Buffer.from(content_plain, 'utf8');
+  content_b64 = buf.toString('base64');
+}
+
+if (sha256) {
+  const calc = crypto.createHash('sha256').update(buf).digest('hex');
+  core.info(`sha256(user)=${sha256}`);
+  core.info(`sha256(calc)=${calc}`);
+  if (calc !== sha256) return core.setFailed('SHA-256 mismatch treści.');
+}
+
+const { owner, repo } = context.repo;
+
+// read existing sha if any
+let sha;
+try {
+  const { data } = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
+    owner, repo, path, ref: branch,
+  });
+  sha = data?.sha || undefined;
+  core.info(`Existing sha=${sha || '(new file)'}`);
+} catch (e) {
+  if (e.status !== 404) return core.setFailed(`getContent failed: ${e.message}`);
+  core.info('File does not exist (creating).');
+}
+
+try {
+  const res = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+    owner, repo, path, message, branch, content: content_b64, sha
+  });
+  const commitSha = res.data.commit?.sha || '';
+  await core.summary
+    .addHeading('AI Upsert File')
+    .addTable([
+      [{data:'Field',header:true},{data:'Value',header:true}],
+      ['path', path],
+      ['branch', branch],
+      ['commit', commitSha],
+      ['verified_sha256', sha256 ? 'yes' : 'no']
+    ])
+    .write();
+  core.info(`OK: commit ${commitSha}`);
+} catch (e) {
+  core.setFailed(`PUT failed: ${e.message}`);
+}
+
+2025-09-12T12:12:11.7729028Z   debug: false
+2025-09-12T12:12:11.7729477Z   user-agent: actions/github-script
+2025-09-12T12:12:11.7730028Z   result-encoding: json
+2025-09-12T12:12:11.7730474Z   retries: 0
+2025-09-12T12:12:11.7730928Z   retry-exempt-status-codes: 400,401,403,404,422
+2025-09-12T12:12:11.7731832Z ##[endgroup]
+2025-09-12T12:12:11.8670834Z event=workflow_dispatch
+2025-09-12T12:12:11.8671926Z path=".github/workflows/protected-plugins-sanity.yml", branch="main"
+2025-09-12T12:12:11.8672778Z has_plain=true, has_b64=false
+2025-09-12T12:12:12.0911983Z File does not exist (creating).
+2025-09-12T12:12:12.2498083Z ##[error]PUT failed: Not Found
+
+==== .wtp/state/ci_logs/2025-09-12T12:12:14Z_AI_Upsert_File_run-17674062899/upsert/3_Complete job.txt ====
+﻿2025-09-12T12:12:12.2668013Z Cleaning up orphan processes
+
+==== .wtp/state/ci_logs/2025-09-12T12:12:14Z_AI_Upsert_File_run-17674062899/upsert/system.txt ====
+2025-09-12T12:12:07.5160000Z Requested labels: ubuntu-latest
+2025-09-12T12:12:07.5160000Z Job defined at: BoskiDionysos/weektoppick-wp-modules/.github/workflows/ai-upsert-file.yml@refs/heads/main
+2025-09-12T12:12:07.5160000Z Waiting for a runner to pick up this job...
+2025-09-12T12:12:08.0140000Z Job is about to start running on the hosted runner: GitHub Actions 1000002152
+2025-09-12T12:12:08.0140000Z Job is waiting for a hosted runner to come online.
