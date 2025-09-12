@@ -1,0 +1,5 @@
+2025-09-12T11:20:59.9630000Z Job is about to start running on the hosted runner: GitHub Actions 1000002106
+2025-09-12T11:20:59.9500000Z Requested labels: ubuntu-latest
+2025-09-12T11:20:59.9500000Z Job defined at: BoskiDionysos/weektoppick-wp-modules/.github/workflows/wpcli-allowed-plugins.yml@refs/heads/main
+2025-09-12T11:20:59.9500000Z Waiting for a runner to pick up this job...
+2025-09-12T11:20:59.9620000Z Job is waiting for a hosted runner to come online.

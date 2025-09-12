@@ -1,0 +1,24 @@
+﻿2025-09-12T11:21:13.4171932Z ##[group]Run set -euo pipefail
+2025-09-12T11:21:13.4172261Z [36;1mset -euo pipefail[0m
+2025-09-12T11:21:13.4172801Z [36;1msshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no ".wtp/allowed-plugins.txt" "$USER@$HOST:$TARGET/.wtp-allowed-plugins.txt"[0m
+2025-09-12T11:21:13.4173396Z [36;1mif [ -d ".wtp/vendor-plugins" ]; then[0m
+2025-09-12T11:21:13.4173689Z [36;1m  echo "Uploading vendor zips..."[0m
+2025-09-12T11:21:13.4174240Z [36;1m  sshpass -p "$PASS" rsync -az -v -e "ssh -p $PORT -o StrictHostKeyChecking=no" ".wtp/vendor-plugins/" "$USER@$HOST:$TARGET/.wtp-vendor/"[0m
+2025-09-12T11:21:13.4174750Z [36;1melse[0m
+2025-09-12T11:21:13.4174989Z [36;1m  echo "No .wtp/vendor-plugins directory (skip)"[0m
+2025-09-12T11:21:13.4175270Z [36;1mfi[0m
+2025-09-12T11:21:13.4205978Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-12T11:21:13.4206311Z env:
+2025-09-12T11:21:13.4206575Z   HOST: ***
+2025-09-12T11:21:13.4206774Z   PORT: ***
+2025-09-12T11:21:13.4206964Z   USER: ***
+2025-09-12T11:21:13.4207192Z   PASS: ***
+2025-09-12T11:21:13.4207480Z   TARGET: ***
+2025-09-12T11:21:13.4207694Z ##[endgroup]
+2025-09-12T11:21:16.2353193Z Uploading vendor zips...
+2025-09-12T11:21:18.2037756Z sending incremental file list
+2025-09-12T11:21:18.3452239Z ./
+2025-09-12T11:21:18.3452787Z .gitkeep
+2025-09-12T11:21:18.7985547Z 
+2025-09-12T11:21:18.7986876Z sent 122 bytes  received 44 bytes  66.40 bytes/sec
+2025-09-12T11:21:18.7987588Z total size is 6  speedup is 0.04

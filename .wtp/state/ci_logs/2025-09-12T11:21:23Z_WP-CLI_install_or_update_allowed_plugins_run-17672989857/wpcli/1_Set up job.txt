@@ -1,0 +1,28 @@
+﻿2025-09-12T11:21:03.1604322Z Current runner version: '2.328.0'
+2025-09-12T11:21:03.1632169Z ##[group]Runner Image Provisioner
+2025-09-12T11:21:03.1633415Z Hosted Compute Agent
+2025-09-12T11:21:03.1634043Z Version: 20250829.383
+2025-09-12T11:21:03.1634779Z Commit: 27cb235aab5b0e52e153a26cd86b4742e89dac5d
+2025-09-12T11:21:03.1635497Z Build Date: 2025-08-29T13:48:48Z
+2025-09-12T11:21:03.1636176Z ##[endgroup]
+2025-09-12T11:21:03.1636734Z ##[group]Operating System
+2025-09-12T11:21:03.1637298Z Ubuntu
+2025-09-12T11:21:03.1637845Z 24.04.3
+2025-09-12T11:21:03.1638340Z LTS
+2025-09-12T11:21:03.1638797Z ##[endgroup]
+2025-09-12T11:21:03.1639423Z ##[group]Runner Image
+2025-09-12T11:21:03.1640005Z Image: ubuntu-24.04
+2025-09-12T11:21:03.1640780Z Version: 20250907.24.1
+2025-09-12T11:21:03.1641992Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20250907.24/images/ubuntu/Ubuntu2404-Readme.md
+2025-09-12T11:21:03.1643490Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20250907.24
+2025-09-12T11:21:03.1644802Z ##[endgroup]
+2025-09-12T11:21:03.1645867Z ##[group]GITHUB_TOKEN Permissions
+2025-09-12T11:21:03.1647695Z Contents: read
+2025-09-12T11:21:03.1648321Z Metadata: read
+2025-09-12T11:21:03.1648968Z ##[endgroup]
+2025-09-12T11:21:03.1651446Z Secret source: Actions
+2025-09-12T11:21:03.1652177Z Prepare workflow directory
+2025-09-12T11:21:03.2262186Z Prepare all required actions
+2025-09-12T11:21:03.2301058Z Getting action download info
+2025-09-12T11:21:03.5974892Z Download action repository 'actions/checkout@v4' (SHA:08eba0b27e820071cde6df949e0beb9ba4906955)
+2025-09-12T11:21:03.8369301Z Complete job name: wpcli
