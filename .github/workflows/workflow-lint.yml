@@ -1,0 +1,40 @@
+name: Workflow Lint (actionlint → log to repo + issue)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/*.yml'
+      - '.github/workflows/*.yaml'
+  workflow_dispatch: {}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run actionlint
+        id: lint
+        run: |
+          curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash -s -- -b ./.bin
+          mkdir -p .wtp/state/ci_errors
+          set +e
+          ./.bin/actionlint -color=never > .wtp/state/ci_errors/workflow_lint.txt 2>&1
+          EXIT=$?
+          echo "exit_code=$EXIT" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Commit lint log to repo
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "ci(log): update workflow_lint.txt"
+          file_pattern: ".wtp/state/ci_errors/workflow_lint.txt"
+
+      - name: Create/Update issue with lint errors
+        if: ${{ steps.lint.outputs.exit_code != 0 }}
+        uses: peter-evans/create-issue-from-file@v4
+        with:
+          title: "Workflow YAML errors detected"
+          content-filepath: ".wtp/state/ci_errors/workflow_lint.txt"
+          labels: "ci,bug"
