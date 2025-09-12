@@ -156,3 +156,34 @@ jobs:
           name: wpcli-logs
           path: _ci_logs/
         continue-on-error: true
+
+              - name: Dump active plugins (WP-CLI)
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" '
+            set -e
+            cd "$TARGET"
+            WP="php ./wp --skip-plugins"
+            echo "=== wp plugin list --status=active ==="
+            $WP plugin list --status=active || true
+          '
+
+      - name: Show CI logs from server (+ assert)
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" '
+            set -e
+            cd "$TARGET"
+            LOGDIR=".wtp/state/ci_logs"
+            echo "=== CI logs directory: $LOGDIR ==="
+            ls -la "$LOGDIR" || true
+            for f in plugins_installed.txt plugins_updated.txt plugins_existing.txt; do
+              echo "--- $f ---"
+              test -f "$LOGDIR/$f" && sed -n "1,120p" "$LOGDIR/$f" || echo "(missing)"
+            done
+            # Twarde sprawdzenie: musi być przynajmniej 1 aktywna wtyczka po akcji
+            WP="php ./wp --skip-plugins"
+            ACTIVE=$($WP plugin list --status=active --field=name | wc -l | tr -d " ")
+            echo "Active plugins count: $ACTIVE"
+            test "$ACTIVE" -ge 1 || { echo "::error::No active plugins after run"; exit 2; }
+          '
