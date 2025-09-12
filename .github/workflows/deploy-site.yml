@@ -34,6 +34,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Tools
         run: |
@@ -46,7 +48,6 @@ jobs:
           test -n "${HOST:-}" && test -n "${PORT:-}" && test -n "${USER:-}" && test -n "${PASS:-}" && test -n "${TARGET:-}" \
             || { echo "::error::Missing deploy secrets"; exit 1; }
 
-      # ===== Build EXCLUDES from .wtp/protected-plugins.txt (robust) =====
       - name: Build excludes list (plugins)
         id: lists
         shell: bash
@@ -56,28 +57,21 @@ jobs:
           if   [ -f ".wtp/protected-plugins.txt" ]; then SRC=".wtp/protected-plugins.txt"
           elif [ -f "wtp/protected-plugins.txt"  ]; then SRC="wtp/protected-plugins.txt"
           fi
-
-          EXCLUDE_FILE="$(mktemp)"
-          : > "$EXCLUDE_FILE"
-
+          EXCLUDE_FILE="$(mktemp)"; : > "$EXCLUDE_FILE"
           if [ -n "$SRC" ]; then
-            # usuń BOM/CRLF, komentarze, puste; każdy wpis -> "<folder>/***"
             cp "$SRC" _tmp_protected.txt
             dos2unix -q _tmp_protected.txt || true
             sed 's/^\xEF\xBB\xBF//' _tmp_protected.txt | while IFS= read -r line; do
-              name="${line%%#*}"
-              name="$(echo "$name" | xargs)"
+              name="${line%%#*}"; name="$(echo "$name" | xargs)"
               [ -z "$name" ] && continue
               echo "${name}/***" >> "$EXCLUDE_FILE"
             done
             rm -f _tmp_protected.txt
           fi
-
           echo "exclude=$EXCLUDE_FILE" >> "$GITHUB_OUTPUT"
           echo "---- EXCLUDES (effective) ----"
           if [ -s "$EXCLUDE_FILE" ]; then cat "$EXCLUDE_FILE"; else echo "(empty)"; fi
 
-      # ===== Pre-create remote paths (eliminuje rsync 'no such file or directory') =====
       - name: Ensure remote directories
         run: |
           set -euo pipefail
@@ -94,7 +88,6 @@ jobs:
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
             "echo '--- REMOTE PLUGINS BEFORE ---'; ls -1 '$TARGET/wp-content/plugins' || true"
 
-      # ===== Detect sources in repo =====
       - name: Detect mu-plugins
         id: mu
         shell: bash
@@ -119,7 +112,6 @@ jobs:
           elif [ -d "wp-content/themes" ]; then echo "src=wp-content/themes" >> "$GITHUB_OUTPUT"
           else echo "src=" >> "$GITHUB_OUTPUT"; fi
 
-      # ===== Sync MU-plugins =====
       - name: Sync MU plugins
         if: ${{ steps.mu.outputs.src != '' }}
         shell: bash
@@ -131,13 +123,9 @@ jobs:
           sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
             -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
             "$SRC/" "$USER@$HOST:$TARGET/wp-content/mu-plugins/"
-          RC=$?
-          set -e
-          if [ $RC -ne 0 ] && [ $RC -ne 23 ] && [ $RC -ne 24 ]; then
-            echo "::error::rsync MU failed (rc=$RC)"; exit $RC
-          fi
+          RC=$?; set -e
+          if [ $RC -ne 0 ] && [ $RC -ne 23 ] && [ $RC -ne 24 ]; then echo "::error::rsync MU failed (rc=$RC)"; exit $RC; fi
 
-      # ===== Sync plugins with EXCLUDES (provider plugins never vanish) =====
       - name: Sync plugins (with excludes + tolerant rc 23/24)
         if: ${{ steps.plg.outputs.src != '' }}
         shell: bash
@@ -146,8 +134,7 @@ jobs:
           SRC="${{ steps.plg.outputs.src }}"
           declare -a EX_OPT=()
           if [ -s "${{ steps.lists.outputs.exclude }}" ]; then
-            echo "Use excludes:"
-            cat "${{ steps.lists.outputs.exclude }}"
+            echo "Use excludes:"; cat "${{ steps.lists.outputs.exclude }}"
             EX_OPT=( --exclude-from="${{ steps.lists.outputs.exclude }}" )
           else
             echo "No excludes file."
@@ -158,13 +145,9 @@ jobs:
             "${EX_OPT[@]}" \
             -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
             "$SRC/" "$USER@$HOST:$TARGET/wp-content/plugins/"
-          RC=$?
-          set -e
-          if [ $RC -ne 0 ] && [ $RC -ne 23 ] && [ $RC -ne 24 ]; then
-            echo "::error::rsync PLUGINS failed (rc=$RC)"; exit $RC
-          fi
+          RC=$?; set -e
+          if [ $RC -ne 0 ] && [ $RC -ne 23 ] && [ $RC -ne 24 ]; then echo "::error::rsync PLUGINS failed (rc=$RC)"; exit $RC; fi
 
-      # ===== Sync themes =====
       - name: Sync themes
         if: ${{ steps.thm.outputs.src != '' }}
         shell: bash
@@ -176,11 +159,8 @@ jobs:
           sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
             -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
             "$SRC/" "$USER@$HOST:$TARGET/wp-content/themes/"
-          RC=$?
-          set -e
-          if [ $RC -ne 0 ] && [ $RC -ne 23 ] && [ $RC -ne 24 ]; then
-            echo "::error::rsync THEMES failed (rc=$RC)"; exit $RC
-          fi
+          RC=$?; set -e
+          if [ $RC -ne 0 ] && [ $RC -ne 23 ] && [ $RC -ne 24 ]; then echo "::error::rsync THEMES failed (rc=$RC)"; exit $RC; fi
 
       - name: Remote plugins AFTER
         run: |
