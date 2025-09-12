@@ -2,5 +2,24 @@
 litespeed-cache
 wordfence
 translatepress-multilingual
-cookie-law-info 
+cookie-law-info
+seo-by-rank-math
+rank-math-pro
+wp-rocket
+advanced-custom-fields-pro
+gravityforms
+perfmatters
+# tłumaczenia (komercyjne też chronimy)
+translatepress-multilingual
+translatepress-pro
+sitepress-multilingual-cms        # WPML core folder name
+wpml-string-translation
+polylang
+polylang-pro
+multilingualpress
+weglot
+
+# link management
+pretty-link
+prettylinks-pro
 # dopisuj kolejne według potrzeb…
