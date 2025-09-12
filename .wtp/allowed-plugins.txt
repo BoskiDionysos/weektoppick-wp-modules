@@ -1,1 +1,7 @@
-# Wtyczki dozwolone do instalacji/aktualizacji przez WP-CLI # Format: slug[@wersja] albo zip:nazwa.zip  wordfence litespeed-cache cookie-law-info rank-math pretty-link wpml
+# Wtyczki dozwolone do instalacji/aktualizacji przez WP-CLI # Format: slug[@wersja] albo zip:nazwa.zip  
+wordfence 
+litespeed-cache 
+cookie-law-info 
+rank-math 
+pretty-link wpml
+translatepress-multilingual
