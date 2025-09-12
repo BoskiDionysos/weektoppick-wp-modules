@@ -1,0 +1,28 @@
+﻿2025-09-12T11:08:04.1107982Z Current runner version: '2.328.0'
+2025-09-12T11:08:04.1133334Z ##[group]Runner Image Provisioner
+2025-09-12T11:08:04.1134349Z Hosted Compute Agent
+2025-09-12T11:08:04.1134948Z Version: 20250829.383
+2025-09-12T11:08:04.1135523Z Commit: 27cb235aab5b0e52e153a26cd86b4742e89dac5d
+2025-09-12T11:08:04.1136270Z Build Date: 2025-08-29T13:48:48Z
+2025-09-12T11:08:04.1136898Z ##[endgroup]
+2025-09-12T11:08:04.1137401Z ##[group]Operating System
+2025-09-12T11:08:04.1138256Z Ubuntu
+2025-09-12T11:08:04.1138759Z 24.04.3
+2025-09-12T11:08:04.1139200Z LTS
+2025-09-12T11:08:04.1139725Z ##[endgroup]
+2025-09-12T11:08:04.1140252Z ##[group]Runner Image
+2025-09-12T11:08:04.1140859Z Image: ubuntu-24.04
+2025-09-12T11:08:04.1141429Z Version: 20250907.24.1
+2025-09-12T11:08:04.1142451Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20250907.24/images/ubuntu/Ubuntu2404-Readme.md
+2025-09-12T11:08:04.1143876Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20250907.24
+2025-09-12T11:08:04.1145148Z ##[endgroup]
+2025-09-12T11:08:04.1146277Z ##[group]GITHUB_TOKEN Permissions
+2025-09-12T11:08:04.1148558Z Contents: write
+2025-09-12T11:08:04.1149138Z Metadata: read
+2025-09-12T11:08:04.1149733Z ##[endgroup]
+2025-09-12T11:08:04.1151816Z Secret source: Actions
+2025-09-12T11:08:04.1152536Z Prepare workflow directory
+2025-09-12T11:08:04.1501606Z Prepare all required actions
+2025-09-12T11:08:04.1557989Z Getting action download info
+2025-09-12T11:08:04.4730198Z Download action repository 'actions/github-script@v7' (SHA:f28e40c7f34bde8b3046d885e986cb6290c5673b)
+2025-09-12T11:08:05.1738222Z Complete job name: upsert

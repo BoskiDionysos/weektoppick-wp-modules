@@ -1,0 +1,101 @@
+﻿2025-09-12T11:08:05.2565025Z ##[group]Run actions/github-script@v7
+2025-09-12T11:08:05.2566279Z with:
+2025-09-12T11:08:05.2567228Z   github-token: ***
+2025-09-12T11:08:05.2582747Z   script: const crypto = require('crypto');
+const ev = context.eventName;
+
+let path = '', message = '', branch = 'main', content_b64 = '', content_plain = '', sha256 = '';
+
+if (ev === 'workflow_dispatch') {
+  const inp = context.payload?.inputs || {};
+  path          = (inp.path || '').trim();
+  message       = (inp.message || '').trim();
+  branch        = (inp.branch || 'main').trim();
+  content_b64   = (inp.content_b64 || '').trim();
+  content_plain = (inp.content_plain || '').trim();
+  sha256        = (inp.sha256 || '').trim().toLowerCase();
+} else if (ev === 'repository_dispatch') {
+  const p = context.payload?.client_payload || {};
+  path          = (p.path || '').trim();
+  message       = (p.message || '').trim();
+  branch        = (p.branch || 'main').trim();
+  content_b64   = (p.content_b64 || '').trim();
+  content_plain = (p.content_plain || '').trim();
+  sha256        = (p.sha256 || '').trim().toLowerCase();
+} else {
+  core.setFailed(`Unsupported event: ${ev}`); return;
+}
+
+core.info(`event=${ev}`);
+core.info(`path="${path}", branch="${branch}"`);
+core.info(`has_plain=${content_plain !== ''}, has_b64=${content_b64 !== ''}`);
+
+if (!path)    return core.setFailed('Input "path" is required.');
+if (!message) return core.setFailed('Input "message" is required.');
+if (path.startsWith('/')) return core.setFailed('Path musi być repo-relative (bez wiodącego "/").');
+
+const both = (content_plain !== '' && content_b64 !== '');
+const none = (content_plain === '' && content_b64 === '');
+if (both || none) return core.setFailed('Podaj dokładnie jedno: content_plain ALBO content_b64.');
+
+let buf;
+if (content_b64) {
+  try { buf = Buffer.from(content_b64, 'base64'); if (buf.toString('base64') !== content_b64) throw 0; }
+  catch { return core.setFailed('content_b64 nie jest prawidłowym Base64.'); }
+} else {
+  buf = Buffer.from(content_plain, 'utf8');
+  content_b64 = buf.toString('base64');
+}
+
+if (sha256) {
+  const calc = crypto.createHash('sha256').update(buf).digest('hex');
+  core.info(`sha256(user)=${sha256}`);
+  core.info(`sha256(calc)=${calc}`);
+  if (calc !== sha256) return core.setFailed('SHA-256 mismatch treści.');
+}
+
+const { owner, repo } = context.repo;
+
+// read existing sha if any
+let sha;
+try {
+  const { data } = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
+    owner, repo, path, ref: branch,
+  });
+  sha = data?.sha || undefined;
+  core.info(`Existing sha=${sha || '(new file)'}`);
+} catch (e) {
+  if (e.status !== 404) return core.setFailed(`getContent failed: ${e.message}`);
+  core.info('File does not exist (creating).');
+}
+
+try {
+  const res = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+    owner, repo, path, message, branch, content: content_b64, sha
+  });
+  const commitSha = res.data.commit?.sha || '';
+  await core.summary
+    .addHeading('AI Upsert File')
+    .addTable([
+      [{data:'Field',header:true},{data:'Value',header:true}],
+      ['path', path],
+      ['branch', branch],
+      ['commit', commitSha],
+      ['verified_sha256', sha256 ? 'yes' : 'no']
+    ])
+    .write();
+  core.info(`OK: commit ${commitSha}`);
+} catch (e) {
+  core.setFailed(`PUT failed: ${e.message}`);
+}
+
+2025-09-12T11:08:05.2602729Z   debug: false
+2025-09-12T11:08:05.2603390Z   user-agent: actions/github-script
+2025-09-12T11:08:05.2604214Z   result-encoding: json
+2025-09-12T11:08:05.2604751Z   retries: 0
+2025-09-12T11:08:05.2605183Z   retry-exempt-status-codes: 400,401,403,404,422
+2025-09-12T11:08:05.2606083Z ##[endgroup]
+2025-09-12T11:08:05.3728667Z event=workflow_dispatch
+2025-09-12T11:08:05.3729856Z path=".github/workflows/wpcli-allowed-plugins.yml", branch="main"
+2025-09-12T11:08:05.3731032Z has_plain=false, has_b64=true
+2025-09-12T11:08:05.3768390Z ##[error]content_b64 nie jest prawidłowym Base64.
