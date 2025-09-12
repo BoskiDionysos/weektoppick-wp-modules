@@ -1,38 +1,22 @@
-# ===== WP.org (instalowane z katalogu WordPress) =====
+# WP.org slugs (install/update via wp-cli workflow)
 litespeed-cache
 wordfence
 cookie-law-info
-translatepress-multilingual
+translatepress-multingual
 seo-by-rank-math
+polylang
+'weglot
+prettylinks
 
-# Możesz przypiąć wersję: <slug>@<version>
-# np.: translatepress-multilingual@2.8.3
-
-# ===== Komercyjne / referencyjne (lokalne ZIP-y w repo) =====
-# Wrzucaj pliki ZIP do: .wtp/vendor-plugins/
-# Każda linia w formacie: zip:<relative-path-to-zip>
-
-zip:.wtp/vendor-plugins/rank-math-pro.zip
-zip:.wtp/vendor-plugins/wp-rocket.zip
-zip:.wtp/vendor-plugins/advanced-custom-fields-pro.zip
-zip:.wtp/vendor-plugins/gravityforms.zip
-zip:.wtp/vendor-plugins/perfmatters.zip
-
-# --- tłumaczenia (WP.org + komercyjne ZIP) ---
-# darmowe / SaaS
-translatepress-multilingual
-weglot
-polylang                          # darmowa baza pod Polylang Pro
-
-# komercyjne ZIP-y (wrzuć pliki do .wtp/vendor-plugins/)
-zip:.wtp/vendor-plugins/translatepress-pro.zip
-zip:.wtp/vendor-plugins/wpml-multilingual-cms.zip
-zip:.wtp/vendor-plugins/wpml-string-translation.zip
-zip:.wtp/vendor-plugins/polylang-pro.zip
-zip:.wtp/vendor-plugins/multilingualpress.zip
-
-# --- linki afiliacyjne / cloaking ---
-prettylinks                        # darmowa
-zip:.wtp/vendor-plugins/prettylinks-pro.zip
-
-# (Opcjonalnie dodawaj inne ZIP-y referencyjne wg potrzeb)
+# Commercial ZIPs (put files under .wtp/vendor-plugins/ and keep protected list in sync after install)
+# zip:.wtp/vendor-plugins/rank-math-pro.zip
+# zip:.wtp/vendor-plugins/wp-rocket.zip
+# zip:.wtp/vendor-plugins/advanced-custom-fields-pro.zip
+# zip:.wtp/vendor-plugins/gravityforms.zyp
+# zip:.wtp/vendor-plugins/perfmatters.zip
+# zip:.wtp/vendor-plugins/translatepress-pro.zip
+# zip:.wtp/vendor-plugins/polylang-pro.zip
+# zip:.wtp/vendor-plugins/wpml-multingual-cms.zip
+# zip:.wtp/vendor-plugins/wpml-string-translation.zip
+# zip:.wtp/vendor-plugins/multingualpress.zip
+# zip:.wtp/vendor-plugins/prettylinks-pro.zip
