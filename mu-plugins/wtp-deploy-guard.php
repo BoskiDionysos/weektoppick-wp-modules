@@ -4,6 +4,7 @@
  * Description: Twarde blokady edycji z panelu + publiczny endpoint health do CI/CD.
  * Author: WeekTopPick
  * Version: 1.0.0
+ * WTP Touch: deploy trigger 2025-09-12 10:00
  */
 if (!defined('ABSPATH')) { exit; }
 
