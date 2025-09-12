@@ -23,7 +23,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       HOST:   ${{ secrets.DEPLOY_HOST }}
       PORT:   ${{ secrets.DEPLOY_PORT }}
@@ -38,7 +38,7 @@ jobs:
       - name: Tools
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y rsync sshpass jq
+          sudo apt-get install -y rsync sshpass jq dos2unix
 
       - name: Verify secrets
         run: |
@@ -46,123 +46,147 @@ jobs:
           test -n "${HOST:-}" && test -n "${PORT:-}" && test -n "${USER:-}" && test -n "${PASS:-}" && test -n "${TARGET:-}" \
             || { echo "::error::Missing deploy secrets"; exit 1; }
 
-      # Zbuduj listę "protect" z pliku .wtp/protected-plugins.txt lub wtp/protected-plugins.txt
-      - name: Pick protect list (plugins)
-        id: protect
+      # ===== Build EXCLUDES from .wtp/protected-plugins.txt (robust) =====
+      - name: Build excludes list (plugins)
+        id: lists
         shell: bash
         run: |
           set -euo pipefail
-          LIST=""
-          if   [ -f ".wtp/protected-plugins.txt" ]; then LIST=".wtp/protected-plugins.txt"
-          elif [ -f "wtp/protected-plugins.txt"  ]; then LIST="wtp/protected-plugins.txt"
+          SRC=""
+          if   [ -f ".wtp/protected-plugins.txt" ]; then SRC=".wtp/protected-plugins.txt"
+          elif [ -f "wtp/protected-plugins.txt"  ]; then SRC="wtp/protected-plugins.txt"
           fi
-          FILTERS="$(mktemp)"
-          if [ -n "$LIST" ]; then
-            echo "Using protect list: $LIST"
-            # normalizacja linii (bez BOM/CR), wytnij komentarze i puste
-            sed -e 's/\r$//' "$LIST" | sed 's/^\xEF\xBB\xBF//' | while IFS= read -r name; do
-              name="${name%%#*}"; name="$(echo "$name" | xargs)"
+
+          EXCLUDE_FILE="$(mktemp)"
+          : > "$EXCLUDE_FILE"
+
+          if [ -n "$SRC" ]; then
+            # usuń BOM/CRLF, komentarze, puste; każdy wpis -> "<folder>/***"
+            cp "$SRC" _tmp_protected.txt
+            dos2unix -q _tmp_protected.txt || true
+            sed 's/^\xEF\xBB\xBF//' _tmp_protected.txt | while IFS= read -r line; do
+              name="${line%%#*}"
+              name="$(echo "$name" | xargs)"
               [ -z "$name" ] && continue
-              echo "P ${name}/**" >> "$FILTERS"
+              echo "${name}/***" >> "$EXCLUDE_FILE"
             done
+            rm -f _tmp_protected.txt
           fi
-          echo "filters=$FILTERS" >> "$GITHUB_OUTPUT"
-          echo "list=${LIST}"     >> "$GITHUB_OUTPUT"
-          echo "---- PROTECT FILTERS ----"
-          if [ -s "$FILTERS" ]; then cat "$FILTERS"; else echo "(empty)"; fi
-          echo "-------------------------"
+
+          echo "exclude=$EXCLUDE_FILE" >> "$GITHUB_OUTPUT"
+          echo "---- EXCLUDES (effective) ----"
+          if [ -s "$EXCLUDE_FILE" ]; then cat "$EXCLUDE_FILE"; else echo "(empty)"; fi
+
+      # ===== Pre-create remote paths (eliminuje rsync 'no such file or directory') =====
+      - name: Ensure remote directories
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "
+            set -e
+            mkdir -p '$TARGET/wp-content/plugins' \
+                     '$TARGET/wp-content/themes' \
+                     '$TARGET/wp-content/mu-plugins'
+          "
 
       - name: Remote plugins BEFORE
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
-            "ls -1 '$TARGET/wp-content/plugins' || true"
+            "echo '--- REMOTE PLUGINS BEFORE ---'; ls -1 '$TARGET/wp-content/plugins' || true"
 
-      # MU-plugins: wykryj źródło (mu-plugins/ albo wp-content/mu-plugins/)
-      - name: Detect mu-plugins directory in repo
+      # ===== Detect sources in repo =====
+      - name: Detect mu-plugins
         id: mu
         shell: bash
         run: |
-          set -euo pipefail
           if   [ -d "mu-plugins" ]; then echo "src=mu-plugins" >> "$GITHUB_OUTPUT"
           elif [ -d "wp-content/mu-plugins" ]; then echo "src=wp-content/mu-plugins" >> "$GITHUB_OUTPUT"
-          else echo "src=" >> "$GITHUB_OUTPUT"
-          fi
+          else echo "src=" >> "$GITHUB_OUTPUT"; fi
 
-      - name: Sync MU plugins (if present)
+      - name: Detect plugins
+        id: plg
+        shell: bash
+        run: |
+          if   [ -d "plugins" ]; then echo "src=plugins" >> "$GITHUB_OUTPUT"
+          elif [ -d "wp-content/plugins" ]; then echo "src=wp-content/plugins" >> "$GITHUB_OUTPUT"
+          else echo "src=" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Detect themes
+        id: thm
+        shell: bash
+        run: |
+          if   [ -d "themes" ]; then echo "src=themes" >> "$GITHUB_OUTPUT"
+          elif [ -d "wp-content/themes" ]; then echo "src=wp-content/themes" >> "$GITHUB_OUTPUT"
+          else echo "src=" >> "$GITHUB_OUTPUT"; fi
+
+      # ===== Sync MU-plugins =====
+      - name: Sync MU plugins
         if: ${{ steps.mu.outputs.src != '' }}
         shell: bash
         run: |
           set -euo pipefail
           SRC="${{ steps.mu.outputs.src }}"
           echo "Sync: $SRC -> $TARGET/wp-content/mu-plugins/"
+          set +e
           sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
             -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
             "$SRC/" "$USER@$HOST:$TARGET/wp-content/mu-plugins/"
-
-      # Plugins: wykryj źródło (plugins/ albo wp-content/plugins/)
-      - name: Detect plugins directory in repo
-        id: plg
-        shell: bash
-        run: |
-          set -euo pipefail
-          if   [ -d "plugins" ]; then echo "src=plugins" >> "$GITHUB_OUTPUT"
-          elif [ -d "wp-content/plugins" ]; then echo "src=wp-content/plugins" >> "$GITHUB_OUTPUT"
-          else echo "src=" >> "$GITHUB_OUTPUT"
+          RC=$?
+          set -e
+          if [ $RC -ne 0 ] && [ $RC -ne 23 ] && [ $RC -ne 24 ]; then
+            echo "::error::rsync MU failed (rc=$RC)"; exit $RC
           fi
 
-      - name: Sync plugins (with protect if available)
+      # ===== Sync plugins with EXCLUDES (provider plugins never vanish) =====
+      - name: Sync plugins (with excludes + tolerant rc 23/24)
         if: ${{ steps.plg.outputs.src != '' }}
         shell: bash
         run: |
           set -euo pipefail
           SRC="${{ steps.plg.outputs.src }}"
-
-          # opcja filtra TYLKO jeśli plik istnieje i nie jest pusty
-          declare -a MERGE_OPT=()
-          if [ -s "${{ steps.protect.outputs.filters }}" ]; then
-            echo "Apply protect filters:"
-            cat "${{ steps.protect.outputs.filters }}"
-            MERGE_OPT=( --filter="merge ${{ steps.protect.outputs.filters }}" )
+          declare -a EX_OPT=()
+          if [ -s "${{ steps.lists.outputs.exclude }}" ]; then
+            echo "Use excludes:"
+            cat "${{ steps.lists.outputs.exclude }}"
+            EX_OPT=( --exclude-from="${{ steps.lists.outputs.exclude }}" )
           else
-            echo "No protect filters – full manage with --delete."
+            echo "No excludes file."
           fi
-
-          echo "Sync: $SRC -> $TARGET/wp-content/plugins/"
+          echo "Sync: $SRC -> $TARGET/wp-content/plugins/ (with --delete)"
+          set +e
           sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
-            "${MERGE_OPT[@]}" \
+            "${EX_OPT[@]}" \
             -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
             "$SRC/" "$USER@$HOST:$TARGET/wp-content/plugins/"
-
-      # Themes: wykryj źródło (themes/ albo wp-content/themes/)
-      - name: Detect themes directory in repo
-        id: thm
-        shell: bash
-        run: |
-          set -euo pipefail
-          if   [ -d "themes" ]; then echo "src=themes" >> "$GITHUB_OUTPUT"
-          elif [ -d "wp-content/themes" ]; then echo "src=wp-content/themes" >> "$GITHUB_OUTPUT"
-          else echo "src=" >> "$GITHUB_OUTPUT"
+          RC=$?
+          set -e
+          if [ $RC -ne 0 ] && [ $RC -ne 23 ] && [ $RC -ne 24 ]; then
+            echo "::error::rsync PLUGINS failed (rc=$RC)"; exit $RC
           fi
 
-      - name: Sync themes (if present)
+      # ===== Sync themes =====
+      - name: Sync themes
         if: ${{ steps.thm.outputs.src != '' }}
         shell: bash
         run: |
           set -euo pipefail
           SRC="${{ steps.thm.outputs.src }}"
           echo "Sync: $SRC -> $TARGET/wp-content/themes/"
+          set +e
           sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
             -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
             "$SRC/" "$USER@$HOST:$TARGET/wp-content/themes/"
+          RC=$?
+          set -e
+          if [ $RC -ne 0 ] && [ $RC -ne 23 ] && [ $RC -ne 24 ]; then
+            echo "::error::rsync THEMES failed (rc=$RC)"; exit $RC
+          fi
 
       - name: Remote plugins AFTER
         run: |
           set -euo pipefail
-          echo "---- REMOTE PLUGINS AFTER ----"
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
-            "ls -1 '$TARGET/wp-content/plugins' || true"
-          echo "--------------------------------"
+            "echo '--- REMOTE PLUGINS AFTER ---'; ls -1 '$TARGET/wp-content/plugins' || true"
 
       - name: Done
         run: echo "Deploy finished."
