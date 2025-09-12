@@ -2,6 +2,7 @@
 wordfence 
 litespeed-cache 
 cookie-law-info 
-rank-math 
-pretty-link wpml
+seo-by-rank-math 
+pretty-link 
+wpml
 translatepress-multilingual
