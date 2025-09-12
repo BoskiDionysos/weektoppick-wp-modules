@@ -157,7 +157,7 @@ jobs:
           path: _ci_logs/
         continue-on-error: true
 
-              - name: Dump active plugins (WP-CLI)
+      - name: Dump active plugins (WP-CLI → ci_logs)
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" '
