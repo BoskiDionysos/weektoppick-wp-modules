@@ -1,0 +1,32 @@
+﻿2025-09-12T08:30:36.0045715Z ##[group]Run set -euo pipefail
+2025-09-12T08:30:36.0046066Z [36;1mset -euo pipefail[0m
+2025-09-12T08:30:36.0046318Z [36;1mLIST=""[0m
+2025-09-12T08:30:36.0046679Z [36;1mif   [ -f ".wtp/protected-plugins.txt" ]; then LIST=".wtp/protected-plugins.txt"[0m
+2025-09-12T08:30:36.0047229Z [36;1melif [ -f "wtp/protected-plugins.txt"  ]; then LIST="wtp/protected-plugins.txt"[0m
+2025-09-12T08:30:36.0047635Z [36;1mfi[0m
+2025-09-12T08:30:36.0047834Z [36;1mFILTERS="$(mktemp)"[0m
+2025-09-12T08:30:36.0048074Z [36;1mif [ -n "$LIST" ]; then[0m
+2025-09-12T08:30:36.0048377Z [36;1m  echo "Using protect list: $LIST"[0m
+2025-09-12T08:30:36.0048763Z [36;1m  # normalizacja linii (bez BOM/CR), wytnij komentarze i puste[0m
+2025-09-12T08:30:36.0049198Z [36;1m  sed -e 's/\r$//' "$LIST" | sed 's/^\xEF\xBB\xBF//' | while IFS= read -r name; do[0m
+2025-09-12T08:30:36.0049588Z [36;1m    name="${name%%#*}"; name="$(echo "$name" | xargs)"[0m
+2025-09-12T08:30:36.0049890Z [36;1m    [ -z "$name" ] && continue[0m
+2025-09-12T08:30:36.0050189Z [36;1m    echo "P ${name}/**" >> "$FILTERS"[0m
+2025-09-12T08:30:36.0050444Z [36;1m  done[0m
+2025-09-12T08:30:36.0050632Z [36;1mfi[0m
+2025-09-12T08:30:36.0050859Z [36;1mecho "filters=$FILTERS" >> "$GITHUB_OUTPUT"[0m
+2025-09-12T08:30:36.0051425Z [36;1mecho "list=${LIST}"     >> "$GITHUB_OUTPUT"[0m
+2025-09-12T08:30:36.0051745Z [36;1mecho "---- PROTECT FILTERS ----"[0m
+2025-09-12T08:30:36.0052100Z [36;1mif [ -s "$FILTERS" ]; then cat "$FILTERS"; else echo "(empty)"; fi[0m
+2025-09-12T08:30:36.0052446Z [36;1mecho "-------------------------"[0m
+2025-09-12T08:30:36.0081969Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-12T08:30:36.0082310Z env:
+2025-09-12T08:30:36.0082548Z   HOST: ***
+2025-09-12T08:30:36.0082744Z   PORT: ***
+2025-09-12T08:30:36.0082934Z   USER: ***
+2025-09-12T08:30:36.0083158Z   PASS: ***
+2025-09-12T08:30:36.0083443Z   TARGET: ***
+2025-09-12T08:30:36.0083634Z ##[endgroup]
+2025-09-12T08:30:36.0140239Z Using protect list: .wtp/protected-plugins.txt
+2025-09-12T08:30:36.0348372Z xargs: unmatched single quote; by default quotes are special to xargs unless you use the -0 option
+2025-09-12T08:30:36.0363462Z ##[error]Process completed with exit code 1.
