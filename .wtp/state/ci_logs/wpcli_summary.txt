@@ -1,0 +1,10 @@
+=== BEGIN INSTALL LOOP ===
+>> install wordfence
+>> install litespeed-cache
+>> install cookie-law-info
+>> install seo-by-rank-math
+>> install pretty-link
+>> install translatepress-multilingual
+=== ACTIVE PLUGINS (after) ===
+name	status	update	version	update_version	auto_update
+Fallback theme activate: twentytwentyfive
