@@ -31,18 +31,19 @@ jobs:
             || { echo "::error::Missing deploy secrets"; exit 1; }
           test -f ".wtp/allowed-plugins.txt" || { echo "::error::.wtp/allowed-plugins.txt not found"; exit 1; }
 
-      - name: Install WP-CLI on remote if missing
+      - name: Install WP-CLI on remote if missing (use php ./wp)
         shell: bash
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "set -e
             cd \"$TARGET\"
-            if ! command -v wp >/dev/null 2>&1 && [ ! -x ./wp ]; then
-              echo 'Installing wp-cli locally...'
-              curl -sS -o wp.phar https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
-              php wp.phar --info >/dev/null || { echo '::error::php cli not available on server'; exit 1; }
-              chmod +x wp.phar
-              mv wp.phar wp
+            # wymagamy php cli
+            php -v >/dev/null 2>&1 || { echo '::error::php cli not available on server'; exit 1; }
+            # jeśli nie ma pliku ./wp, pobierz
+            if [ ! -f ./wp ]; then
+              echo 'Installing wp-cli (phar kept as ./wp)...'
+              curl -sS -o wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+              # nie polegamy na bicie wykonywalnym ani shebangu — zawsze wołamy: php ./wp
             fi
             mkdir -p .wtp-vendor
           "
@@ -59,20 +60,22 @@ jobs:
             echo "No .wtp/vendor-plugins directory (skip)"
           fi
 
-      - name: Install or update allowed plugins via WP-CLI
+      - name: Install or update allowed plugins via WP-CLI (php ./wp)
         shell: bash
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "set -e
             cd \"$TARGET\"
-            WP='./wp'
-            if [ ! -x \"\$WP\" ]; then
-              echo '::error::wp-cli not executable'; exit 1
-            fi
+            # zawsze używamy php ./wp – nie polegamy na exec bit
+            WP='php ./wp'
+            # sanity
+            $WP --info >/dev/null 2>&1 || { echo '::error::wp-cli not working (php ./wp)'; exit 1; }
+
             while IFS= read -r line; do
-              line=\"\${line%%#*}\"
-              line=\"\$(echo \"\$line\" | xargs)\"
+              line='\${line%%#*}'
+              line=\$(echo \"\$line\" | xargs)
               [ -z \"\$line\" ] && continue
+
               if echo \"\$line\" | grep -q '^zip:'; then
                 zip_path=\"\${line#zip:}\"
                 if [ -f \"\$zip_path\" ]; then
@@ -84,21 +87,23 @@ jobs:
                   continue
                 fi
                 echo \">> wp plugin install \$SRC --force --activate\"
-                php \"\$WP\" plugin install \"\$SRC\" --force --activate
+                \$WP plugin install \"\$SRC\" --force --activate
                 continue
               fi
+
               slug=\"\${line%@*}\"
               ver=\"\"
               if echo \"\$line\" | grep -q '@'; then ver=\"\${line#*@}\"; fi
+
               if [ -n \"\$ver\" ]; then
                 echo \">> wp plugin install \$slug --version=\$ver --force --activate\"
-                php \"\$WP\" plugin install \"\$slug\" --version=\"\$ver\" --force --activate
+                \$WP plugin install \"\$slug\" --version=\"\$ver\" --force --activate
               else
                 echo \">> wp plugin install/update \$slug (latest) --activate\"
-                if php \"\$WP\" plugin is-installed \"\$slug\"; then
-                  php \"\$WP\" plugin update \"\$slug\" --activate
+                if \$WP plugin is-installed \"\$slug\"; then
+                  \$WP plugin update \"\$slug\" --activate
                 else
-                  php \"\$WP\" plugin install \"\$slug\" --activate
+                  \$WP plugin install \"\$slug\" --activate
                 fi
               fi
             done < \".wtp-allowed-plugins.txt\"
