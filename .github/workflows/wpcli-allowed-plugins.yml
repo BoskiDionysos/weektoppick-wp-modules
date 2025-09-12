@@ -1,6 +1,7 @@
-name: WP-CLI install update allowed plugins
+name: "WP-CLI allowed plugins install/update"
 on:
   workflow_dispatch:
+
 permissions:
   contents: read
 
@@ -19,102 +20,86 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Tools
-        shell: bash
+      - name: Install sshpass
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
+      - name: Upload allowlist
+        run: sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no \
+              ".wtp/allowed-plugins.txt" "$USER@$HOST:$TARGET/.wtp-allowed-plugins.txt"
+
+      - name: Run remote plugin install/update via WP-CLI
+        env:
+          WP_ALLOW_ROOT: true
         run: |
-          set -euo pipefail
-          sudo apt-get update -y
-          sudo apt-get install -y sshpass
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" /bin/bash <<'EOF'
+            set -euo pipefail
+            cd "$TARGET"
 
-      - name: Verify inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -n "${HOST:-}"   || { echo "::error::Missing DEPLOY_HOST"; exit 1; }
-          test -n "${PORT:-}"   || { echo "::error::Missing DEPLOY_PORT"; exit 1; }
-          test -n "${USER:-}"   || { echo "::error::Missing DEPLOY_USER"; exit 1; }
-          test -n "${PASS:-}"   || { echo "::error::Missing DEPLOY_PASS"; exit 1; }
-          test -n "${TARGET:-}" || { echo "::error::Missing DEPLOY_TARGET"; exit 1; }
-          test -f ".wtp/allowed-plugins.txt" || { echo "::error::.wtp/allowed-plugins.txt not found"; exit 1; }
+            export WP_ALLOW_ROOT=1
+            WP="php ./wp --skip-plugins"
 
-      - name: Upload allowlist to server
-        shell: bash
-        run: |
-          set -euo pipefail
-          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no \
-            ".wtp/allowed-plugins.txt" "$USER@$HOST:$TARGET/.wtp-allowed-plugins.txt"
+            LIST=".wtp-allowed-plugins.txt"
+            [ -f "$LIST" ] || { echo "::error::Plugin allowlist not found: $LIST"; exit 1; }
 
-      - name: Ensure WP-CLI present on server
-        shell: bash
-        run: |
-          set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" bash -s <<'REMOTE'
-          set -e
-          cd "$TARGET"
-          php -v >/dev/null 2>&1 || { echo "::error::php cli not available on server"; exit 1; }
-          if [ ! -f ./wp ]; then
-            echo "[remote] installing wp-cli (saved as ./wp)"
-            curl -sS -o wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
-            chmod +x wp
-          fi
-          REMOTE
+            # CRLF, BOM, trimming
+            TMP=".wtp-allowed-plugins.norm"
+            sed -e 's/\r$//' "$LIST" | sed 's/^\xEF\xBB\xBF//' > "$TMP"
 
-      - name: Install or update allowed plugins (LOCKS bypass via --skip-plugins)
-        shell: bash
-        run: |
-          set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" bash -s <<'REMOTE'
-          set -e
-          cd "$TARGET"
+            # ready log files
+            PLUGINS_INSTALLED=".wtp/state/ci_logs/plugins_installed.txt"
+            PLUGINS_UPDATED=".wtp/state/ci_logs/plugins_updated.txt"
+            PLUGINS_EXISTING=".wtp/state/ci_logs/plugins_existing.txt"
+            > "$PLUGINS_INSTALLED"
+            > "$PLUGINS_UPDATED"
+            > "$PLUGINS_EXISTING"
 
-          WP='php ./wp --skip-plugins'   # <- OMNIJAMY WTP LOCKS W CZASIE INSTALACJI
+            while IFS= read -r raw; do
+              # Remove comments, whitespace
+              line=$(echo "$raw" | sed 's/#.*$//' | xargs)
+              [ -z "$line" ] && continue
 
-          $WP --info >/dev/null 2>&1 || { echo "::error::wp-cli not working"; exit 1; }
-
-          LIST=".wtp-allowed-plugins.txt"
-          [ -f "$LIST" ] || { echo "::warning::$LIST missing on server"; exit 0; }
-
-          # normalizacja CRLF/BOM
-          TMP=".wtp-allowed-plugins.norm"
-          sed -e 's/\r$//' "$LIST" | sed 's/^\xEF\xBB\xBF//' > "$TMP"
-
-          while IFS= read -r raw; do
-            clean="$(printf '%s' "$raw" | sed -e 's/#.*$//' | xargs)"
-            [ -z "$clean" ] && continue
-
-            case "$clean" in
-              zip:*)
-                src="${clean#zip:}"
+              # zip: logic
+              if [[ "$line" =~ ^zip:(.+)$ ]]; then
+                src="${BASH_REMATCH[1]}"
                 [ -f "$src" ] || src=".wtp-vendor/$(basename "$src")"
                 if [ ! -f "$src" ]; then
                   echo "::warning::ZIP not found: $src"
                   continue
                 fi
-                echo ">> plugin install ZIP: $(basename "$src")"
-                $WP plugin install "$src" --force --activate || true
-                ;;
-              *@*)
-                slug="${clean%@*}"
-                ver="${clean#*@}"
-                echo ">> plugin install $slug@$ver"
-                $WP plugin install "$slug" --version="$ver" --force --activate || true
-                ;;
-              *)
-                slug="$clean"
-                echo ">> plugin install/update $slug (latest)"
-                if $WP plugin is-installed "$slug" >/dev/null 2>&1; then
-                  $WP plugin update "$slug" --activate || true
-                else
-                  $WP plugin install "$slug" --activate || true
-                fi
-                ;;
-            esac
-          done < "$TMP"
-          REMOTE
+                echo ">> plugin install $src"
+                $WP plugin install "$src" --force --activate && echo "$src" >> "$PLUGINS_INSTALLED"
+                continue
+              fi
 
-      - name: Post-deploy health (non-fatal)
-        shell: bash
-        run: |
-          set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
-            "curl -fsS 'http://127.0.0.1/wp-json/wtp-ro-open/v1/health' && echo ' Health OK' || echo '::warning::health endpoint not available'"
+              # slug[@version] parsing
+              slug="${line%@*}"
+              ver="${line#*@}"
+              [ "$slug" = "$ver" ] && ver=""
+
+              if $WP plugin is-installed "$slug" >/dev/null 2>&1; then
+                if [ -n "$ver" ]; then
+                  $WP plugin update "$slug" --version="$ver" --activate && echo "$slug@$ver (updated)" >> "$PLUGINS_UPDATED"
+                else
+                  $WP plugin update "$slug" --activate && echo "$slug (updated)" >> "$PLUGINS_UPDATED"
+                fi
+              else
+                if [ -n "$ver" ]; then
+                  $WP plugin install "$slug" --version="$ver" --activate && echo "$slug@$ver (installed)" >> "$PLUGINS_INSTALLED"
+                else
+                  $WP plugin install "$slug" --activate && echo "$slug (installed)" >> "$PLUGINS_INSTALLED"
+                fi
+              fi
+
+              # Log existing plugins
+              $WP plugin is-installed "$slug" && echo "$slug" >> "$PLUGINS_EXISTING"
+            done < "$TMP"
+
+            # Sanity check on plugins
+            echo "=== Plugins is-installed ==="
+            $WP plugin list --field=name --status=active
+
+            # Fallback theme activation
+            if ! $WP theme is-installed wtp-core-theme; then
+              $WP theme install twentytwentyfive --activate || true
+            fi
+          EOF
