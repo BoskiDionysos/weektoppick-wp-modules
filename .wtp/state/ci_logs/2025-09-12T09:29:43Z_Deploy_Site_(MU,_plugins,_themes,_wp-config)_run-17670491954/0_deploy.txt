@@ -1,0 +1,220 @@
+﻿2025-09-12T09:28:48.5645297Z Current runner version: '2.328.0'
+2025-09-12T09:28:48.5668942Z ##[group]Runner Image Provisioner
+2025-09-12T09:28:48.5669812Z Hosted Compute Agent
+2025-09-12T09:28:48.5670480Z Version: 20250829.383
+2025-09-12T09:28:48.5671113Z Commit: 27cb235aab5b0e52e153a26cd86b4742e89dac5d
+2025-09-12T09:28:48.5671823Z Build Date: 2025-08-29T13:48:48Z
+2025-09-12T09:28:48.5672559Z ##[endgroup]
+2025-09-12T09:28:48.5673119Z ##[group]Operating System
+2025-09-12T09:28:48.5673762Z Ubuntu
+2025-09-12T09:28:48.5674275Z 24.04.3
+2025-09-12T09:28:48.5674776Z LTS
+2025-09-12T09:28:48.5675377Z ##[endgroup]
+2025-09-12T09:28:48.5675966Z ##[group]Runner Image
+2025-09-12T09:28:48.5676557Z Image: ubuntu-24.04
+2025-09-12T09:28:48.5677171Z Version: 20250907.24.1
+2025-09-12T09:28:48.5678610Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20250907.24/images/ubuntu/Ubuntu2404-Readme.md
+2025-09-12T09:28:48.5680367Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20250907.24
+2025-09-12T09:28:48.5681396Z ##[endgroup]
+2025-09-12T09:28:48.5682883Z ##[group]GITHUB_TOKEN Permissions
+2025-09-12T09:28:48.5685222Z Contents: read
+2025-09-12T09:28:48.5685896Z Metadata: read
+2025-09-12T09:28:48.5686462Z ##[endgroup]
+2025-09-12T09:28:48.5688704Z Secret source: Actions
+2025-09-12T09:28:48.5689536Z Prepare workflow directory
+2025-09-12T09:28:48.6196911Z Prepare all required actions
+2025-09-12T09:28:48.6235577Z Getting action download info
+2025-09-12T09:28:49.0411239Z Download action repository 'actions/checkout@v4' (SHA:08eba0b27e820071cde6df949e0beb9ba4906955)
+2025-09-12T09:28:49.2567210Z Complete job name: deploy
+2025-09-12T09:28:49.3304424Z ##[group]Run actions/checkout@v4
+2025-09-12T09:28:49.3305261Z with:
+2025-09-12T09:28:49.3305658Z   lfs: true
+2025-09-12T09:28:49.3306147Z   repository: BoskiDionysos/weektoppick-wp-modules
+2025-09-12T09:28:49.3306947Z   token: ***
+2025-09-12T09:28:49.3307424Z   ssh-strict: true
+2025-09-12T09:28:49.3308149Z   ssh-user: git
+2025-09-12T09:28:49.3308647Z   persist-credentials: true
+2025-09-12T09:28:49.3309135Z   clean: true
+2025-09-12T09:28:49.3309569Z   sparse-checkout-cone-mode: true
+2025-09-12T09:28:49.3310078Z   fetch-depth: 1
+2025-09-12T09:28:49.3310503Z   fetch-tags: false
+2025-09-12T09:28:49.3310940Z   show-progress: true
+2025-09-12T09:28:49.3311385Z   submodules: false
+2025-09-12T09:28:49.3311815Z   set-safe-directory: true
+2025-09-12T09:28:49.3312522Z env:
+2025-09-12T09:28:49.3312950Z   HOST: ***
+2025-09-12T09:28:49.3313355Z   PORT: ***
+2025-09-12T09:28:49.3313765Z   USER: ***
+2025-09-12T09:28:49.3314196Z   PASS: ***
+2025-09-12T09:28:49.3314751Z   TARGET: ***
+2025-09-12T09:28:49.3315184Z ##[endgroup]
+2025-09-12T09:28:49.4388214Z Syncing repository: BoskiDionysos/weektoppick-wp-modules
+2025-09-12T09:28:49.4391098Z ##[group]Getting Git version info
+2025-09-12T09:28:49.4392610Z Working directory is '/home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules'
+2025-09-12T09:28:49.4394685Z [command]/usr/bin/git version
+2025-09-12T09:28:49.4462484Z git version 2.51.0
+2025-09-12T09:28:49.4510578Z [command]/usr/bin/git lfs version
+2025-09-12T09:28:50.0166111Z git-lfs/3.7.0 (GitHub; linux amd64; go 1.24.4)
+2025-09-12T09:28:50.0180108Z ##[endgroup]
+2025-09-12T09:28:50.0194683Z Temporarily overriding HOME='/home/runner/work/_temp/400f890d-0578-4331-97c8-550fa162017f' before making global git config changes
+2025-09-12T09:28:50.0196381Z Adding repository directory to the temporary git global config as a safe directory
+2025-09-12T09:28:50.0200551Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules
+2025-09-12T09:28:50.0235837Z Deleting the contents of '/home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules'
+2025-09-12T09:28:50.0239299Z ##[group]Initializing the repository
+2025-09-12T09:28:50.0243465Z [command]/usr/bin/git init /home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules
+2025-09-12T09:28:50.0353235Z hint: Using 'master' as the name for the initial branch. This default branch name
+2025-09-12T09:28:50.0354934Z hint: is subject to change. To configure the initial branch name to use in all
+2025-09-12T09:28:50.0356556Z hint: of your new repositories, which will suppress this warning, call:
+2025-09-12T09:28:50.0358482Z hint:
+2025-09-12T09:28:50.0359674Z hint: 	git config --global init.defaultBranch <name>
+2025-09-12T09:28:50.0361249Z hint:
+2025-09-12T09:28:50.0362639Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2025-09-12T09:28:50.0364994Z hint: 'development'. The just-created branch can be renamed via this command:
+2025-09-12T09:28:50.0366927Z hint:
+2025-09-12T09:28:50.0367835Z hint: 	git branch -m <name>
+2025-09-12T09:28:50.0368675Z hint:
+2025-09-12T09:28:50.0369751Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2025-09-12T09:28:50.0371931Z Initialized empty Git repository in /home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules/.git/
+2025-09-12T09:28:50.0375105Z [command]/usr/bin/git remote add origin https://github.com/BoskiDionysos/weektoppick-wp-modules
+2025-09-12T09:28:50.0410197Z ##[endgroup]
+2025-09-12T09:28:50.0411466Z ##[group]Disabling automatic garbage collection
+2025-09-12T09:28:50.0414495Z [command]/usr/bin/git config --local gc.auto 0
+2025-09-12T09:28:50.0440877Z ##[endgroup]
+2025-09-12T09:28:50.0442178Z ##[group]Setting up auth
+2025-09-12T09:28:50.0448479Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-09-12T09:28:50.0478931Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-09-12T09:28:50.0727216Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-09-12T09:28:50.0756840Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-09-12T09:28:50.0981429Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2025-09-12T09:28:50.1016951Z ##[endgroup]
+2025-09-12T09:28:50.1021296Z [command]/usr/bin/git lfs install --local
+2025-09-12T09:28:50.1381810Z Updated Git hooks.
+2025-09-12T09:28:50.1382336Z Git LFS initialized.
+2025-09-12T09:28:50.1473908Z ##[group]Fetching the repository
+2025-09-12T09:28:50.1485343Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +548e876e018a2f0b3c1cd1513196cdd7cfbb18de:refs/remotes/origin/main
+2025-09-12T09:28:55.4688605Z From https://github.com/BoskiDionysos/weektoppick-wp-modules
+2025-09-12T09:28:55.4690808Z  * [new ref]         548e876e018a2f0b3c1cd1513196cdd7cfbb18de -> origin/main
+2025-09-12T09:28:55.4723073Z ##[endgroup]
+2025-09-12T09:28:55.4724479Z ##[group]Determining the checkout info
+2025-09-12T09:28:55.4726092Z ##[endgroup]
+2025-09-12T09:28:55.4727422Z ##[group]Fetching LFS objects
+2025-09-12T09:28:55.4732324Z [command]/usr/bin/git lfs fetch origin refs/remotes/origin/main
+2025-09-12T09:28:55.4953574Z Fetching reference refs/remotes/origin/main
+2025-09-12T09:28:55.5246105Z ##[endgroup]
+2025-09-12T09:28:55.5250260Z [command]/usr/bin/git sparse-checkout disable
+2025-09-12T09:28:55.5289695Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2025-09-12T09:28:55.5315635Z ##[group]Checking out the ref
+2025-09-12T09:28:55.5318780Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2025-09-12T09:28:56.0871643Z Switched to a new branch 'main'
+2025-09-12T09:28:56.0872510Z branch 'main' set up to track 'origin/main'.
+2025-09-12T09:28:56.1101927Z Encountered 1 file that should have been a pointer, but wasn't:
+2025-09-12T09:28:56.1102859Z 	.wtp/vendor-plugins/.gitkeep
+2025-09-12T09:28:56.1135277Z ##[endgroup]
+2025-09-12T09:28:56.1170752Z [command]/usr/bin/git log -1 --format=%H
+2025-09-12T09:28:56.1193099Z 548e876e018a2f0b3c1cd1513196cdd7cfbb18de
+2025-09-12T09:28:56.1361942Z ##[group]Run sudo apt-get update -y
+2025-09-12T09:28:56.1362435Z [36;1msudo apt-get update -y[0m
+2025-09-12T09:28:56.1362859Z [36;1msudo apt-get install -y rsync sshpass jq dos2unix[0m
+2025-09-12T09:28:56.1419503Z shell: /usr/bin/bash -e {0}
+2025-09-12T09:28:56.1419858Z env:
+2025-09-12T09:28:56.1420358Z   HOST: ***
+2025-09-12T09:28:56.1420643Z   PORT: ***
+2025-09-12T09:28:56.1420917Z   USER: ***
+2025-09-12T09:28:56.1421207Z   PASS: ***
+2025-09-12T09:28:56.1421614Z   TARGET: ***
+2025-09-12T09:28:56.1421896Z ##[endgroup]
+2025-09-12T09:28:56.2547087Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+2025-09-12T09:28:56.3050461Z Hit:2 http://azure.archive.ubuntu.com/ubuntu noble InRelease
+2025-09-12T09:28:56.3053156Z Hit:6 https://packages.microsoft.com/repos/azure-cli noble InRelease
+2025-09-12T09:28:56.3081586Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+2025-09-12T09:28:56.3123754Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
+2025-09-12T09:28:56.3141231Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+2025-09-12T09:28:56.4510364Z Get:7 https://packages.microsoft.com/ubuntu/24.04/prod noble InRelease [3600 B]
+2025-09-12T09:28:56.5250454Z Get:8 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1390 kB]
+2025-09-12T09:28:56.5478425Z Get:9 http://azure.archive.ubuntu.com/ubuntu noble-updates/main Translation-en [274 kB]
+2025-09-12T09:28:56.5514167Z Get:10 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Components [175 kB]
+2025-09-12T09:28:56.5542084Z Get:11 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 c-n-f Metadata [15.2 kB]
+2025-09-12T09:28:56.5558250Z Get:12 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1483 kB]
+2025-09-12T09:28:56.5660910Z Get:13 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe Translation-en [298 kB]
+2025-09-12T09:28:56.5691875Z Get:14 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Components [377 kB]
+2025-09-12T09:28:56.5744000Z Get:15 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 c-n-f Metadata [31.0 kB]
+2025-09-12T09:28:56.5756194Z Get:16 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Packages [1840 kB]
+2025-09-12T09:28:56.5880472Z Get:17 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted Translation-en [410 kB]
+2025-09-12T09:28:56.6420471Z Get:18 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Components [212 B]
+2025-09-12T09:28:56.6462949Z Get:19 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 c-n-f Metadata [500 B]
+2025-09-12T09:28:56.6476820Z Get:20 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Packages [41.9 kB]
+2025-09-12T09:28:56.6484671Z Get:21 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse Translation-en [7064 B]
+2025-09-12T09:28:56.6503909Z Get:22 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Components [940 B]
+2025-09-12T09:28:56.6527924Z Get:23 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 c-n-f Metadata [644 B]
+2025-09-12T09:28:56.6557826Z Get:24 http://azure.archive.ubuntu.com/ubuntu noble-backports/main amd64 Components [7076 B]
+2025-09-12T09:28:56.6567018Z Get:25 http://azure.archive.ubuntu.com/ubuntu noble-backports/universe amd64 Components [19.1 kB]
+2025-09-12T09:28:56.6588876Z Get:26 http://azure.archive.ubuntu.com/ubuntu noble-backports/restricted amd64 Components [216 B]
+2025-09-12T09:28:56.6605195Z Get:27 http://azure.archive.ubuntu.com/ubuntu noble-backports/multiverse amd64 Components [212 B]
+2025-09-12T09:28:56.6643946Z Get:28 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Packages [1118 kB]
+2025-09-12T09:28:56.6764503Z Get:29 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Components [21.5 kB]
+2025-09-12T09:28:56.6776621Z Get:30 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 c-n-f Metadata [8712 B]
+2025-09-12T09:28:56.6794053Z Get:31 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Packages [879 kB]
+2025-09-12T09:28:56.7328654Z Get:32 http://azure.archive.ubuntu.com/ubuntu noble-security/universe Translation-en [195 kB]
+2025-09-12T09:28:56.7350019Z Get:33 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Components [52.2 kB]
+2025-09-12T09:28:56.7365013Z Get:34 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 c-n-f Metadata [18.0 kB]
+2025-09-12T09:28:56.7376772Z Get:35 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted amd64 Components [212 B]
+2025-09-12T09:28:56.7395802Z Get:37 https://packages.microsoft.com/ubuntu/24.04/prod noble/main amd64 Packages [51.6 kB]
+2025-09-12T09:28:56.7477107Z Get:36 http://azure.archive.ubuntu.com/ubuntu noble-security/multiverse amd64 Components [208 B]
+2025-09-12T09:28:56.8017114Z Get:38 https://packages.microsoft.com/ubuntu/24.04/prod noble/main arm64 Packages [35.3 kB]
+2025-09-12T09:29:02.3862433Z Fetched 9133 kB in 1s (7448 kB/s)
+2025-09-12T09:29:03.0819989Z Reading package lists...
+2025-09-12T09:29:03.1145784Z Reading package lists...
+2025-09-12T09:29:03.2776127Z Building dependency tree...
+2025-09-12T09:29:03.2786911Z Reading state information...
+2025-09-12T09:29:03.4517311Z rsync is already the newest version (3.2.7-1ubuntu1.2).
+2025-09-12T09:29:03.4518095Z sshpass is already the newest version (1.09-1).
+2025-09-12T09:29:03.4518724Z jq is already the newest version (1.7.1-3ubuntu0.24.04.1).
+2025-09-12T09:29:03.4520101Z The following NEW packages will be installed:
+2025-09-12T09:29:03.4524289Z   dos2unix
+2025-09-12T09:29:03.4695754Z 0 upgraded, 1 newly installed, 0 to remove and 18 not upgraded.
+2025-09-12T09:29:03.4696344Z Need to get 501 kB of archives.
+2025-09-12T09:29:03.4696688Z After this operation, 1868 kB of additional disk space will be used.
+2025-09-12T09:29:03.4697108Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+2025-09-12T09:29:03.5670510Z Get:2 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 dos2unix amd64 7.5.1-1 [501 kB]
+2025-09-12T09:29:03.9067434Z Fetched 501 kB in 0s (2653 kB/s)
+2025-09-12T09:29:03.9442383Z Selecting previously unselected package dos2unix.
+2025-09-12T09:29:03.9815946Z (Reading database ... 
+2025-09-12T09:29:03.9816651Z (Reading database ... 5%
+2025-09-12T09:29:03.9817233Z (Reading database ... 10%
+2025-09-12T09:29:03.9817867Z (Reading database ... 15%
+2025-09-12T09:29:03.9818355Z (Reading database ... 20%
+2025-09-12T09:29:03.9818770Z (Reading database ... 25%
+2025-09-12T09:29:03.9819206Z (Reading database ... 30%
+2025-09-12T09:29:03.9819637Z (Reading database ... 35%
+2025-09-12T09:29:03.9820073Z (Reading database ... 40%
+2025-09-12T09:29:03.9820467Z (Reading database ... 45%
+2025-09-12T09:29:03.9820894Z (Reading database ... 50%
+2025-09-12T09:29:04.1112145Z (Reading database ... 55%
+2025-09-12T09:29:04.6510778Z (Reading database ... 60%
+2025-09-12T09:29:05.1870167Z (Reading database ... 65%
+2025-09-12T09:29:05.7101829Z (Reading database ... 70%
+2025-09-12T09:29:06.2726129Z (Reading database ... 75%
+2025-09-12T09:29:06.8295839Z (Reading database ... 80%
+2025-09-12T09:29:07.4739091Z (Reading database ... 85%
+2025-09-12T09:29:08.1194788Z (Reading database ... 90%
+2025-09-12T09:29:08.7105813Z (Reading database ... 95%
+2025-09-12T09:29:08.7106362Z (Reading database ... 100%
+2025-09-12T09:29:08.7107300Z (Reading database ... 218657 files and directories currently installed.)
+2025-09-12T09:29:08.7154151Z Preparing to unpack .../dos2unix_7.5.1-1_amd64.deb ...
+2025-09-12T09:29:08.7184285Z Unpacking dos2unix (7.5.1-1) ...
+2025-09-12T09:29:09.0379771Z Setting up dos2unix (7.5.1-1) ...
+2025-09-12T09:29:09.0413536Z Processing triggers for man-db (2.12.0-4build2) ...
+2025-09-12T09:29:39.4240435Z ##[error]The operation was canceled.
+2025-09-12T09:29:39.4446541Z Post job cleanup.
+2025-09-12T09:29:39.5385779Z [command]/usr/bin/git version
+2025-09-12T09:29:39.5421184Z git version 2.51.0
+2025-09-12T09:29:39.5463267Z Temporarily overriding HOME='/home/runner/work/_temp/870acb62-3d00-4538-a0ae-f574e9d95591' before making global git config changes
+2025-09-12T09:29:39.5464575Z Adding repository directory to the temporary git global config as a safe directory
+2025-09-12T09:29:39.5470795Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules
+2025-09-12T09:29:39.5506944Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-09-12T09:29:39.5539953Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-09-12T09:29:39.5762564Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-09-12T09:29:39.5783268Z http.https://github.com/.extraheader
+2025-09-12T09:29:39.5795721Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2025-09-12T09:29:39.5825700Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-09-12T09:29:39.6156011Z Cleaning up orphan processes
