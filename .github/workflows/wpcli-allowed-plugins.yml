@@ -46,7 +46,7 @@ jobs:
       - name: Remote sanity (docroot, php, network)
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" /bin/bash <<'RMT'
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "TARGET='${TARGET}' /bin/bash -s" <<'RMT'
             set -euo pipefail
             cd "$TARGET" || { echo "::error::Cannot cd to TARGET ($TARGET)"; exit 1; }
             echo "PWD: $(pwd)"
@@ -61,7 +61,7 @@ jobs:
           WP_ALLOW_ROOT: "1"
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" /bin/bash <<'RMT'
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "TARGET='${TARGET}' /bin/bash -s" <<'RMT'
             set -euo pipefail
             cd "$TARGET"
 
