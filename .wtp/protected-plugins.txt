@@ -1,20 +1,15 @@
 # Katalogi wtyczek, których NIE usuwamy podczas deploya (server-managed / komercyjne)
 # Jeden wpis = dokładna nazwa folderu w wp-content/plugins/
 
-# core infra / security / cache
 litespeed-cache
 wordfence
 cookie-law-info
-
-# tłumaczenia (komercyjne / referencyjne)
 translatepress-multilingual
-sitepress-multilingual-cms      # WPML core
-wpml-string-translation         # WPML strings
+sitepress-multilingual-cms
+wpml-string-translation
 polylang
 multilingualpress
 weglot
-
-# inne referencyjne (zostawiamy jeśli już są)
 pretty-link
 prettylinks-pro
 seo-by-rank-math
