@@ -1,3 +1,5 @@
-# Wymuś LF w YAML, żeby GitHub Actions nie krzyczał na CRLF / TAB-y z mobile
-*.yml  text eol=lf
-*.yaml text eol=lf
+# Ensure YAML uses LF endings
+*.yml  text eol=lf*.yaml text eol=lf
+
+# Store vendor plugin ZIPs via Git LFS
+.wtp/vendor-plugins/* filter=lfs diff=lfs merge=lfs -text
