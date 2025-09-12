@@ -1,0 +1,22 @@
+﻿2025-09-12T11:02:40.6970743Z ##[group]Run set -euo pipefail
+2025-09-12T11:02:40.6971089Z [36;1mset -euo pipefail[0m
+2025-09-12T11:02:40.6971471Z [36;1msshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "set -e[0m
+2025-09-12T11:02:40.6971874Z [36;1m  cd \"$TARGET\"[0m
+2025-09-12T11:02:40.6972181Z [36;1m  if ! command -v wp >/dev/null 2>&1 && [ ! -x ./wp ]; then[0m
+2025-09-12T11:02:40.6972775Z [36;1m    echo 'Installing wp-cli locally...'[0m
+2025-09-12T11:02:40.6973286Z [36;1m    curl -sS -o wp.phar https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar[0m
+2025-09-12T11:02:40.6973879Z [36;1m    php wp.phar --info >/dev/null || { echo '::error::php cli not available on server'; exit 1; }[0m
+2025-09-12T11:02:40.6974275Z [36;1m    chmod +x wp.phar[0m
+2025-09-12T11:02:40.6974516Z [36;1m    mv wp.phar wp[0m
+2025-09-12T11:02:40.6974729Z [36;1m  fi[0m
+2025-09-12T11:02:40.6974933Z [36;1m  mkdir -p .wtp-vendor[0m
+2025-09-12T11:02:40.6975160Z [36;1m"[0m
+2025-09-12T11:02:40.7005583Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-12T11:02:40.7005961Z env:
+2025-09-12T11:02:40.7006343Z   HOST: ***
+2025-09-12T11:02:40.7006585Z   PORT: ***
+2025-09-12T11:02:40.7006775Z   USER: ***
+2025-09-12T11:02:40.7006974Z   PASS: ***
+2025-09-12T11:02:40.7007283Z   TARGET: ***
+2025-09-12T11:02:40.7007469Z ##[endgroup]
+2025-09-12T11:02:41.2404597Z Warning: Permanently added '[***]:***' (ED25519) to the list of known hosts.

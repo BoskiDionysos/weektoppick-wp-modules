@@ -1,0 +1,84 @@
+﻿2025-09-12T11:02:33.0676333Z ##[group]Run actions/checkout@v4
+2025-09-12T11:02:33.0677267Z with:
+2025-09-12T11:02:33.0677692Z   lfs: true
+2025-09-12T11:02:33.0678195Z   repository: BoskiDionysos/weektoppick-wp-modules
+2025-09-12T11:02:33.0679013Z   token: ***
+2025-09-12T11:02:33.0679444Z   ssh-strict: true
+2025-09-12T11:02:33.0679884Z   ssh-user: git
+2025-09-12T11:02:33.0680328Z   persist-credentials: true
+2025-09-12T11:02:33.0680840Z   clean: true
+2025-09-12T11:02:33.0681282Z   sparse-checkout-cone-mode: true
+2025-09-12T11:02:33.0681801Z   fetch-depth: 1
+2025-09-12T11:02:33.0682244Z   fetch-tags: false
+2025-09-12T11:02:33.0683199Z   show-progress: true
+2025-09-12T11:02:33.0683677Z   submodules: false
+2025-09-12T11:02:33.0684123Z   set-safe-directory: true
+2025-09-12T11:02:33.0684876Z env:
+2025-09-12T11:02:33.0685327Z   HOST: ***
+2025-09-12T11:02:33.0685751Z   PORT: ***
+2025-09-12T11:02:33.0686165Z   USER: ***
+2025-09-12T11:02:33.0686616Z   PASS: ***
+2025-09-12T11:02:33.0687197Z   TARGET: ***
+2025-09-12T11:02:33.0687619Z ##[endgroup]
+2025-09-12T11:02:33.1781557Z Syncing repository: BoskiDionysos/weektoppick-wp-modules
+2025-09-12T11:02:33.1783894Z ##[group]Getting Git version info
+2025-09-12T11:02:33.1784836Z Working directory is '/home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules'
+2025-09-12T11:02:33.1786037Z [command]/usr/bin/git version
+2025-09-12T11:02:33.4092145Z git version 2.51.0
+2025-09-12T11:02:33.4154829Z [command]/usr/bin/git lfs version
+2025-09-12T11:02:33.9990604Z git-lfs/3.7.0 (GitHub; linux amd64; go 1.24.4)
+2025-09-12T11:02:34.0008059Z ##[endgroup]
+2025-09-12T11:02:34.0028541Z Temporarily overriding HOME='/home/runner/work/_temp/29415c0d-8864-4604-af33-fcc173754995' before making global git config changes
+2025-09-12T11:02:34.0031198Z Adding repository directory to the temporary git global config as a safe directory
+2025-09-12T11:02:34.0034869Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules
+2025-09-12T11:02:34.0109180Z Deleting the contents of '/home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules'
+2025-09-12T11:02:34.0112704Z ##[group]Initializing the repository
+2025-09-12T11:02:34.0116944Z [command]/usr/bin/git init /home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules
+2025-09-12T11:02:34.0899208Z hint: Using 'master' as the name for the initial branch. This default branch name
+2025-09-12T11:02:34.0901235Z hint: is subject to change. To configure the initial branch name to use in all
+2025-09-12T11:02:34.0902896Z hint: of your new repositories, which will suppress this warning, call:
+2025-09-12T11:02:34.0903930Z hint:
+2025-09-12T11:02:34.0904596Z hint: 	git config --global init.defaultBranch <name>
+2025-09-12T11:02:34.0905452Z hint:
+2025-09-12T11:02:34.0906248Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2025-09-12T11:02:34.0907634Z hint: 'development'. The just-created branch can be renamed via this command:
+2025-09-12T11:02:34.0908650Z hint:
+2025-09-12T11:02:34.0909168Z hint: 	git branch -m <name>
+2025-09-12T11:02:34.0909796Z hint:
+2025-09-12T11:02:34.0910618Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2025-09-12T11:02:34.0955358Z Initialized empty Git repository in /home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules/.git/
+2025-09-12T11:02:34.0970447Z [command]/usr/bin/git remote add origin https://github.com/BoskiDionysos/weektoppick-wp-modules
+2025-09-12T11:02:34.1085884Z ##[endgroup]
+2025-09-12T11:02:34.1087556Z ##[group]Disabling automatic garbage collection
+2025-09-12T11:02:34.1091195Z [command]/usr/bin/git config --local gc.auto 0
+2025-09-12T11:02:34.1124912Z ##[endgroup]
+2025-09-12T11:02:34.1126233Z ##[group]Setting up auth
+2025-09-12T11:02:34.1132236Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-09-12T11:02:34.1165666Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-09-12T11:02:34.1689058Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-09-12T11:02:34.1719586Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-09-12T11:02:34.1943313Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2025-09-12T11:02:34.1982588Z ##[endgroup]
+2025-09-12T11:02:34.1986423Z [command]/usr/bin/git lfs install --local
+2025-09-12T11:02:34.2520883Z Updated Git hooks.
+2025-09-12T11:02:34.2521914Z Git LFS initialized.
+2025-09-12T11:02:34.2573822Z ##[group]Fetching the repository
+2025-09-12T11:02:34.2585169Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +50f0e4797d8d6945a79af60fa59854a654a61ca0:refs/remotes/origin/main
+2025-09-12T11:02:39.4918119Z From https://github.com/BoskiDionysos/weektoppick-wp-modules
+2025-09-12T11:02:39.4919703Z  * [new ref]         50f0e4797d8d6945a79af60fa59854a654a61ca0 -> origin/main
+2025-09-12T11:02:39.4985281Z ##[endgroup]
+2025-09-12T11:02:39.4985939Z ##[group]Determining the checkout info
+2025-09-12T11:02:39.4987643Z ##[endgroup]
+2025-09-12T11:02:39.4988322Z ##[group]Fetching LFS objects
+2025-09-12T11:02:39.4993012Z [command]/usr/bin/git lfs fetch origin refs/remotes/origin/main
+2025-09-12T11:02:39.5204810Z Fetching reference refs/remotes/origin/main
+2025-09-12T11:02:40.0475331Z ##[endgroup]
+2025-09-12T11:02:40.0480809Z [command]/usr/bin/git sparse-checkout disable
+2025-09-12T11:02:40.0566957Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2025-09-12T11:02:40.0600924Z ##[group]Checking out the ref
+2025-09-12T11:02:40.0601736Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2025-09-12T11:02:40.6261818Z Switched to a new branch 'main'
+2025-09-12T11:02:40.6263304Z branch 'main' set up to track 'origin/main'.
+2025-09-12T11:02:40.6568184Z ##[endgroup]
+2025-09-12T11:02:40.6606988Z [command]/usr/bin/git log -1 --format=%H
+2025-09-12T11:02:40.6631100Z 50f0e4797d8d6945a79af60fa59854a654a61ca0
