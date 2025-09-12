@@ -4,5 +4,4 @@ litespeed-cache
 cookie-law-info 
 seo-by-rank-math 
 pretty-link 
-wpml
 translatepress-multilingual
