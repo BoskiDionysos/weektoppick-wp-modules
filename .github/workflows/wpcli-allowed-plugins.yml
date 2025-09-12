@@ -1,4 +1,4 @@
-name: WP-CLI: install/update allowed plugins
+name: WP-CLI install/update allowed plugins
 on:
   workflow_dispatch: {}
 permissions:
