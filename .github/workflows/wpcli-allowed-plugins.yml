@@ -1,4 +1,4 @@
-name: WP-CLI install or update allowed plugins
+name: WP-CLI: install/update allowed plugins
 
 on:
   workflow_dispatch: {}
@@ -11,17 +11,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      HOST: ${{ secrets.DEPLOY_HOST }}
-      PORT: ${{ secrets.DEPLOY_PORT }}
-      USER: ${{ secrets.DEPLOY_USER }}
-      PASS: ${{ secrets.DEPLOY_PASS }}
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          lfs: true
 
       - name: Verify inputs
         shell: bash
@@ -29,84 +27,100 @@ jobs:
           set -euo pipefail
           test -n "${HOST:-}" && test -n "${PORT:-}" && test -n "${USER:-}" && test -n "${PASS:-}" && test -n "${TARGET:-}" \
             || { echo "::error::Missing deploy secrets"; exit 1; }
-          test -f ".wtp/allowed-plugins.txt" || { echo "::error::.wtp/allowed-plugins.txt not found"; exit 1; }
+          test -f ".wtp/allowed-plugins.txt" || { echo "::error::.wtp/allowed-plugins.txt not found in repo"; exit 1; }
 
-      - name: Install WP-CLI on remote if missing (use php ./wp)
+      - name: Install WP-CLI on remote (if missing)
         shell: bash
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "set -e
-            cd \"$TARGET\"
-            php -v >/dev/null 2>&1 || { echo '::error::php cli not available on server'; exit 1; }
-            if [ ! -f ./wp ]; then
-              echo 'Installing wp-cli (phar kept as ./wp)...'
-              curl -sS -o wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" '
+            set -e
+            cd "$TARGET"
+            if ! command -v wp >/dev/null 2>&1 && [ ! -x ./wp ]; then
+              echo "Installing wp-cli locally..."
+              curl -sS -o wp.phar https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+              php wp.phar --info >/dev/null
+              chmod +x wp.phar
+              mv wp.phar wp
             fi
             mkdir -p .wtp-vendor
-          "
+          '
 
-      - name: Upload allowlist and vendor ZIPs
+      - name: Upload allowlist and vendor ZIPs (if any)
         shell: bash
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no ".wtp/allowed-plugins.txt" "$USER@$HOST:$TARGET/.wtp-allowed-plugins.txt"
+          # allowlist
+          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no \
+            ".wtp/allowed-plugins.txt" "$USER@$HOST:$TARGET/.wtp-allowed-plugins.txt"
+
+          # optional vendor zips
           if [ -d ".wtp/vendor-plugins" ]; then
-            echo "Uploading vendor zips..."
-            sshpass -p "$PASS" rsync -az -v -e "ssh -p $PORT -o StrictHostKeyChecking=no" ".wtp/vendor-plugins/" "$USER@$HOST:$TARGET/.wtp-vendor/"
-          else
-            echo "No .wtp/vendor-plugins directory (skip)"
+            sshpass -p "$PASS" rsync -az -v \
+              -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
+              ".wtp/vendor-plugins/" "$USER@$HOST:$TARGET/.wtp-vendor/"
           fi
 
-      - name: Install or update allowed plugins via WP-CLI (php ./wp)
+      - name: Install/Update allowed plugins via WP-CLI (wp.org + zip:)
         shell: bash
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "set -e
-            cd \"$TARGET\"
-            WP='php ./wp'
-            # Uwaga: wszystko z \$WP musi mieć ucieczony dolar, żeby nie rozwijało się lokalnie
-            \$WP --info >/dev/null 2>&1 || { echo '::error::wp-cli not working (php ./wp)'; exit 1; }
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" '
+            set -e
+            cd "$TARGET"
+            WP="./wp"; [ -x "$WP" ] || WP="$(command -v wp || true)"
+            test -x "$WP" || { echo "::error::wp-cli not executable"; exit 1; }
+
+            if [ ! -f ".wtp-allowed-plugins.txt" ]; then
+              echo "::warning::.wtp-allowed-plugins.txt not found on server"
+              exit 0
+            fi
+
+            # normalizuj CRLF/BOM
+            TMP=".wtp-allowed-plugins.norm"
+            sed -e "s/\r$//" ".wtp-allowed-plugins.txt" | sed "s/^\xEF\xBB\xBF//" > "$TMP"
 
             while IFS= read -r line; do
-              line='\${line%%#*}'
-              line=\$(echo \"\$line\" | xargs)
-              [ -z \"\$line\" ] && continue
+              # strip komentarza i białych znaków
+              line="${line%%#*}"
+              line="$(echo "$line" | xargs)"
+              [ -z "$line" ] && continue
 
-              if echo \"\$line\" | grep -q '^zip:'; then
-                zip_path=\"\${line#zip:}\"
-                if [ -f \"\$zip_path\" ]; then
-                  SRC=\"\$zip_path\"
-                elif [ -f \".wtp-vendor/\$(basename \"\$zip_path\")\" ]; then
-                  SRC=\".wtp-vendor/\$(basename \"\$zip_path\")\"
-                else
-                  echo \"::warning::ZIP not found: \$zip_path (skipping)\"
+              # ścieżka ZIP (prefiks zip:)
+              if echo "$line" | grep -q "^zip:"; then
+                src="${line#zip:}"
+                [ -f "$src" ] || src=".wtp-vendor/$(basename "$src")"
+                if [ ! -f "$src" ]; then
+                  echo "::warning::ZIP not found: $line"
                   continue
                 fi
-                echo \">> wp plugin install \$SRC --force --activate\"
-                \$WP plugin install \"\$SRC\" --force --activate
+                echo ">> wp plugin install $src --force --activate"
+                php "$WP" plugin install "$src" --force --activate || true
                 continue
               fi
 
-              slug=\"\${line%@*}\"
-              ver=\"\"
-              if echo \"\$line\" | grep -q '@'; then ver=\"\${line#*@}\"; fi
+              # slug[@version]
+              slug="${line%@*}"
+              ver=""
+              if echo "$line" | grep -q "@"; then ver="${line#*@}"; fi
 
-              if [ -n \"\$ver\" ]; then
-                echo \">> wp plugin install \$slug --version=\$ver --force --activate\"
-                \$WP plugin install \"\$slug\" --version=\"\$ver\" --force --activate
+              if [ -n "$ver" ]; then
+                echo ">> wp plugin install $slug --version=$ver --force --activate"
+                php "$WP" plugin install "$slug" --version="$ver" --force --activate || true
               else
-                echo \">> wp plugin install/update \$slug (latest) --activate\"
-                if \$WP plugin is-installed \"\$slug\"; then
-                  \$WP plugin update \"\$slug\" --activate
+                echo ">> wp plugin install/update $slug (latest) --activate"
+                if php "$WP" plugin is-installed "$slug" >/dev/null 2>&1; then
+                  php "$WP" plugin update "$slug" --activate || true
                 else
-                  \$WP plugin install \"\$slug\" --activate
+                  php "$WP" plugin install "$slug" --activate || true
                 fi
               fi
-            done < \".wtp-allowed-plugins.txt\"
-          "
+            done < "$TMP"
+          '
 
       - name: Post-deploy health (non-fatal)
         shell: bash
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "curl -fsS \"http://127.0.0.1/wp-json/wtp-ro-open/v1/health\" || echo '::warning::health endpoint failed'"
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+            'curl -fsS "http://127.0.0.1/wp-json/wtp-ro-open/v1/health" && echo " Health OK" || echo "::warning::health endpoint not available"'
