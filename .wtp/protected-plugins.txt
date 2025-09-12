@@ -1,11 +1,1 @@
-litespeed-cache
-wordfence
-translatepress-multilingual
-cookie-law-info
-seo-by-rank-math
-polylang
-sitepress-multingual-cms
-wpml-string-translation
-multingualpress
-weglot
-pretty-link
+# list of plugins not overwritten by rsync
