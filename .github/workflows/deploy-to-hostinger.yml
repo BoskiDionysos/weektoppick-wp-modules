@@ -51,11 +51,11 @@ jobs:
         if: ${{ steps.diff.outputs.nothing == 'true' }}
         run: echo "No deployable changes."
 
-      - name: Install rsync + sshpass
+      - name: Install rsync
         if: ${{ steps.diff.outputs.nothing != 'true' }}
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y rsync sshpass
+          sudo apt-get install -y rsync
 
       - name: Prepare release bundle (only needed dirs)
         id: prep
@@ -93,85 +93,70 @@ jobs:
           echo "=== File count ==="
           tar -tzf "${REL}.tar.gz" | wc -l
 
-      - name: Upload bundle to server
+      - name: Upload bundle (SCP)
         if: ${{ steps.diff.outputs.nothing != 'true' }}
-        env:
-          HOST:   ${{ secrets.DEPLOY_HOST }}
-          USER:   ${{ secrets.DEPLOY_USER }}
-          PASS:   ${{ secrets.DEPLOY_PASS }}
-          PORT:   ${{ secrets.DEPLOY_PORT }}
-          TARGET: ${{ secrets.DEPLOY_TARGET }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          REL="${{ steps.prep.outputs.REL }}"
-          sshpass -p "$PASS" scp -P "${PORT:-22}" -o StrictHostKeyChecking=no "${REL}.tar.gz" "${USER}@${HOST}:${TARGET%/}/"
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASS }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          source: ${{ steps.prep.outputs.REL }}.tar.gz
+          target: ${{ secrets.DEPLOY_TARGET }}
 
-      - name: Atomic switch (extract + rsync with protect)
+      - name: Atomic switch on server (extract + rsync with protect)
         if: ${{ steps.diff.outputs.nothing != 'true' }}
-        env:
-          HOST:   ${{ secrets.DEPLOY_HOST }}
-          USER:   ${{ secrets.DEPLOY_USER }}
-          PASS:   ${{ secrets.DEPLOY_PASS }}
-          PORT:   ${{ secrets.DEPLOY_PORT }}
-          TARGET: ${{ secrets.DEPLOY_TARGET }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          # przygotuj skrypt zdalny w zmiennej i wyślij go przez ssh (bez zagnieżdżonych heredoców)
-          REMOTE_SCRIPT=$(cat <<'BASH'
-set -euo pipefail
-cd "$TARGET"
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASS }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_TARGET }}"
 
-REL_TGZ=$(ls -1 release_*.tar.gz | tail -n1)
-if [ -z "$REL_TGZ" ]; then echo "No release_*.tar.gz found"; exit 3; fi
-REL_DIR="${REL_TGZ%.tar.gz}"
+            REL_TGZ=$(ls -1 release_*.tar.gz | tail -n1)
+            test -n "$REL_TGZ" || { echo "No release_*.tar.gz found"; exit 3; }
+            REL_DIR="${REL_TGZ%.tar.gz}"
 
-mkdir -p "releases/${REL_DIR}"
-tar -xzf "$REL_TGZ" -C "releases/${REL_DIR}" --strip-components=1
+            mkdir -p "releases/${REL_DIR}"
+            tar -xzf "$REL_TGZ" -C "releases/${REL_DIR}" --strip-components=1
 
-mkdir -p wp-content/plugins wp-content/themes wp-content/mu-plugins
+            mkdir -p wp-content/plugins wp-content/themes wp-content/mu-plugins
 
-cat > /tmp/wtp-protect.filter <<'EOF'
-P wp-content/plugins/litespeed-cache/**
-P wp-content/plugins/wordfence/**
-P wp-content/plugins/translatepress-multilingual/**
-P wp-content/plugins/cookie-law-info/**
-EOF
+            cat > /tmp/wtp-protect.filter <<'EOF'
+            P wp-content/plugins/litespeed-cache/**
+            P wp-content/plugins/wordfence/**
+            P wp-content/plugins/translatepress-multilingual/**
+            P wp-content/plugins/cookie-law-info/**
+            EOF
 
-[ -d "releases/${REL_DIR}/plugins" ] && rsync -a --delete --filter="merge /tmp/wtp-protect.filter" "releases/${REL_DIR}/plugins/"    "wp-content/plugins/"    || true
-[ -d "releases/${REL_DIR}/themes" ]  && rsync -a --delete "releases/${REL_DIR}/themes/"     "wp-content/themes/"     || true
-[ -d "releases/${REL_DIR}/mu-plugins" ] && rsync -a --delete "releases/${REL_DIR}/mu-plugins/" "wp-content/mu-plugins/" || true
+            [ -d "releases/${REL_DIR}/plugins" ] && rsync -a --delete --filter="merge /tmp/wtp-protect.filter" "releases/${REL_DIR}/plugins/" "wp-content/plugins/" || true
+            [ -d "releases/${REL_DIR}/themes" ] && rsync -a --delete "releases/${REL_DIR}/themes/" "wp-content/themes/" || true
+            [ -d "releases/${REL_DIR}/mu-plugins" ] && rsync -a --delete "releases/${REL_DIR}/mu-plugins/" "wp-content/mu-plugins/" || true
 
-date > "wp-content/.wtp_last_deploy"
-BASH
-)
-          # uruchom skrypt na serwerze
-          sshpass -p "$PASS" ssh -p "${PORT:-22}" -o StrictHostKeyChecking=no "${USER}@${HOST}" \
-            "TARGET='${TARGET%/}' bash -s" <<< "$REMOTE_SCRIPT"
+            date > "wp-content/.wtp_last_deploy"
 
       - name: Post-deploy health (server-side, mandatory)
         if: ${{ steps.diff.outputs.nothing != 'true' }}
-        env:
-          HOST:   ${{ secrets.DEPLOY_HOST }}
-          USER:   ${{ secrets.DEPLOY_USER }}
-          PASS:   ${{ secrets.DEPLOY_PASS }}
-          PORT:   ${{ secrets.DEPLOY_PORT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          sshpass -p "$PASS" ssh -p "${PORT:-22}" -o StrictHostKeyChecking=no "${USER}@${HOST}" \
-            'curl -fsS "http://127.0.0.1/wp-json/wtp-ro-open/v1/health" && echo "Health OK"'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASS }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: |
+            set -euo pipefail
+            curl -fsS "http://127.0.0.1/wp-json/wtp-ro-open/v1/health" && echo "Health OK"
 
-      - name: Purge LiteSpeed cache (server-side, mandatory)
+      - name: Purge LiteSpeed cache (server-side)
         if: ${{ steps.diff.outputs.nothing != 'true' }}
-        env:
-          HOST:   ${{ secrets.DEPLOY_HOST }}
-          USER:   ${{ secrets.DEPLOY_USER }}
-          PASS:   ${{ secrets.DEPLOY_PASS }}
-          PORT:   ${{ secrets.DEPLOY_PORT }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          sshpass -p "$PASS" ssh -p "${PORT:-22}" -o StrictHostKeyChecking=no "${USER}@${HOST}" \
-            'curl -sS "http://127.0.0.1/?LSCWP_CTRL=purge" >/dev/null || true'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASS }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: |
+            curl -sS "http://127.0.0.1/?LSCWP_CTRL=purge" >/dev/null || true
