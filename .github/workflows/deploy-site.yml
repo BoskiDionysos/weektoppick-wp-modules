@@ -57,7 +57,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "TARGET=${TARGET}"
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" /bin/bash <<'RMT'
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "TARGET='${TARGET}' /bin/bash -s" <<'RMT'
             set -euo pipefail
             echo "=== whoami / uname / pwd ==="
             whoami || true
@@ -108,7 +108,6 @@ jobs:
           EXCLUDE_FILE=".wtp/rsync-exclude.txt"
           : > "$EXCLUDE_FILE"
 
-          # prefer .wtp/, fallback to wtp/
           SRC=""
           if   [ -f ".wtp/protected-plugins.txt" ]; then SRC=".wtp/protected-plugins.txt"
           elif [ -f "wtp/protected-plugins.txt"  ]; then SRC="wtp/protected-plugins.txt"
