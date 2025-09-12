@@ -65,20 +65,18 @@ jobs:
           set -euo pipefail
           REL="release_${GITHUB_SHA::7}"
           mkdir -p "$REL"
-          # Ujednolicona struktura w paczce:
+          # Normalized structure in bundle:
           mkdir -p "$REL/plugins" "$REL/themes" "$REL/mu-plugins"
 
-          # 1) Jeśli ktoś trzyma na wierzchu
+          # 1) Top-level layout
           [ -d "plugins" ]      && rsync -a plugins/      "$REL/plugins/"      || true
           [ -d "themes" ]       && rsync -a themes/       "$REL/themes/"       || true
           [ -d "mu-plugins" ]   && rsync -a mu-plugins/   "$REL/mu-plugins/"   || true
 
-          # 2) Jeśli w repo jest standard WP: wp-content/...
+          # 2) Standard WP layout under wp-content/
           [ -d "wp-content/plugins" ]     && rsync -a wp-content/plugins/     "$REL/plugins/"      || true
           [ -d "wp-content/themes" ]      && rsync -a wp-content/themes/      "$REL/themes/"       || true
           [ -d "wp-content/mu-plugins" ]  && rsync -a wp-content/mu-plugins/  "$REL/mu-plugins/"   || true
-
-          # Uwaga: jeśli wszystkie trzy są puste, to i tak wcześniejszy krok zatrzyma job (gdy brak zmian)
 
           tar -czf "${REL}.tar.gz" "$REL"
           echo "REL=${REL}" >> "$GITHUB_OUTPUT"
@@ -140,7 +138,6 @@ jobs:
             P wp-content/plugins/cookie-law-info/**
             EOF
 
-            # RSYNC z ujednoliconej struktury paczki:
             [ -d "releases/${REL_DIR}/plugins" ]     && rsync -a --delete --filter="merge /tmp/wtp-protect.filter" "releases/${REL_DIR}/plugins/"     "wp-content/plugins/"     || true
             [ -d "releases/${REL_DIR}/themes" ]      && rsync -a --delete "releases/${REL_DIR}/themes/"      "wp-content/themes/"      || true
             [ -d "releases/${REL_DIR}/mu-plugins" ]  && rsync -a --delete "releases/${REL_DIR}/mu-plugins/"  "wp-content/mu-plugins/"  || true
@@ -155,7 +152,7 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASS }}
           port: ${{ secrets.DEPLOY_PORT }}
-        script: |
+          script: |
             set -euo pipefail
             curl -fsS "http://127.0.0.1/wp-json/wtp-ro-open/v1/health" && echo "Health OK"
 
