@@ -1,6 +1,6 @@
-name: WP-CLI install/update allowed plugins
+name: WP-CLI install update allowed plugins
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
 permissions:
   contents: read
 
@@ -35,16 +35,16 @@ jobs:
           test -n "${USER:-}"   || { echo "::error::Missing DEPLOY_USER"; exit 1; }
           test -n "${PASS:-}"   || { echo "::error::Missing DEPLOY_PASS"; exit 1; }
           test -n "${TARGET:-}" || { echo "::error::Missing DEPLOY_TARGET"; exit 1; }
-          test -f ".wtp/allowed-plugins.txt" || { echo "::error::.wtp/allowed-plugins.txt not found in repo"; exit 1; }
+          test -f ".wtp/allowed-plugins.txt" || { echo "::error::.wtp/allowed-plugins.txt not found"; exit 1; }
 
-      - name: Upload allowlist
+      - name: Upload allowlist to server
         shell: bash
         run: |
           set -euo pipefail
           sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no \
             ".wtp/allowed-plugins.txt" "$USER@$HOST:$TARGET/.wtp-allowed-plugins.txt"
 
-      - name: Ensure WP-CLI on remote
+      - name: Ensure WP-CLI present on server
         shell: bash
         run: |
           set -euo pipefail
@@ -53,12 +53,13 @@ jobs:
           cd "$TARGET"
           php -v >/dev/null 2>&1 || { echo "::error::php cli not available on server"; exit 1; }
           if [ ! -f ./wp ]; then
-            echo "[remote] installing wp-cli (phar saved as ./wp)"
+            echo "[remote] installing wp-cli (saved as ./wp)"
             curl -sS -o wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+            chmod +x wp
           fi
           REMOTE
 
-      - name: Install/Update allowed plugins (wp.org or zip:)
+      - name: Install or update allowed plugins (LOCKS bypass via --skip-plugins)
         shell: bash
         run: |
           set -euo pipefail
@@ -66,22 +67,21 @@ jobs:
           set -e
           cd "$TARGET"
 
-          WP='php ./wp'
-          $WP --info >/dev/null 2>&1 || { echo "::error::wp-cli not working (php ./wp)"; exit 1; }
+          WP='php ./wp --skip-plugins'   # <- OMNIJAMY WTP LOCKS W CZASIE INSTALACJI
+
+          $WP --info >/dev/null 2>&1 || { echo "::error::wp-cli not working"; exit 1; }
 
           LIST=".wtp-allowed-plugins.txt"
           [ -f "$LIST" ] || { echo "::warning::$LIST missing on server"; exit 0; }
 
-          # normalize CRLF + strip BOM to temp
+          # normalizacja CRLF/BOM
           TMP=".wtp-allowed-plugins.norm"
           sed -e 's/\r$//' "$LIST" | sed 's/^\xEF\xBB\xBF//' > "$TMP"
 
           while IFS= read -r raw; do
-            # strip comment + trim
             clean="$(printf '%s' "$raw" | sed -e 's/#.*$//' | xargs)"
             [ -z "$clean" ] && continue
 
-            # local ZIP (line starts with zip:)
             case "$clean" in
               zip:*)
                 src="${clean#zip:}"
@@ -90,27 +90,25 @@ jobs:
                   echo "::warning::ZIP not found: $src"
                   continue
                 fi
-                echo ">> wp plugin install $src --force --activate"
+                echo ">> plugin install ZIP: $(basename "$src")"
                 $WP plugin install "$src" --force --activate || true
-                continue
+                ;;
+              *@*)
+                slug="${clean%@*}"
+                ver="${clean#*@}"
+                echo ">> plugin install $slug@$ver"
+                $WP plugin install "$slug" --version="$ver" --force --activate || true
+                ;;
+              *)
+                slug="$clean"
+                echo ">> plugin install/update $slug (latest)"
+                if $WP plugin is-installed "$slug" >/dev/null 2>&1; then
+                  $WP plugin update "$slug" --activate || true
+                else
+                  $WP plugin install "$slug" --activate || true
+                fi
                 ;;
             esac
-
-            # slug[@version]
-            slug="$(printf '%s' "$clean" | cut -d'@' -f1)"
-            ver="$( printf '%s' "$clean" | awk -F'@' 'NF>1{print $2}' )"
-
-            if [ -n "$ver" ]; then
-              echo ">> wp plugin install $slug --version=$ver --force --activate"
-              $WP plugin install "$slug" --version="$ver" --force --activate || true
-            else
-              echo ">> wp plugin install/update $slug (latest) --activate"
-              if $WP plugin is-installed "$slug" >/dev/null 2>&1; then
-                $WP plugin update "$slug" --activate || true
-              else
-                $WP plugin install "$slug" --activate || true
-              fi
-            fi
           done < "$TMP"
           REMOTE
 
