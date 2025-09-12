@@ -1,4 +1,4 @@
-name: WP-CLI: install/update allowed plugins
+name: WP-CLI install or update allowed plugins
 
 on:
   workflow_dispatch: {}
@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
-      HOST:   ${{ secrets.DEPLOY_HOST }}
-      PORT:   ${{ secrets.DEPLOY_PORT }}
-      USER:   ${{ secrets.DEPLOY_USER }}
-      PASS:   ${{ secrets.DEPLOY_PASS }}
+      HOST: ${{ secrets.DEPLOY_HOST }}
+      PORT: ${{ secrets.DEPLOY_PORT }}
+      USER: ${{ secrets.DEPLOY_USER }}
+      PASS: ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
 
     steps:
@@ -24,13 +24,15 @@ jobs:
           lfs: true
 
       - name: Verify inputs
+        shell: bash
         run: |
           set -euo pipefail
           test -n "${HOST:-}" && test -n "${PORT:-}" && test -n "${USER:-}" && test -n "${PASS:-}" && test -n "${TARGET:-}" \
             || { echo "::error::Missing deploy secrets"; exit 1; }
           test -f ".wtp/allowed-plugins.txt" || { echo "::error::.wtp/allowed-plugins.txt not found"; exit 1; }
 
-      - name: Install WP-CLI on remote (if missing)
+      - name: Install WP-CLI on remote if missing
+        shell: bash
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "set -e
@@ -45,12 +47,11 @@ jobs:
             mkdir -p .wtp-vendor
           "
 
-      - name: Upload allowlist + vendor ZIPs (if any)
+      - name: Upload allowlist and vendor ZIPs
+        shell: bash
         run: |
           set -euo pipefail
-          # allowlist
           sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no ".wtp/allowed-plugins.txt" "$USER@$HOST:$TARGET/.wtp-allowed-plugins.txt"
-          # vendor ZIPs
           if [ -d ".wtp/vendor-plugins" ]; then
             echo "Uploading vendor zips..."
             sshpass -p "$PASS" rsync -az -v -e "ssh -p $PORT -o StrictHostKeyChecking=no" ".wtp/vendor-plugins/" "$USER@$HOST:$TARGET/.wtp-vendor/"
@@ -58,7 +59,8 @@ jobs:
             echo "No .wtp/vendor-plugins directory (skip)"
           fi
 
-      - name: Install/Update allowed plugins via WP-CLI (wp.org + zip:)
+      - name: Install or update allowed plugins via WP-CLI
+        shell: bash
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "set -e
@@ -71,7 +73,6 @@ jobs:
               line=\"\${line%%#*}\"
               line=\"\$(echo \"\$line\" | xargs)\"
               [ -z \"\$line\" ] && continue
-
               if echo \"\$line\" | grep -q '^zip:'; then
                 zip_path=\"\${line#zip:}\"
                 if [ -f \"\$zip_path\" ]; then
@@ -86,11 +87,9 @@ jobs:
                 php \"\$WP\" plugin install \"\$SRC\" --force --activate
                 continue
               fi
-
               slug=\"\${line%@*}\"
               ver=\"\"
               if echo \"\$line\" | grep -q '@'; then ver=\"\${line#*@}\"; fi
-
               if [ -n \"\$ver\" ]; then
                 echo \">> wp plugin install \$slug --version=\$ver --force --activate\"
                 php \"\$WP\" plugin install \"\$slug\" --version=\"\$ver\" --force --activate
@@ -105,7 +104,8 @@ jobs:
             done < \".wtp-allowed-plugins.txt\"
           "
 
-      - name: Post-deploy health
+      - name: Post-deploy health (non-fatal)
+        shell: bash
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "curl -fsS \"http://127.0.0.1/wp-json/wtp-ro-open/v1/health\" || echo '::warning::health endpoint failed'"
