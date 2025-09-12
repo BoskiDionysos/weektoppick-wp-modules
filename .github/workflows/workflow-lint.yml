@@ -11,17 +11,28 @@ on:
 jobs:
   lint:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # potrzebne do commit logu
+      issues: write     # potrzebne do tworzenia Issue
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run actionlint
+      - name: Download actionlint (latest) to ./.bin
+        run: |
+          set -euo pipefail
+          mkdir -p .bin
+          curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash -s -- latest ./.bin
+          test -x ./.bin/actionlint
+
+      - name: Run actionlint and capture output
         id: lint
         run: |
-          curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash -s -- -b ./.bin
-          mkdir -p .wtp/state/ci_errors
           set +e
+          mkdir -p .wtp/state/ci_errors
           ./.bin/actionlint -color=never > .wtp/state/ci_errors/workflow_lint.txt 2>&1
           EXIT=$?
+          echo "exit_code=$EXIT"
           echo "exit_code=$EXIT" >> "$GITHUB_OUTPUT"
           exit 0
 
@@ -32,7 +43,7 @@ jobs:
           file_pattern: ".wtp/state/ci_errors/workflow_lint.txt"
 
       - name: Create/Update issue with lint errors
-        if: ${{ steps.lint.outputs.exit_code != 0 }}
+        if: ${{ steps.lint.outputs.exit_code != '0' }}
         uses: peter-evans/create-issue-from-file@v4
         with:
           title: "Workflow YAML errors detected"
