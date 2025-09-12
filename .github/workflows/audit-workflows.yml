@@ -1,0 +1,164 @@
+name: "Audit: workflows & deploy wiring"
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y curl jq dos2unix file
+          # actionlint (static analyzer GitHub Actions)
+          curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
+          echo "$PWD" >> $GITHUB_PATH
+
+      - name: Prepare report dir
+        run: |
+          mkdir -p .wtp/reports
+          REPORT=".wtp/reports/workflows-audit-${GITHUB_RUN_ID}.md"
+          echo "# Workflows audit – run ${GITHUB_RUN_ID}" > "$REPORT"
+          echo "" >> "$REPORT"
+          echo "- Repo: ${GITHUB_REPOSITORY}" >> "$REPORT"
+          echo "- SHA:  ${GITHUB_SHA}" >> "$REPORT"
+          echo "- Actor:${GITHUB_ACTOR}" >> "$REPORT"
+          echo "" >> "$REPORT"
+          echo "## Summary" >> "$REPORT"
+          echo "" >> "$REPORT"
+          echo "Raporty szczegółowe poniżej." >> "$REPORT"
+          echo "REPORT=$REPORT" >> $GITHUB_ENV
+
+      - name: List workflows
+        id: list
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "### Files in .github/workflows" >> "$REPORT"
+          if [ -d ".github/workflows" ]; then
+            find .github/workflows -maxdepth 1 -type f \( -name "*.yml" -o -name "*.yaml" \) -print | sort | tee /tmp/wf.list
+            echo '```' >> "$REPORT"
+            cat /tmp/wf.list >> "$REPORT"
+            echo '```' >> "$REPORT"
+          else
+            echo "::error::.github/workflows not found"
+          fi
+
+      - name: actionlint (syntax & common mistakes)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "" >> "$REPORT"
+          echo "## actionlint" >> "$REPORT"
+          echo "" >> "$REPORT"
+          set +e
+          ./actionlint -color -shellcheck= -pyflakes= $(cat /tmp/wf.list) > /tmp/actionlint.txt 2>&1
+          RC=$?; set -e
+          echo '```' >> "$REPORT"
+          cat /tmp/actionlint.txt >> "$REPORT" || true
+          echo '```' >> "$REPORT"
+          echo "ACTIONLINT_RC=$RC" >> $GITHUB_ENV
+
+      - name: Heuristics audit (rsync, curls, secrets, CRLF/BOM)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "" >> "$REPORT"
+          echo "## Heuristics" >> "$REPORT"
+          echo "" >> "$REPORT"
+
+          issues=0
+
+          # 1) rsync --filter=merge (częsty błąd)
+          if grep -R --line-number --color=never -E 'rsync .*--filter=merge' .github/workflows/*.y*ml >/tmp/grep_merge.txt 2>/dev/null; then
+            echo "### rsync --filter=merge" >> "$REPORT"
+            echo "_Problem_: użycie '--filter=merge <file>' potrafi dać 'unexpected end of filter rule: merge'." >> "$REPORT"
+            echo "_Rekomendacja_: użyj '--exclude-from=<file>' i zapisuj wzorce jako 'katalog/***'." >> "$REPORT"
+            echo '```' >> "$REPORT"
+            cat /tmp/grep_merge.txt >> "$REPORT"
+            echo '```' >> "$REPORT"
+            issues=$((issues+1))
+          fi
+
+          # 2) curl health bez istotnych cudzysłowów / złą ścieżką
+          if grep -R --line-number --color=never -E 'curl .*127\.0\.0\.1.*wtp-ro-open/v1/health' .github/workflows/*.y*ml >/tmp/grep_health.txt 2>/dev/null; then
+            echo "### curl /health endpoint" >> "$REPORT"
+            echo "_Uwaga_: upewnij się, że endpoint istnieje na prod i jest w cudzysłowach." >> "$REPORT"
+            echo "Przykład bezpiecznego użycia: curl -fsS \"http://127.0.0.1/wp-json/wtp-ro-open/v1/health\" || echo 'warn'" >> "$REPORT"
+            echo '```' >> "$REPORT"
+            cat /tmp/grep_health.txt >> "$REPORT"
+            echo '```' >> "$REPORT"
+          fi
+
+          # 3) Sekrety DEPLOY_* (host/user/pass/port/target)
+          echo "### Secrets presence" >> "$REPORT"
+          for s in DEPLOY_HOST DEPLOY_PORT DEPLOY_USER DEPLOY_PASS DEPLOY_TARGET; do
+            echo "- expects secret: $s" >> "$REPORT"
+          done
+          echo "" >> "$REPORT"
+          echo "_Sprawdź w repo Settings → Secrets → Actions_." >> "$REPORT"
+
+          # 4) CRLF/BOM
+          echo "" >> "$REPORT"
+          echo "### BOM/CRLF scan" >> "$REPORT"
+          had=false
+          while IFS= read -r f; do
+            # CRLF?
+            if file "$f" | grep -q "CRLF"; then
+              echo "- CRLF found in: $f" >> "$REPORT"; had=true
+            fi
+            # UTF-8 BOM?
+            head -c3 "$f" | hexdump -C | head -n1 | grep -q "ef bb bf" && { echo "- BOM found in: $f" >> "$REPORT"; had=true; }
+          done < /tmp/wf.list
+          if [ "$had" = false ]; then
+            echo "- OK (no BOM/CRLF)" >> "$REPORT"
+          fi
+
+          # 5) allowed/protected lists
+          echo "" >> "$REPORT"
+          echo "### Lists presence (.wtp)" >> "$REPORT"
+          test -f ".wtp/allowed-plugins.txt"   && echo "- found: .wtp/allowed-plugins.txt"   >> "$REPORT" || { echo "- MISSING: .wtp/allowed-plugins.txt"   >> "$REPORT"; issues=$((issues+1)); }
+          test -f ".wtp/protected-plugins.txt" && echo "- found: .wtp/protected-plugins.txt" >> "$REPORT" || { echo "- MISSING: .wtp/protected-plugins.txt" >> "$REPORT"; issues=$((issues+1)); }
+
+          # 6) znane slugi referencyjne (info)
+          echo "" >> "$REPORT"
+          echo "### Reference plugin slugs (info)" >> "$REPORT"
+          echo "- wp.org: litespeed-cache, wordfence, cookie-law-info, translatepress-multilingual, seo-by-rank-math, polylang, weglot, pretty-link" >> "$REPORT"
+          echo "- komercyjne (chronione): sitepress-multilingual-cms, wpml-string-translation, multilingualpress" >> "$REPORT"
+
+          echo "" >> "$REPORT"
+          if [ "$issues" -gt 0 ] || [ "${ACTIONLINT_RC:-0}" -ne 0 ]; then
+            echo "### Verdict: ⚠️ Issues found ($issues) or actionlint errors=${ACTIONLINT_RC:-0}" >> "$REPORT"
+            echo "::warning::Issues found: $issues; actionlint RC=${ACTIONLINT_RC:-0}"
+          else
+            echo "### Verdict: ✅ Clean" >> "$REPORT"
+            echo "::notice::Audit clean"
+          fi
+
+      - name: Upload audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflows-audit-${{ github.run_id }}
+          path: .wtp/reports/workflows-audit-${{ github.run_id }}.md
+          retention-days: 7
+
+      - name: Commit audit report to repo
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "ci: workflows audit report #${{ github.run_id }}"
+          file_pattern: ".wtp/reports/workflows-audit-*.md"
+          branch: main
