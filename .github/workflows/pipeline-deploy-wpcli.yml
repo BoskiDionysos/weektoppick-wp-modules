@@ -1,4 +1,4 @@
-name: WTP Pipeline (deploy → wp-cli → inventory → snapshot logs)
+name: WTP Pipeline (deploy → wpcli → snapshot)
 
 on:
   workflow_dispatch: {}
@@ -57,7 +57,8 @@ jobs:
       - name: Remote sanity (docroot)
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'RMT'
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no \
+            "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'RMT'
             set -euo pipefail
             : "${TARGET:?TARGET missing}"
             cd "$TARGET" || { echo "::error::Cannot cd to $TARGET"; exit 1; }
@@ -118,47 +119,41 @@ jobs:
             echo "Skip: no themes dir."
           fi
 
-      # === FIX FS (UPRAWNIENIA + FS_METHOD) ZANIM WP-CLI COKOLWIEK POBIERZE ===
+      # === FIX FS (uprawnienia + FS_METHOD) ZANIM WP-CLI COKOLWIEK POBIERZE ===
       - name: Prepare WP filesystem (permissions + FS_METHOD)
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'RMT'
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no \
+            "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'RMT'
             set -euo pipefail
             : "${TARGET:?TARGET missing}"
             cd "$TARGET"
-
             mkdir -p wp-content/plugins wp-content/upgrade
-            # Wspólne uprawnienia katalogów: 775; pliki: 664 (bez chown na shared hostingu)
             find wp-content/plugins -type d -exec chmod 775 {} \; || true
             find wp-content/plugins -type f -exec chmod 664 {} \; || true
             chmod 775 wp-content/upgrade || true
-
-            # FS_METHOD 'direct' jeśli brak
             if ! grep -q "FS_METHOD" wp-config.php; then
               echo "define('FS_METHOD','direct');" >> wp-config.php
             fi
-
-            # diagnostyka środowiska
             {
               echo "=== PHP modules (zip/curl/openssl expected) ==="
               php -m | sort | grep -i -E 'zip|curl|openssl' || true
               echo
-              echo "=== disk free ==="
-              df -h .
+              echo "=== disk free ==="; df -h .
               echo
               echo "=== perms check ==="
               stat -c '%A %U:%G %n' wp-content wp-content/plugins wp-content/upgrade || true
             } > .wtp_fs_diag.txt 2>&1
           RMT
 
-      # === WP-CLI (allowed list install/update + activate) ===
+      # === WP-CLI (allowed list install/update + activate) z WYŁĄCZENIEM MU-LOCKS ===
       - name: Upload allowlist to remote
         run: |
           set -euo pipefail
           sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no \
             ".wtp/allowed-plugins.txt" "$USER@$HOST:$TARGET/.wtp-allowed-plugins.txt"
 
-      - name: WP-CLI run (install/update/activate + logs, debug)
+      - name: WP-CLI run (install/update/activate + logs, debug; MU-LOCKS off during run)
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no \
@@ -177,6 +172,13 @@ jobs:
               echo; echo "=== PHP zip/curl/openssl ==="; php -m | sort | grep -i -E 'zip|curl|openssl' || true
             } >> "$SLOG" 2>&1
 
+            # --- Tymczasowo wyłącz MU-LOCKS ---
+            LOCKS="$TARGET/wp-content/mu-plugins/wtp-locks.php"
+            if [ -f "$LOCKS" ]; then
+              mv "$LOCKS" "$LOCKS.off"
+              echo "[LOCKS] temporarily disabled" >> "$SLOG"
+            fi
+
             # WP-CLI bootstrap
             if [ ! -x "./wp" ]; then
               curl -sS -o wp.phar https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
@@ -189,7 +191,6 @@ jobs:
             LIST="$TARGET/.wtp-allowed-plugins.txt"
             [ -f "$LIST" ] || { echo "::error::Allowlist not found: $LIST" | tee -a "$SLOG"; exit 1; }
 
-            # normalizacja
             TMP="$TARGET/.wtp-allowed-plugins.norm"
             sed -e 's/\r$//' "$LIST" | sed 's/^\xEF\xBB\xBF//' | sed 's/#.*$//' | awk 'NF>0' > "$TMP"
 
@@ -199,9 +200,7 @@ jobs:
             ACTV="$TARGET/.wtp/state/ci_logs/active_plugins.txt"
             : >"$INST"; : >"$UPD"; : >"$EXIST"; : >"$ACTV"
 
-            # Pętla instalacji/aktualizacji
             while IFS= read -r line; do
-              # zip:... (premium/local)
               if [[ "$line" =~ ^zip:(.+)$ ]]; then
                 src="${BASH_REMATCH[1]}"
                 [ -f "$src" ] || src="$TARGET/.wtp-vendor/$(basename "$src")"
@@ -216,7 +215,6 @@ jobs:
               fi
 
               slug="${line%@*}"; ver="${line#*@}"; [ "$slug" = "$ver" ] && ver=""
-
               if eval $WP plugin is-installed "$slug" >/dev/null 2>&1; then
                 if [ -n "$ver" ]; then
                   eval $WP plugin update "$slug" --version="$ver" --activate --debug 2>&1 | tee -a "$SLOG"
@@ -244,6 +242,12 @@ jobs:
             # Fallback theme (gdy brak naszego)
             if ! eval $WP theme is-installed wtp-core-theme >/dev/null 2>&1; then
               eval $WP theme install twentytwentyfive --activate || true
+            fi
+
+            # --- Przywróć MU-LOCKS ---
+            if [ -f "$LOCKS.off" ]; then
+              mv "$LOCKS.off" "$LOCKS"
+              echo "[LOCKS] restored" >> "$SLOG"
             fi
           RMT
 
