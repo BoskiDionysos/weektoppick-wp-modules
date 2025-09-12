@@ -1,0 +1,24 @@
+﻿2025-09-12T11:27:22.1526868Z ##[group]Run set -euo pipefail
+2025-09-12T11:27:22.1527210Z [36;1mset -euo pipefail[0m
+2025-09-12T11:27:22.1527591Z [36;1msshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "set -e[0m
+2025-09-12T11:27:22.1527983Z [36;1m  cd \"$TARGET\"[0m
+2025-09-12T11:27:22.1528232Z [36;1m  # wymagamy php cli[0m
+2025-09-12T11:27:22.1528590Z [36;1m  php -v >/dev/null 2>&1 || { echo '::error::php cli not available on server'; exit 1; }[0m
+2025-09-12T11:27:22.1529033Z [36;1m  # jeśli nie ma pliku ./wp, pobierz[0m
+2025-09-12T11:27:22.1529328Z [36;1m  if [ ! -f ./wp ]; then[0m
+2025-09-12T11:27:22.1529619Z [36;1m    echo 'Installing wp-cli (phar kept as ./wp)...'[0m
+2025-09-12T11:27:22.1530133Z [36;1m    curl -sS -o wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar[0m
+2025-09-12T11:27:22.1530700Z [36;1m    # nie polegamy na bicie wykonywalnym ani shebangu — zawsze wołamy: php ./wp[0m
+2025-09-12T11:27:22.1531065Z [36;1m  fi[0m
+2025-09-12T11:27:22.1531262Z [36;1m  mkdir -p .wtp-vendor[0m
+2025-09-12T11:27:22.1531526Z [36;1m"[0m
+2025-09-12T11:27:22.1559666Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-12T11:27:22.1560073Z env:
+2025-09-12T11:27:22.1560343Z   HOST: ***
+2025-09-12T11:27:22.1560572Z   PORT: ***
+2025-09-12T11:27:22.1560757Z   USER: ***
+2025-09-12T11:27:22.1560953Z   PASS: ***
+2025-09-12T11:27:22.1561229Z   TARGET: ***
+2025-09-12T11:27:22.1561422Z ##[endgroup]
+2025-09-12T11:27:22.7045566Z Warning: Permanently added '[***]:***' (ED25519) to the list of known hosts.
+2025-09-12T11:27:23.4921328Z Installing wp-cli (phar kept as ./wp)...

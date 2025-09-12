@@ -1,0 +1,242 @@
+﻿2025-09-12T11:27:14.7402925Z Current runner version: '2.328.0'
+2025-09-12T11:27:14.7426743Z ##[group]Runner Image Provisioner
+2025-09-12T11:27:14.7427579Z Hosted Compute Agent
+2025-09-12T11:27:14.7428313Z Version: 20250829.383
+2025-09-12T11:27:14.7429516Z Commit: 27cb235aab5b0e52e153a26cd86b4742e89dac5d
+2025-09-12T11:27:14.7430682Z Build Date: 2025-08-29T13:48:48Z
+2025-09-12T11:27:14.7431632Z ##[endgroup]
+2025-09-12T11:27:14.7432798Z ##[group]Operating System
+2025-09-12T11:27:14.7433730Z Ubuntu
+2025-09-12T11:27:14.7434469Z 24.04.3
+2025-09-12T11:27:14.7435364Z LTS
+2025-09-12T11:27:14.7436172Z ##[endgroup]
+2025-09-12T11:27:14.7437044Z ##[group]Runner Image
+2025-09-12T11:27:14.7438068Z Image: ubuntu-24.04
+2025-09-12T11:27:14.7438937Z Version: 20250907.24.1
+2025-09-12T11:27:14.7440748Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20250907.24/images/ubuntu/Ubuntu2404-Readme.md
+2025-09-12T11:27:14.7443700Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20250907.24
+2025-09-12T11:27:14.7445669Z ##[endgroup]
+2025-09-12T11:27:14.7447558Z ##[group]GITHUB_TOKEN Permissions
+2025-09-12T11:27:14.7450455Z Contents: read
+2025-09-12T11:27:14.7451534Z Metadata: read
+2025-09-12T11:27:14.7452753Z ##[endgroup]
+2025-09-12T11:27:14.7456566Z Secret source: Actions
+2025-09-12T11:27:14.7457680Z Prepare workflow directory
+2025-09-12T11:27:14.8175269Z Prepare all required actions
+2025-09-12T11:27:14.8229579Z Getting action download info
+2025-09-12T11:27:15.0880904Z Download action repository 'actions/checkout@v4' (SHA:08eba0b27e820071cde6df949e0beb9ba4906955)
+2025-09-12T11:27:15.2087051Z Complete job name: wpcli
+2025-09-12T11:27:15.2794514Z ##[group]Run actions/checkout@v4
+2025-09-12T11:27:15.2795364Z with:
+2025-09-12T11:27:15.2795777Z   lfs: true
+2025-09-12T11:27:15.2796268Z   repository: BoskiDionysos/weektoppick-wp-modules
+2025-09-12T11:27:15.2797020Z   token: ***
+2025-09-12T11:27:15.2797434Z   ssh-strict: true
+2025-09-12T11:27:15.2797855Z   ssh-user: git
+2025-09-12T11:27:15.2798292Z   persist-credentials: true
+2025-09-12T11:27:15.2798791Z   clean: true
+2025-09-12T11:27:15.2799222Z   sparse-checkout-cone-mode: true
+2025-09-12T11:27:15.2799733Z   fetch-depth: 1
+2025-09-12T11:27:15.2800152Z   fetch-tags: false
+2025-09-12T11:27:15.2800581Z   show-progress: true
+2025-09-12T11:27:15.2801026Z   submodules: false
+2025-09-12T11:27:15.2801473Z   set-safe-directory: true
+2025-09-12T11:27:15.2802474Z env:
+2025-09-12T11:27:15.2802946Z   HOST: ***
+2025-09-12T11:27:15.2803351Z   PORT: ***
+2025-09-12T11:27:15.2803748Z   USER: ***
+2025-09-12T11:27:15.2804173Z   PASS: ***
+2025-09-12T11:27:15.2804721Z   TARGET: ***
+2025-09-12T11:27:15.2805158Z ##[endgroup]
+2025-09-12T11:27:15.3856368Z Syncing repository: BoskiDionysos/weektoppick-wp-modules
+2025-09-12T11:27:15.3858191Z ##[group]Getting Git version info
+2025-09-12T11:27:15.3859072Z Working directory is '/home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules'
+2025-09-12T11:27:15.3860241Z [command]/usr/bin/git version
+2025-09-12T11:27:15.3914009Z git version 2.51.0
+2025-09-12T11:27:15.3964771Z [command]/usr/bin/git lfs version
+2025-09-12T11:27:15.9282858Z git-lfs/3.7.0 (GitHub; linux amd64; go 1.24.4)
+2025-09-12T11:27:15.9297241Z ##[endgroup]
+2025-09-12T11:27:15.9313435Z Temporarily overriding HOME='/home/runner/work/_temp/1cdf1d1d-e309-4b94-9815-79608a05d4d2' before making global git config changes
+2025-09-12T11:27:15.9315578Z Adding repository directory to the temporary git global config as a safe directory
+2025-09-12T11:27:15.9319014Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules
+2025-09-12T11:27:15.9354664Z Deleting the contents of '/home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules'
+2025-09-12T11:27:15.9357982Z ##[group]Initializing the repository
+2025-09-12T11:27:15.9362253Z [command]/usr/bin/git init /home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules
+2025-09-12T11:27:15.9425569Z hint: Using 'master' as the name for the initial branch. This default branch name
+2025-09-12T11:27:15.9427860Z hint: is subject to change. To configure the initial branch name to use in all
+2025-09-12T11:27:15.9429437Z hint: of your new repositories, which will suppress this warning, call:
+2025-09-12T11:27:15.9430217Z hint:
+2025-09-12T11:27:15.9430824Z hint: 	git config --global init.defaultBranch <name>
+2025-09-12T11:27:15.9431476Z hint:
+2025-09-12T11:27:15.9432809Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2025-09-12T11:27:15.9433945Z hint: 'development'. The just-created branch can be renamed via this command:
+2025-09-12T11:27:15.9434835Z hint:
+2025-09-12T11:27:15.9435652Z hint: 	git branch -m <name>
+2025-09-12T11:27:15.9436399Z hint:
+2025-09-12T11:27:15.9437067Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2025-09-12T11:27:15.9438320Z Initialized empty Git repository in /home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules/.git/
+2025-09-12T11:27:15.9441231Z [command]/usr/bin/git remote add origin https://github.com/BoskiDionysos/weektoppick-wp-modules
+2025-09-12T11:27:15.9477068Z ##[endgroup]
+2025-09-12T11:27:15.9478576Z ##[group]Disabling automatic garbage collection
+2025-09-12T11:27:15.9481825Z [command]/usr/bin/git config --local gc.auto 0
+2025-09-12T11:27:15.9508631Z ##[endgroup]
+2025-09-12T11:27:15.9510193Z ##[group]Setting up auth
+2025-09-12T11:27:15.9516297Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-09-12T11:27:15.9547739Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-09-12T11:27:15.9791758Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-09-12T11:27:15.9824403Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-09-12T11:27:16.0046433Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2025-09-12T11:27:16.0082973Z ##[endgroup]
+2025-09-12T11:27:16.0085493Z [command]/usr/bin/git lfs install --local
+2025-09-12T11:27:16.0466733Z Updated Git hooks.
+2025-09-12T11:27:16.0467555Z Git LFS initialized.
+2025-09-12T11:27:16.0550573Z ##[group]Fetching the repository
+2025-09-12T11:27:16.0561051Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +3661b7a731d3e6f256fc317590e812c519c8098d:refs/remotes/origin/main
+2025-09-12T11:27:21.0580160Z From https://github.com/BoskiDionysos/weektoppick-wp-modules
+2025-09-12T11:27:21.0581597Z  * [new ref]         3661b7a731d3e6f256fc317590e812c519c8098d -> origin/main
+2025-09-12T11:27:21.0610096Z ##[endgroup]
+2025-09-12T11:27:21.0610928Z ##[group]Determining the checkout info
+2025-09-12T11:27:21.0612255Z ##[endgroup]
+2025-09-12T11:27:21.0613058Z ##[group]Fetching LFS objects
+2025-09-12T11:27:21.0617446Z [command]/usr/bin/git lfs fetch origin refs/remotes/origin/main
+2025-09-12T11:27:21.0828621Z Fetching reference refs/remotes/origin/main
+2025-09-12T11:27:21.5168090Z ##[endgroup]
+2025-09-12T11:27:21.5173539Z [command]/usr/bin/git sparse-checkout disable
+2025-09-12T11:27:21.5214262Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2025-09-12T11:27:21.5243609Z ##[group]Checking out the ref
+2025-09-12T11:27:21.5248276Z [command]/usr/bin/git checkout --progress --force -B main refs/remotes/origin/main
+2025-09-12T11:27:22.0877011Z Switched to a new branch 'main'
+2025-09-12T11:27:22.0879044Z branch 'main' set up to track 'origin/main'.
+2025-09-12T11:27:22.1141257Z ##[endgroup]
+2025-09-12T11:27:22.1179657Z [command]/usr/bin/git log -1 --format=%H
+2025-09-12T11:27:22.1204722Z 3661b7a731d3e6f256fc317590e812c519c8098d
+2025-09-12T11:27:22.1376769Z ##[group]Run set -euo pipefail
+2025-09-12T11:27:22.1377160Z [36;1mset -euo pipefail[0m
+2025-09-12T11:27:22.1377570Z [36;1mtest -n "${HOST:-}" && test -n "${PORT:-}" && test -n "${USER:-}" && test -n "${PASS:-}" && test -n "${TARGET:-}" \[0m
+2025-09-12T11:27:22.1378291Z [36;1m  || { echo "::error::Missing deploy secrets"; exit 1; }[0m
+2025-09-12T11:27:22.1378792Z [36;1mtest -f ".wtp/allowed-plugins.txt" || { echo "::error::.wtp/allowed-plugins.txt not found"; exit 1; }[0m
+2025-09-12T11:27:22.1428848Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-12T11:27:22.1429208Z env:
+2025-09-12T11:27:22.1429606Z   HOST: ***
+2025-09-12T11:27:22.1429828Z   PORT: ***
+2025-09-12T11:27:22.1430022Z   USER: ***
+2025-09-12T11:27:22.1430231Z   PASS: ***
+2025-09-12T11:27:22.1430550Z   TARGET: ***
+2025-09-12T11:27:22.1430779Z ##[endgroup]
+2025-09-12T11:27:22.1526879Z ##[group]Run set -euo pipefail
+2025-09-12T11:27:22.1527213Z [36;1mset -euo pipefail[0m
+2025-09-12T11:27:22.1527595Z [36;1msshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "set -e[0m
+2025-09-12T11:27:22.1527986Z [36;1m  cd \"$TARGET\"[0m
+2025-09-12T11:27:22.1528235Z [36;1m  # wymagamy php cli[0m
+2025-09-12T11:27:22.1528593Z [36;1m  php -v >/dev/null 2>&1 || { echo '::error::php cli not available on server'; exit 1; }[0m
+2025-09-12T11:27:22.1529038Z [36;1m  # jeśli nie ma pliku ./wp, pobierz[0m
+2025-09-12T11:27:22.1529331Z [36;1m  if [ ! -f ./wp ]; then[0m
+2025-09-12T11:27:22.1529622Z [36;1m    echo 'Installing wp-cli (phar kept as ./wp)...'[0m
+2025-09-12T11:27:22.1530136Z [36;1m    curl -sS -o wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar[0m
+2025-09-12T11:27:22.1530704Z [36;1m    # nie polegamy na bicie wykonywalnym ani shebangu — zawsze wołamy: php ./wp[0m
+2025-09-12T11:27:22.1531068Z [36;1m  fi[0m
+2025-09-12T11:27:22.1531307Z [36;1m  mkdir -p .wtp-vendor[0m
+2025-09-12T11:27:22.1531530Z [36;1m"[0m
+2025-09-12T11:27:22.1559674Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-12T11:27:22.1560077Z env:
+2025-09-12T11:27:22.1560347Z   HOST: ***
+2025-09-12T11:27:22.1560575Z   PORT: ***
+2025-09-12T11:27:22.1560760Z   USER: ***
+2025-09-12T11:27:22.1560955Z   PASS: ***
+2025-09-12T11:27:22.1561231Z   TARGET: ***
+2025-09-12T11:27:22.1561425Z ##[endgroup]
+2025-09-12T11:27:22.7045591Z Warning: Permanently added '[***]:***' (ED25519) to the list of known hosts.
+2025-09-12T11:27:23.4921363Z Installing wp-cli (phar kept as ./wp)...
+2025-09-12T11:27:23.5874775Z ##[group]Run set -euo pipefail
+2025-09-12T11:27:23.5875082Z [36;1mset -euo pipefail[0m
+2025-09-12T11:27:23.5875614Z [36;1msshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no ".wtp/allowed-plugins.txt" "$USER@$HOST:$TARGET/.wtp-allowed-plugins.txt"[0m
+2025-09-12T11:27:23.5876183Z [36;1mif [ -d ".wtp/vendor-plugins" ]; then[0m
+2025-09-12T11:27:23.5876473Z [36;1m  echo "Uploading vendor zips..."[0m
+2025-09-12T11:27:23.5877010Z [36;1m  sshpass -p "$PASS" rsync -az -v -e "ssh -p $PORT -o StrictHostKeyChecking=no" ".wtp/vendor-plugins/" "$USER@$HOST:$TARGET/.wtp-vendor/"[0m
+2025-09-12T11:27:23.5877510Z [36;1melse[0m
+2025-09-12T11:27:23.5877764Z [36;1m  echo "No .wtp/vendor-plugins directory (skip)"[0m
+2025-09-12T11:27:23.5878044Z [36;1mfi[0m
+2025-09-12T11:27:23.5908833Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-12T11:27:23.5909140Z env:
+2025-09-12T11:27:23.5909403Z   HOST: ***
+2025-09-12T11:27:23.5909606Z   PORT: ***
+2025-09-12T11:27:23.5909823Z   USER: ***
+2025-09-12T11:27:23.5910018Z   PASS: ***
+2025-09-12T11:27:23.5910298Z   TARGET: ***
+2025-09-12T11:27:23.5910486Z ##[endgroup]
+2025-09-12T11:27:25.4332553Z Uploading vendor zips...
+2025-09-12T11:27:26.8500667Z sending incremental file list
+2025-09-12T11:27:26.9437689Z ./
+2025-09-12T11:27:26.9438323Z .gitkeep
+2025-09-12T11:27:27.2574964Z 
+2025-09-12T11:27:27.2575540Z sent 124 bytes  received 44 bytes  67.20 bytes/sec
+2025-09-12T11:27:27.2576007Z total size is 6  speedup is 0.04
+2025-09-12T11:27:27.2612478Z ##[group]Run set -euo pipefail
+2025-09-12T11:27:27.2612830Z [36;1mset -euo pipefail[0m
+2025-09-12T11:27:27.2613208Z [36;1msshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "set -e[0m
+2025-09-12T11:27:27.2613785Z [36;1m  cd \"$TARGET\"[0m
+2025-09-12T11:27:27.2614095Z [36;1m  # zawsze używamy php ./wp – nie polegamy na exec bit[0m
+2025-09-12T11:27:27.2614417Z [36;1m  WP='php ./wp'[0m
+2025-09-12T11:27:27.2614621Z [36;1m  # sanity[0m
+2025-09-12T11:27:27.2614941Z [36;1m  $WP --info >/dev/null 2>&1 || { echo '::error::wp-cli not working (php ./wp)'; exit 1; }[0m
+2025-09-12T11:27:27.2615306Z [36;1m[0m
+2025-09-12T11:27:27.2615496Z [36;1m  while IFS= read -r line; do[0m
+2025-09-12T11:27:27.2615739Z [36;1m    line='\${line%%#*}'[0m
+2025-09-12T11:27:27.2615979Z [36;1m    line=\$(echo \"\$line\" | xargs)[0m
+2025-09-12T11:27:27.2616246Z [36;1m    [ -z \"\$line\" ] && continue[0m
+2025-09-12T11:27:27.2616486Z [36;1m[0m
+2025-09-12T11:27:27.2616722Z [36;1m    if echo \"\$line\" | grep -q '^zip:'; then[0m
+2025-09-12T11:27:27.2617000Z [36;1m      zip_path=\"\${line#zip:}\"[0m
+2025-09-12T11:27:27.2617266Z [36;1m      if [ -f \"\$zip_path\" ]; then[0m
+2025-09-12T11:27:27.2617512Z [36;1m        SRC=\"\$zip_path\"[0m
+2025-09-12T11:27:27.2617810Z [36;1m      elif [ -f \".wtp-vendor/\$(basename \"\$zip_path\")\" ]; then[0m
+2025-09-12T11:27:27.2618163Z [36;1m        SRC=\".wtp-vendor/\$(basename \"\$zip_path\")\"[0m
+2025-09-12T11:27:27.2618438Z [36;1m      else[0m
+2025-09-12T11:27:27.2618695Z [36;1m        echo \"::warning::ZIP not found: \$zip_path (skipping)\"[0m
+2025-09-12T11:27:27.2618999Z [36;1m        continue[0m
+2025-09-12T11:27:27.2619198Z [36;1m      fi[0m
+2025-09-12T11:27:27.2619443Z [36;1m      echo \">> wp plugin install \$SRC --force --activate\"[0m
+2025-09-12T11:27:27.2619783Z [36;1m      \$WP plugin install \"\$SRC\" --force --activate[0m
+2025-09-12T11:27:27.2620069Z [36;1m      continue[0m
+2025-09-12T11:27:27.2620267Z [36;1m    fi[0m
+2025-09-12T11:27:27.2620434Z [36;1m[0m
+2025-09-12T11:27:27.2620607Z [36;1m    slug=\"\${line%@*}\"[0m
+2025-09-12T11:27:27.2620826Z [36;1m    ver=\"\"[0m
+2025-09-12T11:27:27.2621086Z [36;1m    if echo \"\$line\" | grep -q '@'; then ver=\"\${line#*@}\"; fi[0m
+2025-09-12T11:27:27.2621370Z [36;1m[0m
+2025-09-12T11:27:27.2621547Z [36;1m    if [ -n \"\$ver\" ]; then[0m
+2025-09-12T11:27:27.2621878Z [36;1m      echo \">> wp plugin install \$slug --version=\$ver --force --activate\"[0m
+2025-09-12T11:27:27.2622443Z [36;1m      \$WP plugin install \"\$slug\" --version=\"\$ver\" --force --activate[0m
+2025-09-12T11:27:27.2622768Z [36;1m    else[0m
+2025-09-12T11:27:27.2623038Z [36;1m      echo \">> wp plugin install/update \$slug (latest) --activate\"[0m
+2025-09-12T11:27:27.2623390Z [36;1m      if \$WP plugin is-installed \"\$slug\"; then[0m
+2025-09-12T11:27:27.2623696Z [36;1m        \$WP plugin update \"\$slug\" --activate[0m
+2025-09-12T11:27:27.2623951Z [36;1m      else[0m
+2025-09-12T11:27:27.2624177Z [36;1m        \$WP plugin install \"\$slug\" --activate[0m
+2025-09-12T11:27:27.2624437Z [36;1m      fi[0m
+2025-09-12T11:27:27.2624616Z [36;1m    fi[0m
+2025-09-12T11:27:27.2624829Z [36;1m  done < \".wtp-allowed-plugins.txt\"[0m
+2025-09-12T11:27:27.2625085Z [36;1m"[0m
+2025-09-12T11:27:27.2654711Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-12T11:27:27.2655016Z env:
+2025-09-12T11:27:27.2655298Z   HOST: ***
+2025-09-12T11:27:27.2655491Z   PORT: ***
+2025-09-12T11:27:27.2655668Z   USER: ***
+2025-09-12T11:27:27.2655883Z   PASS: ***
+2025-09-12T11:27:27.2656174Z   TARGET: ***
+2025-09-12T11:27:27.2656364Z ##[endgroup]
+2025-09-12T11:27:27.2763717Z /home/runner/work/_temp/273eb90d-26de-47b5-8a8d-74a9a38f89be.sh: line 2: WP: unbound variable
+2025-09-12T11:27:27.2774244Z ##[error]Process completed with exit code 1.
+2025-09-12T11:27:27.2861586Z Post job cleanup.
+2025-09-12T11:27:27.3771261Z [command]/usr/bin/git version
+2025-09-12T11:27:27.3806426Z git version 2.51.0
+2025-09-12T11:27:27.3847832Z Temporarily overriding HOME='/home/runner/work/_temp/4d68b205-1aa4-43e2-a67e-14ba56fb9c57' before making global git config changes
+2025-09-12T11:27:27.3848965Z Adding repository directory to the temporary git global config as a safe directory
+2025-09-12T11:27:27.3853782Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/weektoppick-wp-modules/weektoppick-wp-modules
+2025-09-12T11:27:27.3887563Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2025-09-12T11:27:27.3918483Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2025-09-12T11:27:27.4134537Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2025-09-12T11:27:27.4153717Z http.https://github.com/.extraheader
+2025-09-12T11:27:27.4165699Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2025-09-12T11:27:27.4195189Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2025-09-12T11:27:27.4508422Z Cleaning up orphan processes

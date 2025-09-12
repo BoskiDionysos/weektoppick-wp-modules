@@ -1,0 +1,56 @@
+﻿2025-09-12T11:27:27.2612468Z ##[group]Run set -euo pipefail
+2025-09-12T11:27:27.2612826Z [36;1mset -euo pipefail[0m
+2025-09-12T11:27:27.2613205Z [36;1msshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "set -e[0m
+2025-09-12T11:27:27.2613782Z [36;1m  cd \"$TARGET\"[0m
+2025-09-12T11:27:27.2614092Z [36;1m  # zawsze używamy php ./wp – nie polegamy na exec bit[0m
+2025-09-12T11:27:27.2614415Z [36;1m  WP='php ./wp'[0m
+2025-09-12T11:27:27.2614619Z [36;1m  # sanity[0m
+2025-09-12T11:27:27.2614939Z [36;1m  $WP --info >/dev/null 2>&1 || { echo '::error::wp-cli not working (php ./wp)'; exit 1; }[0m
+2025-09-12T11:27:27.2615304Z [36;1m[0m
+2025-09-12T11:27:27.2615487Z [36;1m  while IFS= read -r line; do[0m
+2025-09-12T11:27:27.2615737Z [36;1m    line='\${line%%#*}'[0m
+2025-09-12T11:27:27.2615976Z [36;1m    line=\$(echo \"\$line\" | xargs)[0m
+2025-09-12T11:27:27.2616244Z [36;1m    [ -z \"\$line\" ] && continue[0m
+2025-09-12T11:27:27.2616484Z [36;1m[0m
+2025-09-12T11:27:27.2616684Z [36;1m    if echo \"\$line\" | grep -q '^zip:'; then[0m
+2025-09-12T11:27:27.2616998Z [36;1m      zip_path=\"\${line#zip:}\"[0m
+2025-09-12T11:27:27.2617264Z [36;1m      if [ -f \"\$zip_path\" ]; then[0m
+2025-09-12T11:27:27.2617510Z [36;1m        SRC=\"\$zip_path\"[0m
+2025-09-12T11:27:27.2617808Z [36;1m      elif [ -f \".wtp-vendor/\$(basename \"\$zip_path\")\" ]; then[0m
+2025-09-12T11:27:27.2618161Z [36;1m        SRC=\".wtp-vendor/\$(basename \"\$zip_path\")\"[0m
+2025-09-12T11:27:27.2618436Z [36;1m      else[0m
+2025-09-12T11:27:27.2618693Z [36;1m        echo \"::warning::ZIP not found: \$zip_path (skipping)\"[0m
+2025-09-12T11:27:27.2618997Z [36;1m        continue[0m
+2025-09-12T11:27:27.2619195Z [36;1m      fi[0m
+2025-09-12T11:27:27.2619441Z [36;1m      echo \">> wp plugin install \$SRC --force --activate\"[0m
+2025-09-12T11:27:27.2619781Z [36;1m      \$WP plugin install \"\$SRC\" --force --activate[0m
+2025-09-12T11:27:27.2620067Z [36;1m      continue[0m
+2025-09-12T11:27:27.2620261Z [36;1m    fi[0m
+2025-09-12T11:27:27.2620432Z [36;1m[0m
+2025-09-12T11:27:27.2620605Z [36;1m    slug=\"\${line%@*}\"[0m
+2025-09-12T11:27:27.2620824Z [36;1m    ver=\"\"[0m
+2025-09-12T11:27:27.2621083Z [36;1m    if echo \"\$line\" | grep -q '@'; then ver=\"\${line#*@}\"; fi[0m
+2025-09-12T11:27:27.2621368Z [36;1m[0m
+2025-09-12T11:27:27.2621545Z [36;1m    if [ -n \"\$ver\" ]; then[0m
+2025-09-12T11:27:27.2621876Z [36;1m      echo \">> wp plugin install \$slug --version=\$ver --force --activate\"[0m
+2025-09-12T11:27:27.2622440Z [36;1m      \$WP plugin install \"\$slug\" --version=\"\$ver\" --force --activate[0m
+2025-09-12T11:27:27.2622766Z [36;1m    else[0m
+2025-09-12T11:27:27.2623036Z [36;1m      echo \">> wp plugin install/update \$slug (latest) --activate\"[0m
+2025-09-12T11:27:27.2623387Z [36;1m      if \$WP plugin is-installed \"\$slug\"; then[0m
+2025-09-12T11:27:27.2623693Z [36;1m        \$WP plugin update \"\$slug\" --activate[0m
+2025-09-12T11:27:27.2623950Z [36;1m      else[0m
+2025-09-12T11:27:27.2624170Z [36;1m        \$WP plugin install \"\$slug\" --activate[0m
+2025-09-12T11:27:27.2624435Z [36;1m      fi[0m
+2025-09-12T11:27:27.2624614Z [36;1m    fi[0m
+2025-09-12T11:27:27.2624827Z [36;1m  done < \".wtp-allowed-plugins.txt\"[0m
+2025-09-12T11:27:27.2625083Z [36;1m"[0m
+2025-09-12T11:27:27.2654704Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-12T11:27:27.2655013Z env:
+2025-09-12T11:27:27.2655295Z   HOST: ***
+2025-09-12T11:27:27.2655489Z   PORT: ***
+2025-09-12T11:27:27.2655666Z   USER: ***
+2025-09-12T11:27:27.2655881Z   PASS: ***
+2025-09-12T11:27:27.2656171Z   TARGET: ***
+2025-09-12T11:27:27.2656362Z ##[endgroup]
+2025-09-12T11:27:27.2763700Z /home/runner/work/_temp/273eb90d-26de-47b5-8a8d-74a9a38f89be.sh: line 2: WP: unbound variable
+2025-09-12T11:27:27.2774232Z ##[error]Process completed with exit code 1.

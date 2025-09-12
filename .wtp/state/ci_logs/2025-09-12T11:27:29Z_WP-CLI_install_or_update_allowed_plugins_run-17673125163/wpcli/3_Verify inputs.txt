@@ -1,0 +1,13 @@
+﻿2025-09-12T11:27:22.1376757Z ##[group]Run set -euo pipefail
+2025-09-12T11:27:22.1377156Z [36;1mset -euo pipefail[0m
+2025-09-12T11:27:22.1377566Z [36;1mtest -n "${HOST:-}" && test -n "${PORT:-}" && test -n "${USER:-}" && test -n "${PASS:-}" && test -n "${TARGET:-}" \[0m
+2025-09-12T11:27:22.1378287Z [36;1m  || { echo "::error::Missing deploy secrets"; exit 1; }[0m
+2025-09-12T11:27:22.1378788Z [36;1mtest -f ".wtp/allowed-plugins.txt" || { echo "::error::.wtp/allowed-plugins.txt not found"; exit 1; }[0m
+2025-09-12T11:27:22.1428836Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2025-09-12T11:27:22.1429204Z env:
+2025-09-12T11:27:22.1429603Z   HOST: ***
+2025-09-12T11:27:22.1429825Z   PORT: ***
+2025-09-12T11:27:22.1430019Z   USER: ***
+2025-09-12T11:27:22.1430228Z   PASS: ***
+2025-09-12T11:27:22.1430548Z   TARGET: ***
+2025-09-12T11:27:22.1430776Z ##[endgroup]
