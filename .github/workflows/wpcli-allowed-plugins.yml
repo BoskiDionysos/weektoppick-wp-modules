@@ -1,4 +1,4 @@
-name: "WP-CLI install/update allowed plugins"
+name: WP-CLI install update allowed plugins
 
 on:
   workflow_dispatch: {}
@@ -9,7 +9,7 @@ permissions:
 jobs:
   wpcli:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       HOST:   ${{ secrets.DEPLOY_HOST }}
       PORT:   ${{ secrets.DEPLOY_PORT }}
@@ -23,108 +23,136 @@ jobs:
 
       - name: Tools
         run: |
+          set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y sshpass jq
 
-      - name: Verify inputs
+      - name: Verify inputs + allowlist
         run: |
           set -euo pipefail
-          test -n "${HOST:-}" && test -n "${PORT:-}" && test -n "${USER:-}" && test -n "${PASS:-}" && test -n "${TARGET:-}" \
-            || { echo "::error::Missing deploy secrets"; exit 1; }
+          : "${HOST:?Missing DEPLOY_HOST}"
+          : "${PORT:?Missing DEPLOY_PORT}"
+          : "${USER:?Missing DEPLOY_USER}"
+          : "${PASS:?Missing DEPLOY_PASS}"
+          : "${TARGET:?Missing DEPLOY_TARGET}"
           test -f ".wtp/allowed-plugins.txt" || { echo "::error::.wtp/allowed-plugins.txt not found in repo"; exit 1; }
 
-      - name: Upload allowlist
+      - name: Upload allowlist to remote
         run: |
           set -euo pipefail
           sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no \
             ".wtp/allowed-plugins.txt" "$USER@$HOST:$TARGET/.wtp-allowed-plugins.txt"
 
-      - name: Install/Update allowed plugins (remote WP-CLI)
+      - name: Remote sanity (docroot, php, network)
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" /bin/bash <<'RMT'
+            set -euo pipefail
+            cd "$TARGET" || { echo "::error::Cannot cd to TARGET ($TARGET)"; exit 1; }
+            echo "PWD: $(pwd)"
+            if [ -f wp-config.php ]; then echo "wp-config.php present"; else echo "::error::wp-config.php NOT found"; exit 1; fi
+            php -v || { echo "::error::php CLI not available"; exit 1; }
+            echo "Network test to downloads.wordpress.org:"
+            curl -Is https://downloads.wordpress.org/plugin/ | head -n1 || true
+          RMT
+
+      - name: Install/Update allowed plugins via WP-CLI (skip MU/LOCKS)
         env:
           WP_ALLOW_ROOT: "1"
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" /bin/bash <<'EOF'
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" /bin/bash <<'RMT'
             set -euo pipefail
             cd "$TARGET"
 
-            # 0) sanity: gdzie jesteśmy?
-            test -f "wp-config.php" || { echo "::error::TARGET does not contain wp-config.php ($TARGET)"; exit 1; }
+            mkdir -p .wtp/state/ci_logs .wtp-vendor
 
-            # 1) WP-CLI local bootstrap (./wp)
-            if ! php -v >/dev/null 2>&1; then
-              echo "::error::PHP CLI not available on remote host"; exit 1;
-            fi
-            if [ ! -x "./wp" ]; then
+            # Bootstrap local wp-cli if missing
+            if ! [ -x ./wp ]; then
               curl -sS -o wp.phar https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
               php wp.phar --info >/dev/null
-              chmod +x wp.phar
-              mv wp.phar wp
+              chmod +x wp.phar && mv wp.phar wp
             fi
-            WP="php ./wp --skip-plugins"   # omijamy MU/LOCKS
 
-            # 2) lista do instalacji
+            export WP_ALLOW_ROOT=1
+            WP="php ./wp --skip-plugins"
+
             LIST=".wtp-allowed-plugins.txt"
-            [ -f "$LIST" ] || { echo "::error::Allowlist not found on remote: $LIST"; exit 1; }
+            [ -f "$LIST" ] || { echo "::error::Allowlist not found on remote"; exit 1; }
 
-            # 3) normalizacja (BOM/CRLF/komentarze/puste)
-            mkdir -p .wtp/state/ci_logs
+            # Normalize + strip comments/blank
             TMP=".wtp-allowed-plugins.norm"
             sed -e 's/\r$//' "$LIST" | sed 's/^\xEF\xBB\xBF//' \
               | sed 's/#.*$//' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' \
               | awk 'NF>0' > "$TMP"
 
-            # 4) logi
-            INSTALLED=".wtp/state/ci_logs/plugins_installed.txt"
-            UPDATED=".wtp/state/ci_logs/plugins_updated.txt"
-            EXISTING=".wtp/state/ci_logs/plugins_existing.txt"
-            : > "$INSTALLED"; : > "$UPDATED"; : > "$EXISTING"
+            # Logs
+            INST=".wtp/state/ci_logs/plugins_installed.txt"
+            UPD=".wtp/state/ci_logs/plugins_updated.txt"
+            EXI=".wtp/state/ci_logs/plugins_existing.txt"
+            SUM=".wtp/state/ci_logs/wpcli_summary.txt"
+            : > "$INST"; : > "$UPD"; : > "$EXI"; : > "$SUM"
 
-            # 5) pętla po wpisach
+            echo "=== BEGIN INSTALL LOOP ===" | tee -a "$SUM"
             while IFS= read -r line; do
-              # zip:ścieżka/do/pliku.zip  (dla premium)
+              # zip:… for premium/local
               if [[ "$line" =~ ^zip:(.+)$ ]]; then
                 src="${BASH_REMATCH[1]}"
                 [ -f "$src" ] || src=".wtp-vendor/$(basename "$src")"
                 if [ ! -f "$src" ]; then
-                  echo "::warning::ZIP not found: $src"; continue
+                  echo "::warning::ZIP not found: $src" | tee -a "$SUM"
+                  continue
                 fi
-                echo ">> plugin install $src --force --activate"
-                $WP plugin install "$src" --force --activate && echo "$src" >> "$INSTALLED"
+                echo ">> install ZIP: $(basename "$src")" | tee -a "$SUM"
+                $WP plugin install "$src" --force --activate && echo "$src" >> "$INST"
                 continue
               fi
 
-              # slug[@ver]
               slug="${line%@*}"
-              ver="${line#*@}"
-              [ "$slug" = "$ver" ] && ver=""
+              ver="${line#*@}"; [ "$slug" = "$ver" ] && ver=""
 
               if $WP plugin is-installed "$slug" >/dev/null 2>&1; then
                 if [ -n "$ver" ]; then
-                  echo ">> plugin update $slug --version=$ver --activate"
-                  $WP plugin update "$slug" --version="$ver" --activate && echo "$slug@$ver" >> "$UPDATED"
+                  echo ">> update $slug@$ver" | tee -a "$SUM"
+                  $WP plugin update "$slug" --version="$ver" --activate && echo "$slug@$ver" >> "$UPD"
                 else
-                  echo ">> plugin update $slug --activate"
-                  $WP plugin update "$slug" --activate && echo "$slug" >> "$UPDATED"
+                  echo ">> update $slug (latest)" | tee -a "$SUM"
+                  $WP plugin update "$slug" --activate && echo "$slug" >> "$UPD"
                 fi
               else
                 if [ -n "$ver" ]; then
-                  echo ">> plugin install $slug --version=$ver --activate"
-                  $WP plugin install "$slug" --version="$ver" --activate && echo "$slug@$ver" >> "$INSTALLED"
+                  echo ">> install $slug@$ver" | tee -a "$SUM"
+                  $WP plugin install "$slug" --version="$ver" --activate && echo "$slug@$ver" >> "$INST"
                 else
-                  echo ">> plugin install $slug --activate"
-                  $WP plugin install "$slug" --activate && echo "$slug" >> "$INSTALLED"
+                  echo ">> install $slug" | tee -a "$SUM"
+                  $WP plugin install "$slug" --activate && echo "$slug" >> "$INST"
                 fi
               fi
 
-              $WP plugin is-installed "$slug" && echo "$slug" >> "$EXISTING"
+              $WP plugin is-installed "$slug" && echo "$slug" >> "$EXI"
             done < "$TMP"
 
-            echo "=== Active plugins (after) ==="
-            $WP plugin list --status=active --field=name || true
+            echo "=== ACTIVE PLUGINS (after) ===" | tee -a "$SUM"
+            $WP plugin list --status=active | tee -a "$SUM" || true
 
-            # fallback motywu (gdy brak wtp-core-theme)
+            # Fallback theme
             if ! $WP theme is-installed wtp-core-theme >/dev/null 2>&1; then
+              echo "Fallback theme activate: twentytwentyfive" | tee -a "$SUM"
               $WP theme install twentytwentyfive --activate || true
             fi
-          EOF
+          RMT
+
+      - name: Pull back logs as artifact
+        run: |
+          set -euo pipefail
+          mkdir -p _ci_logs
+          sshpass -p "$PASS" rsync -az -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" \
+            "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/" "_ci_logs/"
+        continue-on-error: true
+
+      - name: Upload logs
+        uses: actions/upload-artifact@v4
+        with:
+          name: wpcli-logs
+          path: _ci_logs/
+        continue-on-error: true
