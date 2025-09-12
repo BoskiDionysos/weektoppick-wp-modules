@@ -29,6 +29,7 @@ jobs:
 
       - name: Compute changed files
         id: diff
+        shell: bash
         run: |
           set -euo pipefail
           BASE_SHA=$(git rev-parse HEAD~1 || echo "")
@@ -37,14 +38,14 @@ jobs:
           else
             git diff --name-only "$BASE_SHA"...HEAD > changed.txt
           fi
-          # tylko ścieżki deployowalne
           awk '/^(mu-plugins|plugins|themes|wp-content)\// {print}' changed.txt > deploy.txt || true
           if [ ! -s deploy.txt ]; then
             echo "nothing=true" >> "$GITHUB_OUTPUT"
           else
             echo "nothing=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "Changed (filtered):"; cat deploy.txt || true
+          echo "Changed (filtered):"
+          cat deploy.txt || true
 
       - name: Stop when nothing to deploy
         if: ${{ steps.diff.outputs.nothing == 'true' }}
@@ -59,6 +60,7 @@ jobs:
       - name: Prepare release bundle (only needed dirs)
         id: prep
         if: ${{ steps.diff.outputs.nothing != 'true' }}
+        shell: bash
         run: |
           set -euo pipefail
           REL="release_${GITHUB_SHA::7}"
@@ -75,15 +77,19 @@ jobs:
 
       - name: Dry-run sanity (preview bundle)
         if: ${{ steps.diff.outputs.nothing != 'true' }}
+        shell: bash
         run: |
           set -euo pipefail
           REL="${{ steps.prep.outputs.REL }}"
           echo "=== Bundle tree (first 200) ==="
           tar -tzf "${REL}.tar.gz" | head -n 200 || true
           echo "=== Verify expected dirs ==="
-          tar -tzf "${REL}.tar.gz" | grep -E '^'"${REL}"'/(plugins|themes|mu-plugins)/' >/dev/null \
-            && echo "OK: plugins/themes/mu-plugins present" \
-            || { echo "::error::Bundle missing expected dirs"; exit 2; }
+          if tar -tzf "${REL}.tar.gz" | grep -E "^${REL}/(plugins|themes|mu-plugins)/" >/dev/null; then
+            echo "OK: plugins/themes/mu-plugins present"
+          else
+            echo "::error::Bundle missing expected dirs"
+            exit 2
+          fi
           echo "=== File count ==="
           tar -tzf "${REL}.tar.gz" | wc -l
 
@@ -95,6 +101,7 @@ jobs:
           PASS:   ${{ secrets.DEPLOY_PASS }}
           PORT:   ${{ secrets.DEPLOY_PORT }}
           TARGET: ${{ secrets.DEPLOY_TARGET }}
+        shell: bash
         run: |
           set -euo pipefail
           REL="${{ steps.prep.outputs.REL }}"
@@ -108,46 +115,40 @@ jobs:
           PASS:   ${{ secrets.DEPLOY_PASS }}
           PORT:   ${{ secrets.DEPLOY_PORT }}
           TARGET: ${{ secrets.DEPLOY_TARGET }}
+        shell: bash
         run: |
           set -euo pipefail
-          # przekazujemy TARGET do sesji zdalnej i wykonujemy deploy atomowy
-          sshpass -p "$PASS" ssh -p "${PORT:-22}" -o StrictHostKeyChecking=no "${USER}@${HOST}" "export TARGET='${TARGET%/}'; bash -s" <<'EOS'
-            set -euo pipefail
-            cd "$TARGET"
+          # przygotuj skrypt zdalny w zmiennej i wyślij go przez ssh (bez zagnieżdżonych heredoców)
+          REMOTE_SCRIPT=$(cat <<'BASH'
+set -euo pipefail
+cd "$TARGET"
 
-            # ostatnia paczka release_*.tar.gz
-            REL_TGZ=$(ls -1 release_*.tar.gz | tail -n1)
-            test -n "$REL_TGZ" || { echo "No release_*.tar.gz found"; exit 3; }
-            REL_DIR="${REL_TGZ%.tar.gz}"
+REL_TGZ=$(ls -1 release_*.tar.gz | tail -n1)
+if [ -z "$REL_TGZ" ]; then echo "No release_*.tar.gz found"; exit 3; fi
+REL_DIR="${REL_TGZ%.tar.gz}"
 
-            # rozpakuj do wersjonowanego katalogu
-            mkdir -p "releases/${REL_DIR}"
-            tar -xzf "$REL_TGZ" -C "releases/${REL_DIR}" --strip-components=1
+mkdir -p "releases/${REL_DIR}"
+tar -xzf "$REL_TGZ" -C "releases/${REL_DIR}" --strip-components=1
 
-            # ensure target dirs exist
-            mkdir -p wp-content/plugins wp-content/themes wp-content/mu-plugins
+mkdir -p wp-content/plugins wp-content/themes wp-content/mu-plugins
 
-            # protect filters (nie tykamy systemowych)
-            cat > /tmp/wtp-protect.filter <<'EOF'
+cat > /tmp/wtp-protect.filter <<'EOF'
 P wp-content/plugins/litespeed-cache/**
 P wp-content/plugins/wordfence/**
 P wp-content/plugins/translatepress-multilingual/**
 P wp-content/plugins/cookie-law-info/**
 EOF
 
-            # rsync (atomic to target dirs)
-            if [ -d "releases/${REL_DIR}/plugins" ]; then
-              rsync -a --delete --filter="merge /tmp/wtp-protect.filter" "releases/${REL_DIR}/plugins/"    "wp-content/plugins/"    || true
-            fi
-            if [ -d "releases/${REL_DIR}/themes" ]; then
-              rsync -a --delete "releases/${REL_DIR}/themes/"     "wp-content/themes/"     || true
-            fi
-            if [ -d "releases/${REL_DIR}/mu-plugins" ]; then
-              rsync -a --delete "releases/${REL_DIR}/mu-plugins/" "wp-content/mu-plugins/" || true
-            fi
+[ -d "releases/${REL_DIR}/plugins" ] && rsync -a --delete --filter="merge /tmp/wtp-protect.filter" "releases/${REL_DIR}/plugins/"    "wp-content/plugins/"    || true
+[ -d "releases/${REL_DIR}/themes" ]  && rsync -a --delete "releases/${REL_DIR}/themes/"     "wp-content/themes/"     || true
+[ -d "releases/${REL_DIR}/mu-plugins" ] && rsync -a --delete "releases/${REL_DIR}/mu-plugins/" "wp-content/mu-plugins/" || true
 
-            date > "wp-content/.wtp_last_deploy"
-EOS
+date > "wp-content/.wtp_last_deploy"
+BASH
+)
+          # uruchom skrypt na serwerze
+          sshpass -p "$PASS" ssh -p "${PORT:-22}" -o StrictHostKeyChecking=no "${USER}@${HOST}" \
+            "TARGET='${TARGET%/}' bash -s" <<< "$REMOTE_SCRIPT"
 
       - name: Post-deploy health (server-side, mandatory)
         if: ${{ steps.diff.outputs.nothing != 'true' }}
@@ -156,6 +157,7 @@ EOS
           USER:   ${{ secrets.DEPLOY_USER }}
           PASS:   ${{ secrets.DEPLOY_PASS }}
           PORT:   ${{ secrets.DEPLOY_PORT }}
+        shell: bash
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "${PORT:-22}" -o StrictHostKeyChecking=no "${USER}@${HOST}" \
@@ -168,6 +170,7 @@ EOS
           USER:   ${{ secrets.DEPLOY_USER }}
           PASS:   ${{ secrets.DEPLOY_PASS }}
           PORT:   ${{ secrets.DEPLOY_PORT }}
+        shell: bash
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "${PORT:-22}" -o StrictHostKeyChecking=no "${USER}@${HOST}" \
