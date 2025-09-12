@@ -37,13 +37,10 @@ jobs:
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "set -e
             cd \"$TARGET\"
-            # wymagamy php cli
             php -v >/dev/null 2>&1 || { echo '::error::php cli not available on server'; exit 1; }
-            # jeśli nie ma pliku ./wp, pobierz
             if [ ! -f ./wp ]; then
               echo 'Installing wp-cli (phar kept as ./wp)...'
               curl -sS -o wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
-              # nie polegamy na bicie wykonywalnym ani shebangu — zawsze wołamy: php ./wp
             fi
             mkdir -p .wtp-vendor
           "
@@ -66,10 +63,9 @@ jobs:
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "set -e
             cd \"$TARGET\"
-            # zawsze używamy php ./wp – nie polegamy na exec bit
             WP='php ./wp'
-            # sanity
-            $WP --info >/dev/null 2>&1 || { echo '::error::wp-cli not working (php ./wp)'; exit 1; }
+            # Uwaga: wszystko z \$WP musi mieć ucieczony dolar, żeby nie rozwijało się lokalnie
+            \$WP --info >/dev/null 2>&1 || { echo '::error::wp-cli not working (php ./wp)'; exit 1; }
 
             while IFS= read -r line; do
               line='\${line%%#*}'
