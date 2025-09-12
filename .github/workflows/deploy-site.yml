@@ -93,28 +93,31 @@ jobs:
             echo "Skip: $SRC does not exist in repo."
           fi
 
-      - name: Sync plugins (with protect if available)
+            - name: Sync plugins (with protect if available)
         shell: bash
         run: |
           set -euo pipefail
           SRC="plugins"
           if [ -d "$SRC" ]; then
-            MERGE=""
+            # przygotuj opcję filtra tylko jeśli plik istnieje i nie jest pusty
+            declare -a MERGE_OPT=()
             if [ -s "${{ steps.protect.outputs.filters }}" ]; then
-              MERGE="--filter=merge ${{ steps.protect.outputs.filters }}"
               echo "Apply protect filters:"
               cat "${{ steps.protect.outputs.filters }}"
+              MERGE_OPT=(--filter="merge ${{ steps.protect.outputs.filters }}")
             else
               echo "No protect filters – full manage with --delete."
             fi
+
             echo "Sync: $SRC -> $TARGET/wp-content/plugins/"
-            sshpass -p "$PASS" rsync -az --delete -v --itemize-changes $MERGE \
+            sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
+              "${MERGE_OPT[@]}" \
               -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
               "$SRC/" "$USER@$HOST:$TARGET/wp-content/plugins/"
           else
             echo "Skip: $SRC does not exist in repo."
           fi
-
+          
       - name: Detect themes directory in repo
         id: thm
         shell: bash
