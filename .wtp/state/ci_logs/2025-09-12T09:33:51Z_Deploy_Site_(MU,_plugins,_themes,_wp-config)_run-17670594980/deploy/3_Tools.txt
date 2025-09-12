@@ -1,0 +1,93 @@
+﻿2025-09-12T09:33:11.4279256Z ##[group]Run sudo apt-get update -y
+2025-09-12T09:33:11.4279679Z [36;1msudo apt-get update -y[0m
+2025-09-12T09:33:11.4280008Z [36;1msudo apt-get install -y rsync sshpass jq dos2unix[0m
+2025-09-12T09:33:11.4328159Z shell: /usr/bin/bash -e {0}
+2025-09-12T09:33:11.4328431Z env:
+2025-09-12T09:33:11.4328853Z   HOST: ***
+2025-09-12T09:33:11.4329062Z   PORT: ***
+2025-09-12T09:33:11.4329260Z   USER: ***
+2025-09-12T09:33:11.4329476Z   PASS: ***
+2025-09-12T09:33:11.4329790Z   TARGET: ***
+2025-09-12T09:33:11.4330014Z ##[endgroup]
+2025-09-12T09:33:11.5237141Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+2025-09-12T09:33:11.5597157Z Hit:2 http://azure.archive.ubuntu.com/ubuntu noble InRelease
+2025-09-12T09:33:11.5603340Z Hit:6 https://packages.microsoft.com/repos/azure-cli noble InRelease
+2025-09-12T09:33:11.5623447Z Get:3 http://azure.archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+2025-09-12T09:33:11.5642461Z Get:4 http://azure.archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
+2025-09-12T09:33:11.5646034Z Get:7 https://packages.microsoft.com/ubuntu/24.04/prod noble InRelease [3600 B]
+2025-09-12T09:33:11.5673658Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+2025-09-12T09:33:11.7575470Z Get:8 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1390 kB]
+2025-09-12T09:33:11.7707818Z Get:9 http://azure.archive.ubuntu.com/ubuntu noble-updates/main Translation-en [274 kB]
+2025-09-12T09:33:11.7727455Z Get:10 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 Components [175 kB]
+2025-09-12T09:33:11.7744199Z Get:11 http://azure.archive.ubuntu.com/ubuntu noble-updates/main amd64 c-n-f Metadata [15.2 kB]
+2025-09-12T09:33:11.7751548Z Get:12 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [1483 kB]
+2025-09-12T09:33:11.7829360Z Get:13 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe Translation-en [298 kB]
+2025-09-12T09:33:11.7851761Z Get:14 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 Components [377 kB]
+2025-09-12T09:33:11.7881322Z Get:15 http://azure.archive.ubuntu.com/ubuntu noble-updates/universe amd64 c-n-f Metadata [31.0 kB]
+2025-09-12T09:33:11.7891020Z Get:16 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Packages [1840 kB]
+2025-09-12T09:33:11.7992364Z Get:17 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted Translation-en [410 kB]
+2025-09-12T09:33:11.8126203Z Get:24 https://packages.microsoft.com/ubuntu/24.04/prod noble/main amd64 Packages [51.6 kB]
+2025-09-12T09:33:11.8166368Z Get:25 https://packages.microsoft.com/ubuntu/24.04/prod noble/main arm64 Packages [35.3 kB]
+2025-09-12T09:33:11.8478050Z Get:18 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Components [212 B]
+2025-09-12T09:33:11.8485925Z Get:19 http://azure.archive.ubuntu.com/ubuntu noble-updates/restricted amd64 c-n-f Metadata [500 B]
+2025-09-12T09:33:11.8497123Z Get:20 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Packages [41.9 kB]
+2025-09-12T09:33:11.8502305Z Get:21 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse Translation-en [7064 B]
+2025-09-12T09:33:11.8540657Z Get:22 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Components [940 B]
+2025-09-12T09:33:11.8546821Z Get:23 http://azure.archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 c-n-f Metadata [644 B]
+2025-09-12T09:33:11.8807980Z Get:26 http://azure.archive.ubuntu.com/ubuntu noble-backports/main amd64 Components [7076 B]
+2025-09-12T09:33:11.8848546Z Get:27 http://azure.archive.ubuntu.com/ubuntu noble-backports/universe amd64 Components [19.1 kB]
+2025-09-12T09:33:11.8858573Z Get:28 http://azure.archive.ubuntu.com/ubuntu noble-backports/restricted amd64 Components [216 B]
+2025-09-12T09:33:11.8864903Z Get:29 http://azure.archive.ubuntu.com/ubuntu noble-backports/multiverse amd64 Components [212 B]
+2025-09-12T09:33:11.9570083Z Get:30 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Packages [1118 kB]
+2025-09-12T09:33:11.9647240Z Get:31 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 Components [21.5 kB]
+2025-09-12T09:33:11.9667141Z Get:32 http://azure.archive.ubuntu.com/ubuntu noble-security/main amd64 c-n-f Metadata [8712 B]
+2025-09-12T09:33:11.9681968Z Get:33 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Packages [879 kB]
+2025-09-12T09:33:12.0164229Z Get:34 http://azure.archive.ubuntu.com/ubuntu noble-security/universe Translation-en [195 kB]
+2025-09-12T09:33:12.0188541Z Get:35 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 Components [52.2 kB]
+2025-09-12T09:33:12.0198571Z Get:36 http://azure.archive.ubuntu.com/ubuntu noble-security/universe amd64 c-n-f Metadata [18.0 kB]
+2025-09-12T09:33:12.0206013Z Get:37 http://azure.archive.ubuntu.com/ubuntu noble-security/restricted amd64 Components [212 B]
+2025-09-12T09:33:12.0211308Z Get:38 http://azure.archive.ubuntu.com/ubuntu noble-security/multiverse amd64 Components [208 B]
+2025-09-12T09:33:17.1767371Z Fetched 9133 kB in 1s (7803 kB/s)
+2025-09-12T09:33:17.8861499Z Reading package lists...
+2025-09-12T09:33:17.9178792Z Reading package lists...
+2025-09-12T09:33:18.0690046Z Building dependency tree...
+2025-09-12T09:33:18.0697278Z Reading state information...
+2025-09-12T09:33:18.2328852Z rsync is already the newest version (3.2.7-1ubuntu1.2).
+2025-09-12T09:33:18.2329506Z sshpass is already the newest version (1.09-1).
+2025-09-12T09:33:18.2330059Z jq is already the newest version (1.7.1-3ubuntu0.24.04.1).
+2025-09-12T09:33:18.2330610Z The following NEW packages will be installed:
+2025-09-12T09:33:18.2334449Z   dos2unix
+2025-09-12T09:33:18.2497410Z 0 upgraded, 1 newly installed, 0 to remove and 18 not upgraded.
+2025-09-12T09:33:18.2498019Z Need to get 501 kB of archives.
+2025-09-12T09:33:18.2498469Z After this operation, 1868 kB of additional disk space will be used.
+2025-09-12T09:33:18.2499044Z Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [144 B]
+2025-09-12T09:33:18.2997518Z Get:2 http://azure.archive.ubuntu.com/ubuntu noble/universe amd64 dos2unix amd64 7.5.1-1 [501 kB]
+2025-09-12T09:33:18.6434707Z Fetched 501 kB in 0s (3325 kB/s)
+2025-09-12T09:33:18.6696497Z Selecting previously unselected package dos2unix.
+2025-09-12T09:33:18.6902663Z (Reading database ... 
+2025-09-12T09:33:18.6903114Z (Reading database ... 5%
+2025-09-12T09:33:18.6903497Z (Reading database ... 10%
+2025-09-12T09:33:18.6903726Z (Reading database ... 15%
+2025-09-12T09:33:18.6903938Z (Reading database ... 20%
+2025-09-12T09:33:18.6904161Z (Reading database ... 25%
+2025-09-12T09:33:18.6904373Z (Reading database ... 30%
+2025-09-12T09:33:18.6904579Z (Reading database ... 35%
+2025-09-12T09:33:18.6904784Z (Reading database ... 40%
+2025-09-12T09:33:18.6904991Z (Reading database ... 45%
+2025-09-12T09:33:18.6905196Z (Reading database ... 50%
+2025-09-12T09:33:18.7827252Z (Reading database ... 55%
+2025-09-12T09:33:19.0924157Z (Reading database ... 60%
+2025-09-12T09:33:19.3557057Z (Reading database ... 65%
+2025-09-12T09:33:19.7050025Z (Reading database ... 70%
+2025-09-12T09:33:20.0188685Z (Reading database ... 75%
+2025-09-12T09:33:20.5197392Z (Reading database ... 80%
+2025-09-12T09:33:21.0620426Z (Reading database ... 85%
+2025-09-12T09:33:21.6265033Z (Reading database ... 90%
+2025-09-12T09:33:22.0229942Z (Reading database ... 95%
+2025-09-12T09:33:22.0230357Z (Reading database ... 100%
+2025-09-12T09:33:22.0230704Z (Reading database ... 218657 files and directories currently installed.)
+2025-09-12T09:33:22.0274194Z Preparing to unpack .../dos2unix_7.5.1-1_amd64.deb ...
+2025-09-12T09:33:22.0302608Z Unpacking dos2unix (7.5.1-1) ...
+2025-09-12T09:33:22.2306227Z Setting up dos2unix (7.5.1-1) ...
+2025-09-12T09:33:22.2332828Z Processing triggers for man-db (2.12.0-4build2) ...
+2025-09-12T09:33:49.4497234Z ##[error]The operation was canceled.
