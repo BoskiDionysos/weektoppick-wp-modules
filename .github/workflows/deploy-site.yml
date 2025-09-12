@@ -8,7 +8,7 @@ on:
       - 'mu-plugins/**'
       - 'plugins/**'
       - 'themes/**'
-      - 'wp-content/themes/**'
+      - 'wp-content/**'
       - 'wtp/**'
       - '.wtp/**'
       - '.github/workflows/deploy-site.yml'
@@ -46,6 +46,7 @@ jobs:
           test -n "${HOST:-}" && test -n "${PORT:-}" && test -n "${USER:-}" && test -n "${PASS:-}" && test -n "${TARGET:-}" \
             || { echo "::error::Missing deploy secrets"; exit 1; }
 
+      # Zbuduj listę "protect" z pliku .wtp/protected-plugins.txt lub wtp/protected-plugins.txt
       - name: Pick protect list (plugins)
         id: protect
         shell: bash
@@ -58,14 +59,12 @@ jobs:
           FILTERS="$(mktemp)"
           if [ -n "$LIST" ]; then
             echo "Using protect list: $LIST"
-            # znormalizuj linie: bez BOM, bez CR, strip komentarze i puste
+            # normalizacja linii (bez BOM/CR), wytnij komentarze i puste
             sed -e 's/\r$//' "$LIST" | sed 's/^\xEF\xBB\xBF//' | while IFS= read -r name; do
               name="${name%%#*}"; name="$(echo "$name" | xargs)"
               [ -z "$name" ] && continue
               echo "P ${name}/**" >> "$FILTERS"
             done
-          else
-            echo "No protect list found."
           fi
           echo "filters=$FILTERS" >> "$GITHUB_OUTPUT"
           echo "list=${LIST}"     >> "$GITHUB_OUTPUT"
@@ -79,45 +78,63 @@ jobs:
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
             "ls -1 '$TARGET/wp-content/plugins' || true"
 
+      # MU-plugins: wykryj źródło (mu-plugins/ albo wp-content/mu-plugins/)
+      - name: Detect mu-plugins directory in repo
+        id: mu
+        shell: bash
+        run: |
+          set -euo pipefail
+          if   [ -d "mu-plugins" ]; then echo "src=mu-plugins" >> "$GITHUB_OUTPUT"
+          elif [ -d "wp-content/mu-plugins" ]; then echo "src=wp-content/mu-plugins" >> "$GITHUB_OUTPUT"
+          else echo "src=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Sync MU plugins (if present)
+        if: ${{ steps.mu.outputs.src != '' }}
         shell: bash
         run: |
           set -euo pipefail
-          SRC="mu-plugins"
-          if [ -d "$SRC" ]; then
-            echo "Sync: $SRC -> $TARGET/wp-content/mu-plugins/"
-            sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
-              -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
-              "$SRC/" "$USER@$HOST:$TARGET/wp-content/mu-plugins/"
-          else
-            echo "Skip: $SRC does not exist in repo."
-          fi
+          SRC="${{ steps.mu.outputs.src }}"
+          echo "Sync: $SRC -> $TARGET/wp-content/mu-plugins/"
+          sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
+            -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
+            "$SRC/" "$USER@$HOST:$TARGET/wp-content/mu-plugins/"
 
-            - name: Sync plugins (with protect if available)
+      # Plugins: wykryj źródło (plugins/ albo wp-content/plugins/)
+      - name: Detect plugins directory in repo
+        id: plg
         shell: bash
         run: |
           set -euo pipefail
-          SRC="plugins"
-          if [ -d "$SRC" ]; then
-            # przygotuj opcję filtra tylko jeśli plik istnieje i nie jest pusty
-            declare -a MERGE_OPT=()
-            if [ -s "${{ steps.protect.outputs.filters }}" ]; then
-              echo "Apply protect filters:"
-              cat "${{ steps.protect.outputs.filters }}"
-              MERGE_OPT=(--filter="merge ${{ steps.protect.outputs.filters }}")
-            else
-              echo "No protect filters – full manage with --delete."
-            fi
-
-            echo "Sync: $SRC -> $TARGET/wp-content/plugins/"
-            sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
-              "${MERGE_OPT[@]}" \
-              -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
-              "$SRC/" "$USER@$HOST:$TARGET/wp-content/plugins/"
-          else
-            echo "Skip: $SRC does not exist in repo."
+          if   [ -d "plugins" ]; then echo "src=plugins" >> "$GITHUB_OUTPUT"
+          elif [ -d "wp-content/plugins" ]; then echo "src=wp-content/plugins" >> "$GITHUB_OUTPUT"
+          else echo "src=" >> "$GITHUB_OUTPUT"
           fi
-          
+
+      - name: Sync plugins (with protect if available)
+        if: ${{ steps.plg.outputs.src != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="${{ steps.plg.outputs.src }}"
+
+          # opcja filtra TYLKO jeśli plik istnieje i nie jest pusty
+          declare -a MERGE_OPT=()
+          if [ -s "${{ steps.protect.outputs.filters }}" ]; then
+            echo "Apply protect filters:"
+            cat "${{ steps.protect.outputs.filters }}"
+            MERGE_OPT=( --filter="merge ${{ steps.protect.outputs.filters }}" )
+          else
+            echo "No protect filters – full manage with --delete."
+          fi
+
+          echo "Sync: $SRC -> $TARGET/wp-content/plugins/"
+          sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
+            "${MERGE_OPT[@]}" \
+            -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
+            "$SRC/" "$USER@$HOST:$TARGET/wp-content/plugins/"
+
+      # Themes: wykryj źródło (themes/ albo wp-content/themes/)
       - name: Detect themes directory in repo
         id: thm
         shell: bash
