@@ -1,4 +1,4 @@
-name: Deploy to Hostinger (SFTP changed files + rsync plugins protect, no new secrets)
+name: Deploy to Hostinger (Atomic GH→WP, dry-run, health)
 
 on:
   push:
@@ -12,6 +12,7 @@ on:
       - '!server-sync/**'
       - '!ops/**'
       - '!.wtp/**'
+      - 'docs/locks/**'
   workflow_dispatch: {}
 
 jobs:
@@ -26,7 +27,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Compute changed files vs previous commit
+      - name: Compute changed files
         id: diff
         run: |
           set -euo pipefail
@@ -36,101 +37,138 @@ jobs:
           else
             git diff --name-only "$BASE_SHA"...HEAD > changed.txt
           fi
-          echo "Changed files:"; cat changed.txt || true
+          # tylko ścieżki deployowalne
+          awk '/^(mu-plugins|plugins|themes|wp-content)\// {print}' changed.txt > deploy.txt || true
+          if [ ! -s deploy.txt ]; then
+            echo "nothing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "nothing=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Changed (filtered):"; cat deploy.txt || true
 
-      - name: Keep only deployable paths
-        id: filter
-        run: |
-          set -euo pipefail
-          awk '/^(mu-plugins|plugins|themes|wp-content)\// {print}' changed.txt > deploy.txt
-
-          awk '/^plugins\// {print}' deploy.txt > plugins_deploy.txt || true
-          awk '!/^plugins\// {print}' deploy.txt > nonplugins_deploy.txt || true
-
-          echo "=== To deploy (all) ==="; cat deploy.txt || true
-          echo "=== Plugins-only ==="; cat plugins_deploy.txt || true
-          echo "=== Non-plugins ==="; cat nonplugins_deploy.txt || true
-
-          if [ -s plugins_deploy.txt ]; then echo "plugins_changed=true" >> "$GITHUB_OUTPUT"; else echo "plugins_changed=false" >> "$GITHUB_OUTPUT"; fi
-          if [ -s nonplugins_deploy.txt ]; then echo "nonplugins_changed=true" >> "$GITHUB_OUTPUT"; else echo "nonplugins_changed=false" >> "$GITHUB_OUTPUT"; fi
-
-      - name: Stop if nothing to deploy
-        if: ${{ steps.filter.outputs.plugins_changed == 'false' && steps.filter.outputs.nonplugins_changed == 'false' }}
+      - name: Stop when nothing to deploy
+        if: ${{ steps.diff.outputs.nothing == 'true' }}
         run: echo "No deployable changes."
 
-      #######################################################################
-      # 1) NON-PLUGINS → SFTP (changed files only)
-      #######################################################################
-      - name: Upload non-plugins via SFTP (changed files only)
-        if: ${{ steps.filter.outputs.nonplugins_changed == 'true' }}
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          password: ${{ secrets.DEPLOY_PASS }}
-          port: ${{ secrets.DEPLOY_PORT }}
-          target: ${{ secrets.DEPLOY_TARGET }}
-          source: |
-            $(cat nonplugins_deploy.txt)
-          strip_components: 0
-          overwrite: true
-
-      #######################################################################
-      # 2) PLUGINS → RSYNC (pełna sync + PROTECT) po SSH z hasłem (sshpass)
-      #######################################################################
-      - name: Install rsync & sshpass
-        if: ${{ steps.filter.outputs.plugins_changed == 'true' }}
+      - name: Install rsync + sshpass
+        if: ${{ steps.diff.outputs.nothing != 'true' }}
         run: |
           sudo apt-get update -y
           sudo apt-get install -y rsync sshpass
 
-      - name: Build rsync protect filter
-        if: ${{ steps.filter.outputs.plugins_changed == 'true' }}
+      - name: Prepare release bundle (only needed dirs)
+        id: prep
+        if: ${{ steps.diff.outputs.nothing != 'true' }}
         run: |
           set -euo pipefail
-          cat > /tmp/rsync-protect.filter <<'EOF'
-          # Protect these plugin dirs from being modified/removed on target
-          P litespeed-cache/**
-          P wordfence/**
-          P translatepress-multilingual/**
-          P cookie-law-info/**
-          EOF
-          echo "Protect filter created:"
-          wc -l /tmp/rsync-protect.filter
-          tail -n +1 /tmp/rsync-protect.filter
+          REL="release_${GITHUB_SHA::7}"
+          mkdir -p "$REL"
+          rsync -a \
+            --include='mu-plugins/**' \
+            --include='plugins/**' \
+            --include='themes/**' \
+            --include='wp-content/**' \
+            --exclude='*' ./ "$REL"/
+          tar -czf "${REL}.tar.gz" "$REL"
+          echo "REL=${REL}" >> "$GITHUB_OUTPUT"
+          ls -lah "${REL}.tar.gz"
 
-      - name: rsync plugins (with protect & delete) over SSH password
-        if: ${{ steps.filter.outputs.plugins_changed == 'true' }}
+      - name: Dry-run sanity (preview bundle)
+        if: ${{ steps.diff.outputs.nothing != 'true' }}
+        run: |
+          set -euo pipefail
+          REL="${{ steps.prep.outputs.REL }}"
+          echo "=== Bundle tree (first 200) ==="
+          tar -tzf "${REL}.tar.gz" | head -n 200 || true
+          echo "=== Verify expected dirs ==="
+          tar -tzf "${REL}.tar.gz" | grep -E '^'"${REL}"'/(plugins|themes|mu-plugins)/' >/dev/null \
+            && echo "OK: plugins/themes/mu-plugins present" \
+            || { echo "::error::Bundle missing expected dirs"; exit 2; }
+          echo "=== File count ==="
+          tar -tzf "${REL}.tar.gz" | wc -l
+
+      - name: Upload bundle to server
+        if: ${{ steps.diff.outputs.nothing != 'true' }}
         env:
-          DEPLOY_HOST:   ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER:   ${{ secrets.DEPLOY_USER }}
-          DEPLOY_PASS:   ${{ secrets.DEPLOY_PASS }}
-          DEPLOY_PORT:   ${{ secrets.DEPLOY_PORT }}
-          DEPLOY_TARGET: ${{ secrets.DEPLOY_TARGET }}
+          HOST:   ${{ secrets.DEPLOY_HOST }}
+          USER:   ${{ secrets.DEPLOY_USER }}
+          PASS:   ${{ secrets.DEPLOY_PASS }}
+          PORT:   ${{ secrets.DEPLOY_PORT }}
+          TARGET: ${{ secrets.DEPLOY_TARGET }}
         run: |
           set -euo pipefail
+          REL="${{ steps.prep.outputs.REL }}"
+          sshpass -p "$PASS" scp -P "${PORT:-22}" -o StrictHostKeyChecking=no "${REL}.tar.gz" "${USER}@${HOST}:${TARGET%/}/"
 
-          # Wymagane: absolutna ścieżka WP root na serwerze (z sekretu)
-          WP_ROOT="${DEPLOY_TARGET%/}"
-          SRC_DIR="./plugins/"
-          DEST_DIR="${WP_ROOT}/wp-content/plugins/"
+      - name: Atomic switch (extract + rsync with protect)
+        if: ${{ steps.diff.outputs.nothing != 'true' }}
+        env:
+          HOST:   ${{ secrets.DEPLOY_HOST }}
+          USER:   ${{ secrets.DEPLOY_USER }}
+          PASS:   ${{ secrets.DEPLOY_PASS }}
+          PORT:   ${{ secrets.DEPLOY_PORT }}
+          TARGET: ${{ secrets.DEPLOY_TARGET }}
+        run: |
+          set -euo pipefail
+          # przekazujemy TARGET do sesji zdalnej i wykonujemy deploy atomowy
+          sshpass -p "$PASS" ssh -p "${PORT:-22}" -o StrictHostKeyChecking=no "${USER}@${HOST}" "export TARGET='${TARGET%/}'; bash -s" <<'EOS'
+            set -euo pipefail
+            cd "$TARGET"
 
-          echo "Check remote rsync availability..."
-          if sshpass -p "$DEPLOY_PASS" ssh -p "${DEPLOY_PORT:-22}" -o StrictHostKeyChecking=no "${DEPLOY_USER}@${DEPLOY_HOST}" "command -v rsync >/dev/null 2>&1"; then
-            echo "Remote rsync found."
-          else
-            echo "::warning::Remote 'rsync' not found. Skipping plugins rsync step."
-            exit 0
-          fi
+            # ostatnia paczka release_*.tar.gz
+            REL_TGZ=$(ls -1 release_*.tar.gz | tail -n1)
+            test -n "$REL_TGZ" || { echo "No release_*.tar.gz found"; exit 3; }
+            REL_DIR="${REL_TGZ%.tar.gz}"
 
-          export RSYNC_RSH="sshpass -p $DEPLOY_PASS ssh -p ${DEPLOY_PORT:-22} -o StrictHostKeyChecking=no"
+            # rozpakuj do wersjonowanego katalogu
+            mkdir -p "releases/${REL_DIR}"
+            tar -xzf "$REL_TGZ" -C "releases/${REL_DIR}" --strip-components=1
 
-          echo
-          echo "Sync (plugins): ${SRC_DIR} -> ${DEPLOY_USER}@${DEPLOY_HOST}:${DEST_DIR}"
-          echo
+            # ensure target dirs exist
+            mkdir -p wp-content/plugins wp-content/themes wp-content/mu-plugins
 
-          rsync -avz --delete \
-            --filter="merge /tmp/rsync-protect.filter" \
-            "${SRC_DIR}" "${DEPLOY_USER}@${DEPLOY_HOST}:${DEST_DIR}"
+            # protect filters (nie tykamy systemowych)
+            cat > /tmp/wtp-protect.filter <<'EOF'
+P wp-content/plugins/litespeed-cache/**
+P wp-content/plugins/wordfence/**
+P wp-content/plugins/translatepress-multilingual/**
+P wp-content/plugins/cookie-law-info/**
+EOF
 
-          echo "Plugins rsync finished."
+            # rsync (atomic to target dirs)
+            if [ -d "releases/${REL_DIR}/plugins" ]; then
+              rsync -a --delete --filter="merge /tmp/wtp-protect.filter" "releases/${REL_DIR}/plugins/"    "wp-content/plugins/"    || true
+            fi
+            if [ -d "releases/${REL_DIR}/themes" ]; then
+              rsync -a --delete "releases/${REL_DIR}/themes/"     "wp-content/themes/"     || true
+            fi
+            if [ -d "releases/${REL_DIR}/mu-plugins" ]; then
+              rsync -a --delete "releases/${REL_DIR}/mu-plugins/" "wp-content/mu-plugins/" || true
+            fi
+
+            date > "wp-content/.wtp_last_deploy"
+EOS
+
+      - name: Post-deploy health (server-side, mandatory)
+        if: ${{ steps.diff.outputs.nothing != 'true' }}
+        env:
+          HOST:   ${{ secrets.DEPLOY_HOST }}
+          USER:   ${{ secrets.DEPLOY_USER }}
+          PASS:   ${{ secrets.DEPLOY_PASS }}
+          PORT:   ${{ secrets.DEPLOY_PORT }}
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" ssh -p "${PORT:-22}" -o StrictHostKeyChecking=no "${USER}@${HOST}" \
+            'curl -fsS "http://127.0.0.1/wp-json/wtp-ro-open/v1/health" && echo "Health OK"'
+
+      - name: Purge LiteSpeed cache (server-side, mandatory)
+        if: ${{ steps.diff.outputs.nothing != 'true' }}
+        env:
+          HOST:   ${{ secrets.DEPLOY_HOST }}
+          USER:   ${{ secrets.DEPLOY_USER }}
+          PASS:   ${{ secrets.DEPLOY_PASS }}
+          PORT:   ${{ secrets.DEPLOY_PORT }}
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" ssh -p "${PORT:-22}" -o StrictHostKeyChecking=no "${USER}@${HOST}" \
+            'curl -sS "http://127.0.0.1/?LSCWP_CTRL=purge" >/dev/null || true'
