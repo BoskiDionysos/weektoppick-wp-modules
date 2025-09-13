@@ -1,0 +1,69 @@
+name: Bulk disable workflows
+on:
+  workflow_dispatch:
+    inputs:
+      keep_list:
+        description: "Nazwy plików YAML (oddzielone przecinkami), które mają pozostać aktywne"
+        required: false
+        default: "pipeline-deploy-wpcli.yml,ssot-guard.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  disable:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Zbuduj whitelistę
+        id: keep
+        run: |
+          set -euo pipefail
+          IFS=',' read -r -a ARR <<< "${{ github.event.inputs.keep_list }}"
+          # normalizacja: trim + tylko nazwy bazowe
+          norm=""
+          for x in "${ARR[@]}"; do
+            x="$(echo "$x" | xargs)"
+            x="$(basename "$x")"
+            [ -n "$x" ] && norm="${norm}${x}\n"
+          done
+          printf "%b" "$norm" | sort -u > .github/workflows/.keep_list
+          echo "KEEP_LIST=$(paste -sd, .github/workflows/.keep_list)" >> "$GITHUB_OUTPUT"
+          echo "Whitelista:"
+          cat .github/workflows/.keep_list
+
+      - name: Przenazwij inne workflowy na .disabled
+        run: |
+          set -euo pipefail
+          cd .github/workflows
+          # zbierz wszystkie aktywne *.yml / *.yaml
+          all=$(ls *.yml *.yaml 2>/dev/null || true)
+          [ -z "$all" ] && { echo "Brak workflowów do wyłączenia"; exit 0; }
+
+          # wczytaj whitelistę
+          mapfile -t KEEP < .keep_list
+
+          for f in $all; do
+            skip=false
+            for k in "${KEEP[@]}"; do
+              if [ "$f" = "$k" ]; then
+                skip=true
+                break
+              fi
+            done
+            $skip && { echo "KEEP  : $f"; continue; }
+
+            # jeśli już wyłączony, pomiń
+            [[ "$f" == *.disabled ]] && { echo "DISABLED already: $f"; continue; }
+
+            mv "$f" "$f.disabled"
+            echo "DISABLE -> $f.disabled"
+          done
+
+      - name: Commit zmian (disable)
+        uses: stefanzweifel/git-auto-commit@v5
+        with:
+          commit_message: "chore: bulk disable workflows (keep: ${{ steps.keep.outputs.KEEP_LIST }})"
+          file_pattern: ".github/workflows/*.disabled .github/workflows/.keep_list"
