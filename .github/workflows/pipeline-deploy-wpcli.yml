@@ -1,4 +1,4 @@
-name: WTP Pipeline (deploy → wpcli → snapshot)
+name: Deploy → WP-CLI (from SSOT)
 
 on:
   workflow_dispatch: {}
@@ -9,102 +9,85 @@ on:
       - 'plugins/**'
       - 'themes/**'
       - 'wp-content/themes/**'
-      - '.wtp/**'
+      - 'ssot/SSOT_PACK.yml'
       - '.github/workflows/pipeline-deploy-wpcli.yml'
 
 permissions:
   contents: write
 
-concurrency:
-  group: wtp-pipeline
-  cancel-in-progress: true
-
 jobs:
   pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 40
     env:
-      HOST:   ${{ secrets.DEPLOY_HOST }}
-      PORT:   ${{ secrets.DEPLOY_PORT }}
-      USER:   ${{ secrets.DEPLOY_USER }}
-      PASS:   ${{ secrets.DEPLOY_PASS }}
-      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      SSOT_FILE: ssot/SSOT_PACK.yml
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          lfs: true
+      - uses: actions/checkout@v4
+        with: { lfs: true, fetch-depth: 0 }
 
       - name: Tools
         run: |
           set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y rsync sshpass curl jq
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
 
-      - name: Verify secrets & lists
+      - name: Read SSOT
+        id: ssot
         run: |
           set -euo pipefail
-          for v in HOST PORT USER PASS TARGET; do
-            test -n "${!v:-}" || { echo "::error::Missing secret: $v"; exit 1; }
-          done
-          test -f ".wtp/allowed-plugins.txt"   || { echo "::error::.wtp/allowed-plugins.txt not found in repo"; exit 1; }
-          if [ ! -f ".wtp/protected-plugins.txt" ] && [ -f "wtp/protected-plugins.txt" ]; then
-            cp -f "wtp/protected-plugins.txt" ".wtp/protected-plugins.txt"
-          fi
+          test -f "$SSOT_FILE" || { echo "::error::Missing $SSOT_FILE"; exit 1; }
+          host_s=$(yq -r '.environments.production.host_secret'   "$SSOT_FILE")
+          port_s=$(yq -r '.environments.production.port_secret'   "$SSOT_FILE")
+          user_s=$(yq -r '.environments.production.user_secret'   "$SSOT_FILE")
+          pass_s=$(yq -r '.environments.production.pass_secret'   "$SSOT_FILE")
+          targ_s=$(yq -r '.environments.production.target_secret' "$SSOT_FILE")
+          echo "HOST=${!host_s}"   >> "$GITHUB_OUTPUT"
+          echo "PORT=${!port_s}"   >> "$GITHUB_OUTPUT"
+          echo "USER=${!user_s}"   >> "$GITHUB_OUTPUT"
+          echo "PASS=${!pass_s}"   >> "$GITHUB_OUTPUT"
+          echo "TARGET=${!targ_s}" >> "$GITHUB_OUTPUT"
+          echo "FS_METHOD=$(yq -r '.environments.production.fs_method' $SSOT_FILE)" >> "$GITHUB_OUTPUT"
+          yq -r '.registry.allowed_plugins[]'   "$SSOT_FILE" > .wtp.allowed.txt
+          yq -r '.registry.protected_plugins[]' "$SSOT_FILE" > .wtp.protected.txt
+          awk 'NF{print "wp-content/plugins/" $0 "/***"}' .wtp.protected.txt > .wtp.rsync-exclude.txt
 
-      # === DEPLOY (rsync z exclude z protected-plugins.txt) ===
-      - name: Remote sanity (docroot)
+      - name: Remote sanity
+        env:
+          HOST:   ${{ steps.ssot.outputs.HOST }}
+          PORT:   ${{ steps.ssot.outputs.PORT }}
+          USER:   ${{ steps.ssot.outputs.USER }}
+          PASS:   ${{ steps.ssot.outputs.PASS }}
+          TARGET: ${{ steps.ssot.outputs.TARGET }}
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no \
-            "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'RMT'
-            set -euo pipefail
-            : "${TARGET:?TARGET missing}"
-            cd "$TARGET" || { echo "::error::Cannot cd to $TARGET"; exit 1; }
-            [ -f wp-config.php ] || { echo "::error::wp-config.php NOT found in $TARGET"; exit 1; }
-            php -v >/dev/null || { echo "::error::PHP CLI not available"; exit 1; }
-          RMT
+            "$USER@$HOST" "cd '$TARGET' && test -f wp-config.php || exit 12"
 
-      - name: Build rsync exclude from protected-plugins.txt
-        id: excl
+      - name: Rsync MU-plugins
+        if: ${{ hashFiles('mu-plugins/**') != '' }}
+        env: { HOST: ${{ steps.ssot.outputs.HOST }}, PORT: ${{ steps.ssot.outputs.PORT }}, USER: ${{ steps.ssot.outputs.USER }}, PASS: ${{ steps.ssot.outputs.PASS }}, TARGET: ${{ steps.ssot.outputs.TARGET }} }
         run: |
           set -euo pipefail
-          mkdir -p .wtp
-          EXC=".wtp/rsync-exclude.txt"
-          : > "$EXC"
-          if [ -f ".wtp/protected-plugins.txt" ]; then
-            sed -e 's/\r$//' ".wtp/protected-plugins.txt" | sed 's/^\xEF\xBB\xBF//' \
-              | sed 's/#.*$//' | awk 'NF{print "wp-content/plugins/" $0 "/***"}' > "$EXC"
-          fi
-          echo "---- RSYNC EXCLUDES ----"
-          if [ -s "$EXC" ]; then cat "$EXC"; else echo "(empty)"; fi
-          echo "file=$EXC" >> "$GITHUB_OUTPUT"
+          sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
+            -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" \
+            "mu-plugins/" "${USER}@${HOST}:${TARGET}/wp-content/mu-plugins/"
 
-      - name: Rsync MU plugins (if present)
+      - name: Rsync plugins (respect protected)
+        if: ${{ hashFiles('plugins/**') != '' }}
+        env: { HOST: ${{ steps.ssot.outputs.HOST }}, PORT: ${{ steps.ssot.outputs.PORT }}, USER: ${{ steps.ssot.outputs.USER }}, PASS: ${{ steps.ssot.outputs.PASS }}, TARGET: ${{ steps.ssot.outputs.TARGET }} }
         run: |
           set -euo pipefail
-          if [ -d "mu-plugins" ]; then
-            sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
-              -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" \
-              "mu-plugins/" "${USER}@${HOST}:${TARGET}/wp-content/mu-plugins/"
-          else
-            echo "Skip: mu-plugins not present."
-          fi
-
-      - name: Rsync plugins with excludes
-        run: |
-          set -euo pipefail
-          if [ -d "plugins" ]; then
-            sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
-              --exclude-from="${{ steps.excl.outputs.file }}" \
-              -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" \
-              "plugins/" "${USER}@${HOST}:${TARGET}/wp-content/plugins/"
-          else
-            echo "Skip: plugins not present."
-          fi
+          sshpass -p "$PASS" rsync -az --delete -v --itemize-changes \
+            --exclude-from=".wtp.rsync-exclude.txt" \
+            -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" \
+            "plugins/" "${USER}@${HOST}:${TARGET}/wp-content/plugins/"
 
       - name: Detect & rsync themes
+        env: { HOST: ${{ steps.ssot.outputs.HOST }}, PORT: ${{ steps.ssot.outputs.PORT }}, USER: ${{ steps.ssot.outputs.USER }}, PASS: ${{ steps.ssot.outputs.PASS }}, TARGET: ${{ steps.ssot.outputs.TARGET }} }
         run: |
           set -euo pipefail
           SRC=""
@@ -116,70 +99,51 @@ jobs:
               -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" \
               "$SRC/" "${USER}@${HOST}:${TARGET}/wp-content/themes/"
           else
-            echo "Skip: no themes dir."
+            echo "No themes dir."
           fi
 
-      # === FIX FS (uprawnienia + FS_METHOD) ZANIM WP-CLI COKOLWIEK POBIERZE ===
-      - name: Prepare WP filesystem (permissions + FS_METHOD)
+      - name: Prepare FS (perms + FS_METHOD)
+        env:
+          HOST:   ${{ steps.ssot.outputs.HOST }}
+          PORT:   ${{ steps.ssot.outputs.PORT }}
+          USER:   ${{ steps.ssot.outputs.USER }}
+          PASS:   ${{ steps.ssot.outputs.PASS }}
+          TARGET: ${{ steps.ssot.outputs.TARGET }}
+          FS_METHOD: ${{ steps.ssot.outputs.FS_METHOD }}
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no \
-            "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'RMT'
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "TARGET='${TARGET}' FS_METHOD='${FS_METHOD}' bash -s" <<'RMT'
             set -euo pipefail
-            : "${TARGET:?TARGET missing}"
             cd "$TARGET"
             mkdir -p wp-content/plugins wp-content/upgrade
             find wp-content/plugins -type d -exec chmod 775 {} \; || true
             find wp-content/plugins -type f -exec chmod 664 {} \; || true
             chmod 775 wp-content/upgrade || true
-            if ! grep -q "FS_METHOD" wp-config.php; then
-              echo "define('FS_METHOD','direct');" >> wp-config.php
-            fi
-            {
-              echo "=== PHP modules (zip/curl/openssl expected) ==="
-              php -m | sort | grep -i -E 'zip|curl|openssl' || true
-              echo
-              echo "=== disk free ==="; df -h .
-              echo
-              echo "=== perms check ==="
-              stat -c '%A %U:%G %n' wp-content wp-content/plugins wp-content/upgrade || true
-            } > .wtp_fs_diag.txt 2>&1
+            grep -q "FS_METHOD" wp-config.php || echo "define('FS_METHOD','${FS_METHOD}');" >> wp-config.php
           RMT
 
-      # === WP-CLI (allowed list install/update + activate) z WYŁĄCZENIEM MU-LOCKS ===
       - name: Upload allowlist to remote
+        env: { HOST: ${{ steps.ssot.outputs.HOST }}, PORT: ${{ steps.ssot.outputs.PORT }}, USER: ${{ steps.ssot.outputs.USER }}, PASS: ${{ steps.ssot.outputs.PASS }}, TARGET: ${{ steps.ssot.outputs.TARGET }} }
         run: |
           set -euo pipefail
+          cp .wtp.allowed.txt .wtp-allowed-plugins.txt
           sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no \
-            ".wtp/allowed-plugins.txt" "$USER@$HOST:$TARGET/.wtp-allowed-plugins.txt"
+            ".wtp-allowed-plugins.txt" "$USER@$HOST:$TARGET/.wtp-allowed-plugins.txt"
 
-      - name: WP-CLI run (install/update/activate + logs, debug; MU-LOCKS off during run)
+      - name: WP-CLI install/update (MU disabled temporarily)
+        env: { HOST: ${{ steps.ssot.outputs.HOST }}, PORT: ${{ steps.ssot.outputs.PORT }}, USER: ${{ steps.ssot.outputs.USER }}, PASS: ${{ steps.ssot.outputs.PASS }}, TARGET: ${{ steps.ssot.outputs.TARGET }} }
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no \
-            "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'RMT'
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'RMT'
             set -euo pipefail
-            : "${TARGET:?TARGET missing}"
             cd "$TARGET"
 
-            mkdir -p "$TARGET/.wtp/state/ci_logs" "$TARGET/.wtp-vendor"
-            SLOG="$TARGET/.wtp/state/ci_logs/server_info.txt"
-            {
-              echo "=== whoami / uname / date ==="; whoami; uname -a; date
-              echo; echo "=== TARGET ==="; echo "$TARGET"
-              echo; echo "=== pwd ==="; pwd
-              echo; echo "=== top ls ==="; ls -la
-              echo; echo "=== PHP zip/curl/openssl ==="; php -m | sort | grep -i -E 'zip|curl|openssl' || true
-            } >> "$SLOG" 2>&1
+            MU_DIR="$TARGET/wp-content/mu-plugins"
+            MU_BAK="$TARGET/wp-content/mu-plugins._disabled_$$"
+            if [ -e "$MU_DIR" ]; then mv "$MU_DIR" "$MU_BAK"; fi
+            restore_mu(){ [ -e "$MU_BAK" ] && mv "$MU_BAK" "$MU_DIR"; }
+            trap restore_mu EXIT
 
-            # --- Tymczasowo wyłącz MU-LOCKS ---
-            LOCKS="$TARGET/wp-content/mu-plugins/wtp-locks.php"
-            if [ -f "$LOCKS" ]; then
-              mv "$LOCKS" "$LOCKS.off"
-              echo "[LOCKS] temporarily disabled" >> "$SLOG"
-            fi
-
-            # WP-CLI bootstrap
             if [ ! -x "./wp" ]; then
               curl -sS -o wp.phar https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
               php wp.phar --info >/dev/null
@@ -189,99 +153,40 @@ jobs:
             WP='php ./wp --skip-plugins --path="$TARGET"'
 
             LIST="$TARGET/.wtp-allowed-plugins.txt"
-            [ -f "$LIST" ] || { echo "::error::Allowlist not found: $LIST" | tee -a "$SLOG"; exit 1; }
-
-            TMP="$TARGET/.wtp-allowed-plugins.norm"
-            sed -e 's/\r$//' "$LIST" | sed 's/^\xEF\xBB\xBF//' | sed 's/#.*$//' | awk 'NF>0' > "$TMP"
+            sed -e 's/\r$//' "$LIST" | sed 's/^\xEF\xBB\xBF//' | sed 's/#.*$//' | awk 'NF>0' > "$TARGET/.wtp-allowed.norm"
 
             INST="$TARGET/.wtp/state/ci_logs/plugins_installed.txt"
             UPD="$TARGET/.wtp/state/ci_logs/plugins_updated.txt"
-            EXIST="$TARGET/.wtp/state/ci_logs/plugins_existing.txt"
-            ACTV="$TARGET/.wtp/state/ci_logs/active_plugins.txt"
-            : >"$INST"; : >"$UPD"; : >"$EXIST"; : >"$ACTV"
+            ACT="$TARGET/.wtp/state/ci_logs/active_plugins.txt"
+            mkdir -p "$TARGET/.wtp/state/ci_logs"; :> "$INST"; :> "$UPD"; :> "$ACT"
 
             while IFS= read -r line; do
-              if [[ "$line" =~ ^zip:(.+)$ ]]; then
-                src="${BASH_REMATCH[1]}"
-                [ -f "$src" ] || src="$TARGET/.wtp-vendor/$(basename "$src")"
-                if [ ! -f "$src" ]; then
-                  echo "::warning::ZIP not found: $src" | tee -a "$SLOG"
-                  continue
-                fi
-                echo ">> install ZIP $src" | tee -a "$SLOG"
-                eval $WP plugin install "$src" --force --activate --debug 2>&1 | tee -a "$SLOG"
-                echo "$src" >> "$INST"
-                continue
-              fi
-
               slug="${line%@*}"; ver="${line#*@}"; [ "$slug" = "$ver" ] && ver=""
               if eval $WP plugin is-installed "$slug" >/dev/null 2>&1; then
-                if [ -n "$ver" ]; then
-                  eval $WP plugin update "$slug" --version="$ver" --activate --debug 2>&1 | tee -a "$SLOG"
-                  echo "$slug@$ver" >> "$UPD"
-                else
-                  eval $WP plugin update "$slug" --activate --debug 2>&1 | tee -a "$SLOG"
-                  echo "$slug" >> "$UPD"
-                fi
+                if [ -n "$ver" ]; then eval $WP plugin update "$slug" --version="$ver" --activate; echo "$slug@$ver" >> "$UPD"
+                else eval $WP plugin update "$slug" --activate; echo "$slug" >> "$UPD"; fi
               else
-                if [ -n "$ver" ]; then
-                  eval $WP plugin install "$slug" --version="$ver" --activate --debug 2>&1 | tee -a "$SLOG"
-                  echo "$slug@$ver" >> "$INST"
-                else
-                  eval $WP plugin install "$slug" --activate --debug 2>&1 | tee -a "$SLOG"
-                  echo "$slug" >> "$INST"
-                fi
+                if [ -n "$ver" ]; then eval $WP plugin install "$slug" --version="$ver" --activate; echo "$slug@$ver" >> "$INST"
+                else eval $WP plugin install "$slug" --activate; echo "$slug" >> "$INST"; fi
               fi
+            done < "$TARGET/.wtp-allowed.norm"
 
-              eval $WP plugin is-installed "$slug" && echo "$slug" >> "$EXIST" || true
-            done < "$TMP"
-
-            echo "=== active plugins ===" > "$ACTV"
-            eval $WP plugin list --status=active --field=name >> "$ACTV" || true
-
-            # Fallback theme (gdy brak naszego)
-            if ! eval $WP theme is-installed wtp-core-theme >/dev/null 2>&1; then
-              eval $WP theme install twentytwentyfive --activate || true
-            fi
-
-            # --- Przywróć MU-LOCKS ---
-            if [ -f "$LOCKS.off" ]; then
-              mv "$LOCKS.off" "$LOCKS"
-              echo "[LOCKS] restored" >> "$SLOG"
-            fi
+            echo "=== active plugins ===" > "$ACT"
+            eval $WP plugin list --status=active --field=name >> "$ACT" || true
           RMT
 
-      # === Inventory + snapshot logs (repo + artifact) ===
-      - name: Pull CI logs from remote
+      - name: Pull CI logs (artifact)
         continue-on-error: true
+        env: { HOST: ${{ steps.ssot.outputs.HOST }}, PORT: ${{ steps.ssot.outputs.PORT }}, USER: ${{ steps.ssot.outputs.USER }}, PASS: ${{ steps.ssot.outputs.PASS }}, TARGET: ${{ steps.ssot.outputs.TARGET }} }
         run: |
           set -euo pipefail
-          rm -rf _ci_logs || true
-          mkdir -p _ci_logs
-          sshpass -p "$PASS" rsync -az \
-            -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
+          rm -rf _ci_logs; mkdir -p _ci_logs
+          sshpass -p "$PASS" rsync -az -e "ssh -p ${PORT} -o StrictHostKeyChecking=no" \
             "$USER@$HOST:$TARGET/.wtp/state/ci_logs/" "_ci_logs/" || true
-          # dorzuć też FS diagnostykę jeśli jest
-          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no \
-            "$USER@$HOST:$TARGET/.wtp_fs_diag.txt" "_ci_logs/wp_fs_diag.txt" || true
           ls -la _ci_logs || true
 
-      - name: Sync logs into repo tree
-        run: |
-          set -euo pipefail
-          mkdir -p .wtp/state/ci_logs
-          rsync -a _ci_logs/ .wtp/state/ci_logs/ || true
-
-      - name: Upload logs as artifact (safe name)
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: ci-logs-pipeline-${{ github.run_id }}
+          name: ci-logs-${{ github.run_id }}
           path: _ci_logs
-          if-no-files-found: warn
           retention-days: 7
-
-      - name: Commit CI logs into repo (for snapshots)
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "ci-logs(pipeline #${{ github.run_number }})"
-          file_pattern: .wtp/state/ci_logs/**
