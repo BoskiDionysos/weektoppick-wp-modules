@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       keep_list:
-        description: "Nazwy plików YAML (oddzielone przecinkami), które mają pozostać aktywne"
+        description: "Pliki workflow (po przecinku), które mają pozostać aktywne"
         required: false
         default: "pipeline-deploy-wpcli.yml,ssot-guard.yml"
 
@@ -22,48 +22,60 @@ jobs:
         run: |
           set -euo pipefail
           IFS=',' read -r -a ARR <<< "${{ github.event.inputs.keep_list }}"
-          # normalizacja: trim + tylko nazwy bazowe
           norm=""
           for x in "${ARR[@]}"; do
             x="$(echo "$x" | xargs)"
             x="$(basename "$x")"
             [ -n "$x" ] && norm="${norm}${x}\n"
           done
+          mkdir -p .github/workflows
           printf "%b" "$norm" | sort -u > .github/workflows/.keep_list
-          echo "KEEP_LIST=$(paste -sd, .github/workflows/.keep_list)" >> "$GITHUB_OUTPUT"
-          echo "Whitelista:"
+          echo "WHITELIST:"
           cat .github/workflows/.keep_list
 
       - name: Przenazwij inne workflowy na .disabled
         run: |
           set -euo pipefail
           cd .github/workflows
-          # zbierz wszystkie aktywne *.yml / *.yaml
-          all=$(ls *.yml *.yaml 2>/dev/null || true)
-          [ -z "$all" ] && { echo "Brak workflowów do wyłączenia"; exit 0; }
 
-          # wczytaj whitelistę
-          mapfile -t KEEP < .keep_list
+          # wczytaj whitelistę do tablicy
+          mapfile -t KEEP < .keep_list || true
 
-          for f in $all; do
-            skip=false
+          shopt -s nullglob
+          ALL=( *.yml *.yaml )
+          CHANGED=0
+
+          for f in "${ALL[@]}"; do
+            # jeśli plik sam jest tym bulk-* → zostaw zawsze
+            [[ "$f" == bulk-disable-workflows.yml || "$f" == bulk-enable-workflows.yml ]] && { echo "KEEP  : $f (bulk tool)"; continue; }
+
+            # jeśli na liście keep → zostaw
+            SKIP=false
             for k in "${KEEP[@]}"; do
-              if [ "$f" = "$k" ]; then
-                skip=true
-                break
-              fi
+              [[ "$f" == "$k" ]] && { SKIP=true; break; }
             done
-            $skip && { echo "KEEP  : $f"; continue; }
+            $SKIP && { echo "KEEP  : $f"; continue; }
 
-            # jeśli już wyłączony, pomiń
+            # jeśli już wyłączony → pomiń
             [[ "$f" == *.disabled ]] && { echo "DISABLED already: $f"; continue; }
 
             mv "$f" "$f.disabled"
             echo "DISABLE -> $f.disabled"
+            CHANGED=1
           done
 
-      - name: Commit zmian (disable)
-        uses: stefanzweifel/git-auto-commit@v5
-        with:
-          commit_message: "chore: bulk disable workflows (keep: ${{ steps.keep.outputs.KEEP_LIST }})"
-          file_pattern: ".github/workflows/*.disabled .github/workflows/.keep_list"
+          echo "CHANGED=$CHANGED" >> $GITHUB_ENV
+
+      - name: Commit i push
+        if: env.CHANGED == '1'
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows
+          git commit -m "chore: bulk disable workflows (keep whitelist)"
+          git push
+
+      - name: Brak zmian
+        if: env.CHANGED != '1'
+        run: echo "Nie było nic do wyłączenia."
