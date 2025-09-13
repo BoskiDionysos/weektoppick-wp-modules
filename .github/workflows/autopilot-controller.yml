@@ -1,0 +1,377 @@
+name: WTP Autopilot Controller
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: wtp-autopilot
+  cancel-in-progress: true
+
+jobs:
+  autopilot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      PIPELINE_FILE: .github/workflows/pipeline-deploy-wpcli.yml
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y rsync sshpass curl jq ripgrep
+
+      - name: Verify secrets and files
+        run: |
+          set -euo pipefail
+          for v in HOST PORT USER PASS TARGET; do
+            test -n "${!v:-}" || { echo "::error::Missing secret: $v"; exit 1; }
+          done
+          test -f "$PIPELINE_FILE" || { echo "::error::Missing $PIPELINE_FILE"; exit 1; }
+          test -f ".wtp/allowed-plugins.txt" || { echo "::warning::.wtp/allowed-plugins.txt missing in repo"; }
+          test -f ".wtp/protected-plugins.txt" || true
+
+      # 1) Zbierz bieżący stan i logi bezpośrednio z serwera
+      - name: Pull current CI logs from remote
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          rm -rf _ci_logs || true
+          mkdir -p _ci_logs
+          # podstawowe sanity docrootu + wp-config + php
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" "TARGET='$TARGET' bash -s" <<'RMT' > _ci_logs/remote_sanity.txt 2>&1
+            set -euo pipefail
+            : "${TARGET:?TARGET missing}"
+            echo "TARGET=$TARGET"
+            cd "$TARGET" || { echo "::error::cd to TARGET failed"; exit 1; }
+            echo "[ls top]"; ls -la
+            echo "[has wp-config.php?]"; test -f wp-config.php && echo OK || echo MISSING
+            echo "[php -v]"; php -v || true
+            echo "[php -m | zip/curl/openssl]"; php -m | sort | grep -Ei 'zip|curl|openssl' || true
+            echo "[perms plugins/upgrade]"
+            stat -c '%A %U:%G %n' wp-content wp-content/plugins wp-content/upgrade 2>/dev/null || true
+            echo "[mu-plugins]"
+            ls -la wp-content/mu-plugins 2>/dev/null || echo "(no mu-plugins)"
+            echo "[plugins]"
+            ls -la wp-content/plugins 2>/dev/null || echo "(no plugins)"
+          RMT
+          # ściągnij logi, jeśli są
+          sshpass -p "$PASS" rsync -az \
+            -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
+            "$USER@$HOST:$TARGET/.wtp/state/ci_logs/" "_ci_logs/" || true
+          # dodatkowa diagnostyka FS jeśli była generowana
+          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=no \
+            "$USER@$HOST:$TARGET/.wtp_fs_diag.txt" "_ci_logs/wp_fs_diag.txt" || true
+          ls -la _ci_logs || true
+
+      # 2) Analiza problemów (detekcja LOCKS, zip, TARGET, artefakty, excludes)
+      - name: Analyze and plan fixes
+        id: plan
+        run: |
+          set -euo pipefail
+          mkdir -p .wtp/state/ci_logs
+          REPORT=".wtp/state/ci_logs/AUTOFIX_REPORT.md"
+          : > "$REPORT"
+
+          echo "# Autopilot report" >> "$REPORT"
+          date +"Run: %Y-%m-%d %H:%M:%S %Z" >> "$REPORT"
+          echo -e "\n## Inputs\n- TARGET: \`$TARGET\`\n- HOST: \`$HOST\`\n" >> "$REPORT"
+
+          HAS_LOCKS_WARN=$(rg -n "Updates disabled by WTP LOCKS" _ci_logs -S || true)
+          HAS_WP_CFG=$(grep -F "[has wp-config.php?]" -n _ci_logs/remote_sanity.txt >/dev/null && grep -F "OK" -n _ci_logs/remote_sanity.txt || true)
+          HAS_ZIP=$(rg -n "zip" _ci_logs/remote_sanity.txt -i || true)
+          ACTIVE_PLUGS=$(test -f _ci_logs/active_plugins.txt && wc -l < _ci_logs/active_plugins.txt || echo 0)
+          MU_LIST=$(rg -n "mu-plugins" _ci_logs/remote_sanity.txt || true)
+
+          echo "## Signals" >> "$REPORT"
+          echo "- LOCKS warning: $([ -n "$HAS_LOCKS_WARN" ] && echo "YES" || echo "no")" >> "$REPORT"
+          echo "- wp-config.php present: $([ -n "$HAS_WP_CFG" ] && echo "YES" || echo "no")" >> "$REPORT"
+          echo "- PHP zip module hint: $([ -n "$HAS_ZIP" ] && echo "seen" || echo "not_seen")" >> "$REPORT"
+          echo "- Active plugins (counter from last logs): $ACTIVE_PLUGS" >> "$REPORT"
+          echo -e "- MU plugins listing:\n\`\`\`\n$MU_LIST\n\`\`\`" >> "$REPORT"
+
+          FIX_MU_DISABLE=0
+          FIX_FS_METHOD=0
+          FIX_PERMS=0
+          FIX_EXCLUDE=0
+          FIX_ARTIFACT=0
+
+          # 2a) jeżeli kiedykolwiek pojawiło się "Updates disabled by WTP LOCKS" → wymuś 'disable mu-plugins during run'
+          if [ -n "$HAS_LOCKS_WARN" ]; then
+            FIX_MU_DISABLE=1
+            echo "- Will enforce MU-plugins temporary disable during WP-CLI run." >> "$REPORT"
+          fi
+
+          # 2b) braki zip/curl/openssl → nie naprawimy z CI, ale logujemy zalecenie
+          if [ -z "$HAS_ZIP" ]; then
+            echo "- WARNING: could not confirm PHP zip/curl/openssl modules; hosting may block installs. Manual check needed." >> "$REPORT"
+          fi
+
+          # 2c) FS_METHOD + uprawnienia
+          FIX_FS_METHOD=1
+          FIX_PERMS=1
+          echo "- Will enforce FS_METHOD 'direct' and chmod for plugins/upgrade." >> "$REPORT"
+
+          # 2d) Rsync exclude: upewnij się że korzystamy z --exclude-from, nie z --filter=merge
+          FIX_EXCLUDE=1
+          echo "- Will enforce rsync --exclude-from built from .wtp/protected-plugins.txt." >> "$REPORT"
+
+          # 2e) Artefakt: bez znaków niedozwolonych
+          FIX_ARTIFACT=1
+          echo "- Will enforce safe artifact name (no '/')." >> "$REPORT"
+
+          # zapisz decyzje
+          printf "fix_mu_disable=%d\nfix_fs_method=%d\nfix_perms=%d\nfix_exclude=%d\nfix_artifact=%d\n" \
+            $FIX_MU_DISABLE $FIX_FS_METHOD $FIX_PERMS $FIX_EXCLUDE $FIX_ARTIFACT >> "$GITHUB_OUTPUT"
+
+      # 3) Patchowanie pipeline'u (idempotentnie)
+      - name: Apply autopatches to pipeline
+        id: patch
+        run: |
+          set -euo pipefail
+          FILE="$PIPELINE_FILE"
+          test -f "$FILE" || { echo "::error::Missing $FILE"; exit 1; }
+          BEFORE_SUM="$(sha1sum "$FILE" | awk '{print $1}')"
+
+          # funkcje pomocnicze
+          ensure_block() {
+            local file="$1"
+            local marker="$2"
+            local insert="$3"
+            if ! grep -Fq "$marker" "$file"; then
+              echo ">> Injecting marker: $marker"
+              # wstrzykujemy przed sekcją 'WP-CLI run' albo na końcu steps
+              awk -v m="$marker" -v ins="$insert" '
+                BEGIN{printed=0}
+                /- name: WP-CLI run/ && printed==0 { print ins; printed=1 }
+                { print }
+                END{ if(printed==0) print ins }
+              ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+            fi
+          }
+
+          replace_step() {
+            local file="$1"
+            local stepname="$2"
+            local content_file="$3"
+            # jeśli istnieje krok o nazwie stepname → podmień cały blok YAML od "- name: stepname" do następnego "- name:" lub końca
+            if grep -Fq "- name: ${stepname}" "$file"; then
+              awk -v nm="- name: ${stepname}" -v repl="$(sed "s/[&/]/\\\\&/g" < "$content_file")" '
+                BEGIN{inblk=0}
+                {
+                  if($0 ~ nm){
+                    print repl
+                    inblk=1; next
+                  }
+                  if(inblk && $0 ~ /^ {6}- name:/){ inblk=0 }
+                  if(!inblk) print
+                }
+              ' "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+            else
+              # dolej na koniec
+              cat "$content_file" >> "$file"
+            fi
+          }
+
+          # 3a) Wymuś „Prepare WP filesystem (permissions + FS_METHOD)”
+          if [ "${{ steps.plan.outputs.fix_fs_method }}" = "1" ] || [ "${{ steps.plan.outputs.fix_perms }}" = "1" ]; then
+            cat > _blk_fs_method.yml <<'YML'
+      - name: Prepare WP filesystem (permissions + FS_METHOD) [autopilot]
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no \
+            "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'RMT'
+            set -euo pipefail
+            : "${TARGET:?TARGET missing}"
+            cd "$TARGET"
+            mkdir -p wp-content/plugins wp-content/upgrade
+            find wp-content/plugins -type d -exec chmod 775 {} \; || true
+            find wp-content/plugins -type f -exec chmod 664 {} \; || true
+            chmod 775 wp-content/upgrade || true
+            if ! grep -q "FS_METHOD" wp-config.php; then
+              echo "define('FS_METHOD','direct');" >> wp-config.php
+            fi
+          RMT
+YML
+            ensure_block "$FILE" "Prepare WP filesystem (permissions + FS_METHOD) [autopilot]" "$(cat _blk_fs_method.yml)"
+          fi
+
+          # 3b) Podmień krok WP-CLI tak, by WYŁĄCZAŁ cały katalog mu-plugins na czas instalacji
+          if [ "${{ steps.plan.outputs.fix_mu_disable }}" = "1" ]; then
+            cat > _blk_wpcli.yml <<'YML'
+      - name: WP-CLI run (install/update/activate + logs; MU-plugins disabled) [autopilot]
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no \
+            "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'RMT'
+            set -euo pipefail
+            : "${TARGET:?TARGET missing}"
+            cd "$TARGET"
+            mkdir -p "$TARGET/.wtp/state/ci_logs" "$TARGET/.wtp-vendor"
+            SLOG="$TARGET/.wtp/state/ci_logs/server_info.txt"
+
+            # Disable MU-plugins hard
+            MU_DIR="$TARGET/wp-content/mu-plugins"
+            MU_BAK="$TARGET/wp-content/mu-plugins._disabled_$$"
+            if [ -e "$MU_DIR" ]; then
+              mv "$MU_DIR" "$MU_BAK"
+              echo "[MU] disabled ($MU_DIR -> $MU_BAK)" >> "$SLOG"
+            fi
+            restore_mu() {
+              if [ -e "$MU_BAK" ]; then
+                mv "$MU_BAK" "$MU_DIR"
+                echo "[MU] restored ($MU_BAK -> $MU_DIR)" >> "$SLOG"
+              fi
+            }
+            trap restore_mu EXIT
+
+            if [ ! -x "./wp" ]; then
+              curl -sS -o wp.phar https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+              php wp.phar --info >/dev/null
+              chmod +x wp.phar && mv wp.phar wp
+            fi
+            export WP_ALLOW_ROOT=1
+            WP='php ./wp --skip-plugins --path="$TARGET"'
+
+            LIST="$TARGET/.wtp-allowed-plugins.txt"
+            [ -f "$LIST" ] || { echo "::error::Allowlist not found: $LIST" | tee -a "$SLOG"; exit 1; }
+
+            # normalize
+            TMP="$TARGET/.wtp-allowed-plugins.norm"
+            sed -e 's/\r$//' "$LIST" | sed 's/^\xEF\xBB\xBF//' | sed 's/#.*$//' | awk 'NF>0' > "$TMP"
+
+            INST="$TARGET/.wtp/state/ci_logs/plugins_installed.txt"
+            UPD="$TARGET/.wtp/state/ci_logs/plugins_updated.txt"
+            EXIST="$TARGET/.wtp/state/ci_logs/plugins_existing.txt"
+            ACTV="$TARGET/.wtp/state/ci_logs/active_plugins.txt"
+            : >"$INST"; : >"$UPD"; : >"$EXIST"; : >"$ACTV"
+
+            while IFS= read -r line; do
+              if [[ "$line" =~ ^zip:(.+)$ ]]; then
+                src="${BASH_REMATCH[1]}"
+                [ -f "$src" ] || src="$TARGET/.wtp-vendor/$(basename "$src")"
+                if [ ! -f "$src" ]; then
+                  echo "::warning::ZIP not found: $src" | tee -a "$SLOG"
+                  continue
+                fi
+                eval $WP plugin install "$src" --force --activate --debug 2>&1 | tee -a "$SLOG"
+                echo "$src" >> "$INST"
+                continue
+              fi
+              slug="${line%@*}"; ver="${line#*@}"; [ "$slug" = "$ver" ] && ver=""
+              if eval $WP plugin is-installed "$slug" >/dev/null 2>&1; then
+                if [ -n "$ver" ]; then
+                  eval $WP plugin update "$slug" --version="$ver" --activate --debug 2>&1 | tee -a "$SLOG"
+                  echo "$slug@$ver" >> "$UPD"
+                else
+                  eval $WP plugin update "$slug" --activate --debug 2>&1 | tee -a "$SLOG"
+                  echo "$slug" >> "$UPD"
+                fi
+              else
+                if [ -n "$ver" ]; then
+                  eval $WP plugin install "$slug" --version="$ver" --activate --debug 2>&1 | tee -a "$SLOG"
+                  echo "$slug@$ver" >> "$INST"
+                else
+                  eval $WP plugin install "$slug" --activate --debug 2>&1 | tee -a "$SLOG"
+                  echo "$slug" >> "$INST"
+                fi
+              fi
+              eval $WP plugin is-installed "$slug" && echo "$slug" >> "$EXIST" || true
+            done < "$TMP"
+
+            echo "=== active plugins ===" > "$ACTV"
+            eval $WP plugin list --status=active --field=name >> "$ACTV" || true
+
+            if ! eval $WP theme is-installed wtp-core-theme >/dev/null 2>&1; then
+              eval $WP theme install twentytwentyfive --activate || true
+            fi
+          RMT
+YML
+            replace_step "$FILE" "WP-CLI run (" _blk_wpcli.yml
+          fi
+
+          # 3c) Upewnij się, że rsync korzysta z --exclude-from (a nie filter=merge)
+          if [ "${{ steps.plan.outputs.fix_exclude }}" = "1" ]; then
+            # wstaw (jeżeli brak) generator exclude'ów przed sync plugins
+            if ! grep -Fq "Build rsync exclude from protected-plugins.txt" "$FILE"; then
+              cat > _blk_excl.yml <<'YML'
+      - name: Build rsync exclude from protected-plugins.txt [autopilot]
+        id: excl_autopilot
+        run: |
+          set -euo pipefail
+          mkdir -p .wtp
+          EXC=".wtp/rsync-exclude.txt"
+          : > "$EXC"
+          if [ -f ".wtp/protected-plugins.txt" ]; then
+            sed -e 's/\r$//' ".wtp/protected-plugins.txt" | sed 's/^\xEF\xBB\xBF//' \
+              | sed 's/#.*$//' | awk 'NF{print "wp-content/plugins/" $0 "/***"}' > "$EXC"
+          fi
+          echo "file=$EXC" >> "$GITHUB_OUTPUT"
+YML
+              ensure_block "$FILE" "Build rsync exclude from protected-plugins.txt [autopilot]" "$(cat _blk_excl.yml)"
+            fi
+            # podmień kroki rsync plugins aby używały excludes z id:excl_autopilot jeśli istnieje
+            sed -i 's/rsync -az --delete -v --itemize-changes \\/rsync -az --delete -v --itemize-changes \\\\\n              --exclude-from="${{ steps.excl_autopilot.outputs.file }}" \\/' "$FILE" || true
+          fi
+
+          # 3d) Artefakt – bez niedozwolonych znaków
+          if [ "${{ steps.plan.outputs.fix_artifact }}" = "1" ]; then
+            # zamień nazwy na bezpieczne: ci-logs-<run_id>
+            sed -i 's/name: .*ci-logs[^\\n]*/name: ci-logs-pipeline-${{ github.run_id }}/g' "$FILE" || true
+          fi
+
+          AFTER_SUM="$(sha1sum "$FILE" | awk '{print $1}')"
+          echo "before=$BEFORE_SUM" >> "$GITHUB_OUTPUT"
+          echo "after=$AFTER_SUM" >> "$GITHUB_OUTPUT"
+          if [ "$BEFORE_SUM" != "$AFTER_SUM" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 4) Jeśli coś zmieniono – stwórz branch i PR
+      - name: Create autofix PR
+        if: steps.patch.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "autopilot: patch pipeline (MU disable, FS_METHOD, excludes, artifact)"
+          branch: "autofix/pipeline-${{ github.run_id }}"
+          title: "Autopilot: patch pipeline for stable installs"
+          body-path: ".wtp/state/ci_logs/AUTOFIX_REPORT.md"
+          add-paths: |
+            .wtp/state/ci_logs/AUTOFIX_REPORT.md
+            .github/workflows/pipeline-deploy-wpcli.yml
+
+      # 5) Zapisz raport i surowe logi w repo (snapshot) i jako artefakt
+      - name: Upload report + raw logs (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: autopilot-${{ github.run_id }}
+          path: |
+            _ci_logs
+            .wtp/state/ci_logs/AUTOFIX_REPORT.md
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Commit report into repo
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "autopilot: report #${{ github.run_number }}"
+          file_pattern: .wtp/state/ci_logs/AUTOFIX_REPORT.md
