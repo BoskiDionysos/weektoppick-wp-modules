@@ -1,0 +1,64 @@
+{
+  "project": {
+    "name": "WeekTopPick",
+    "env": "prod"
+  },
+  "wordpress": {
+    "target_path_secret": "DEPLOY_TARGET",
+    "wp_cli_path": "wp", 
+    "locks": {
+      "mu_plugin": "wtp-locks",
+      "plugin_updates_blocked": true
+    }
+  },
+  "plugins": {
+    "allowed": [
+      "wordfence",
+      "litespeed-cache",
+      "cookie-law-info",
+      "seo-by-rank-math",
+      "pretty-link",
+      "translatepress-multilingual"
+    ],
+    "protected": [
+      "litespeed-cache",
+      "wordfence",
+      "cookie-law-info",
+      "translatepress-multilingual",
+      "sitepress-multilingual-cms",
+      "wpml-string-translation",
+      "polylang",
+      "multilingualpress",
+      "weglot",
+      "pretty-link",
+      "prettylinks-pro",
+      "seo-by-rank-math"
+    ]
+  },
+  "secrets": [
+    { "name": "DEPLOY_HOST",     "required": true,  "purpose": "Host do SSH (deploy)",                          "used_by": ["deploy-site.yml","wpcli-allowed-plugins.yml"] },
+    { "name": "DEPLOY_PORT",     "required": true,  "purpose": "Port SSH",                                       "used_by": ["deploy-site.yml","wpcli-allowed-plugins.yml"] },
+    { "name": "DEPLOY_USER",     "required": true,  "purpose": "Użytkownik SSH",                                 "used_by": ["deploy-site.yml","wpcli-allowed-plugins.yml"] },
+    { "name": "DEPLOY_PASS",     "required": true,  "purpose": "Hasło SSH (sshpass)",                            "used_by": ["deploy-site.yml","wpcli-allowed-plugins.yml"] },
+    { "name": "DEPLOY_TARGET",   "required": true,  "purpose": "Ścieżka docelowa na serwerze (root WP)",         "used_by": ["deploy-site.yml","wpcli-allowed-plugins.yml"] },
+
+    { "name": "RUNNER_URL",      "required": false, "purpose": "Adres self-hosted runnera (jeśli używany)",      "used_by": ["*"] },
+
+    { "name": "WTP_AGENT_TOKEN", "required": false, "purpose": "Token agenta (integracje WTP)",                  "used_by": ["agent-push.yml"] },
+    { "name": "WTP_BRIDGE_HMAC", "required": false, "purpose": "HMAC dla mostka (integracje)",                   "used_by": ["bridge/*"] },
+    { "name": "WTP_BRIDGE_KEY",  "required": false, "purpose": "Klucz mostka (integracje)",                      "used_by": ["bridge/*"] },
+    { "name": "WTP_GH_SECRET",   "required": false, "purpose": "Shared secret dla webhooków GH",                 "used_by": ["exporter-watchdog.yml","snapshot-watchdog.yml"] },
+    { "name": "WTP_GH_SYNC_PAT", "required": false, "purpose": "PAT do syncu (czytanie/pisanie innych repo)",    "used_by": ["wtp-snapshot-sync.yml","export-gh-digest.yml"] },
+    { "name": "WTP_GITHUB_PAT",  "required": false, "purpose": "PAT ogólny do GitHub API",                        "used_by": ["*"] },
+    { "name": "WTP_GSC_SITE",    "required": false, "purpose": "Identyfikator strony w GSC",                     "used_by": ["gsc-collector.yml"] },
+    { "name": "WTP_SITE_KEY",    "required": false, "purpose": "Klucz instancji serwisu (apps, webhooki)",       "used_by": ["*"] }
+  ],
+  "workflows": [
+    { "file": "deploy-site.yml",              "role": "Rsync kodu + diagnostyka", "needs": [] },
+    { "file": "wpcli-allowed-plugins.yml",    "role": "Instalacja/akt. pluginów",  "needs": ["deploy-site.yml"] },
+    { "file": "audit-workflows.yml",          "role": "Lint + sanity",             "needs": [] },
+    { "file": "collect-run-logs.yml",         "role": "Zbiór logów po failu",      "needs": [] },
+    { "file": "export-gh-digest.yml",         "role": "Snapshot repo",             "needs": [] },
+    { "file": "wtp-snapshot-sync.yml",        "role": "Sync snapshotów",           "needs": [] }
+  ]
+}
