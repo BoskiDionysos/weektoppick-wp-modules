@@ -1,0 +1,212 @@
+name: Repo Inventory (SSOT)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  repo_inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          fetch-depth: 0
+
+      - name: Tools (jq, yq, actionlint)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y jq
+          curl -sSL https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64 \
+            -o /usr/local/bin/yq && sudo chmod +x /usr/local/bin/yq
+          curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash \
+            | bash -s -- -b ./.bin latest
+          echo "::notice title=actionlint version::$(./.bin/actionlint -version)"
+
+      - name: Lint workflows with actionlint
+        id: lint
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p .wtp/state/repo_inventory
+          if ls .github/workflows/*.yml >/dev/null 2>&1; then
+            ./.bin/actionlint -color \
+              > .wtp/state/repo_inventory/actionlint.out 2>&1 || true
+          else
+            echo "(no workflows)" > .wtp/state/repo_inventory/actionlint.out
+          fi
+          echo "lint_report=.wtp/state/repo_inventory/actionlint.out" >> "$GITHUB_OUTPUT"
+
+      - name: Collect workflows metadata (triggers/permissions/secrets)
+        run: |
+          set -euo pipefail
+          OUT=".wtp/state/repo_inventory/workflows_meta.jsonl"
+          : > "$OUT"
+          if ls .github/workflows/*.yml >/dev/null 2>&1; then
+            for f in .github/workflows/*.yml; do
+              # wyciągamy kluczowe rzeczy bez wywracania się, gdy pole nie istnieje
+              name=$(yq -r '.name // ""' "$f")
+              perms=$(yq -r '.permissions // {}' "$f" | jq -c .)
+              conc=$(yq -r '.concurrency // {}' "$f" | jq -c .)
+              on_json=$(yq -r '.on // {}' "$f" | jq -c .)
+              # szybkie grepnięcie na sekrety referencjonowane w pliku
+              secrets=$(grep -oE '\${{\s*secrets\.[A-Z0-9_]+\s*}}' "$f" | sed -E 's/[^.]*\.([A-Z0-9_]+).*/\1/' | sort -u | jq -R . | jq -s .)
+              [ -z "$secrets" ] && secrets='[]'
+              jq -cn --arg file "$f" \
+                       --arg name "$name" \
+                       --argjson perms "$perms" \
+                       --argjson conc "$conc" \
+                       --argjson on  "$on_json" \
+                       --argjson secrets "$secrets" \
+                '{file:$file,name:$name,permissions:$perms,concurrency:$conc,on:$on,secrets:$secrets}' >> "$OUT"
+            done
+          else
+            echo '{}' >> "$OUT"
+          fi
+
+      - name: Repo tree & sizes
+        run: |
+          set -euo pipefail
+          mkdir -p .wtp/state/repo_inventory
+          # drzewo max 4 poziomy, pomijamy .git
+          { echo "## tree (4 levels)"; \
+            find . -path ./.git -prune -o -maxdepth 4 -print | sed 's|^\./||'; } \
+            > .wtp/state/repo_inventory/tree.txt
+          # rozmiary top dirs
+          { echo "## du -h (top dirs)"; du -h -d 1 | sort -h; } \
+            > .wtp/state/repo_inventory/du.txt
+          # liczba plików per top dir
+          { echo "## file counts (top dirs)"; \
+            for d in */ ; do [ "$d" = ".git/" ] && continue; \
+              c=$(find "$d" -type f | wc -l); echo "$c $d"; done | sort -nr; } \
+            > .wtp/state/repo_inventory/filecounts.txt
+
+      - name: Build SSOT REPO_STATE.json
+        run: |
+          set -euo pipefail
+          mkdir -p ssot
+          META=".wtp/state/repo_inventory/workflows_meta.jsonl"
+          ACTIONLINT=".wtp/state/repo_inventory/actionlint.out"
+          TREE=".wtp/state/repo_inventory/tree.txt"
+          DU=".wtp/state/repo_inventory/du.txt"
+          FC=".wtp/state/repo_inventory/filecounts.txt"
+
+          # zlep workflowy do jednego JSON
+          if [ -s "$META" ]; then
+            jq -s '.' "$META" > .wtp/state/repo_inventory/workflows_meta.json
+          else
+            echo '[]' > .wtp/state/repo_inventory/workflows_meta.json
+          fi
+
+          # zbierz zbiorczą listę sekretów użytych w workflowach
+          SECRETS=$(jq -r '.[].secrets[]?' .wtp/state/repo_inventory/workflows_meta.json 2>/dev/null | sort -u | jq -R . | jq -s .)
+          [ -z "$SECRETS" ] && SECRETS='[]'
+
+          # wykryj potencjalne kolizje concurrency group / duplicate names
+          DUPN=$(jq -r '.[].name' .wtp/state/repo_inventory/workflows_meta.json | sort | uniq -d | jq -R . | jq -s .)
+          [ -z "$DUPN" ] && DUPN='[]'
+          CONCG=$(jq -r '.[].concurrency.group // empty' .wtp/state/repo_inventory/workflows_meta.json | sort | uniq -d | jq -R . | jq -s .)
+          [ -z "$CONCG" ] && CONCG='[]'
+
+          # Render REPO_STATE.json
+          jq -n \
+            --arg actionlint "$(sed 's/"/\\"/g' "$ACTIONLINT")" \
+            --arg tree "$(sed 's/"/\\"/g' "$TREE")" \
+            --arg du "$(sed 's/"/\\"/g' "$DU")" \
+            --arg filecounts "$(sed 's/"/\\"/g' "$FC")" \
+            --argjson workflows "$(cat .wtp/state/repo_inventory/workflows_meta.json)" \
+            --argjson secrets "$SECRETS" \
+            --argjson dup_names "$DUPN" \
+            --argjson dup_concurrency "$CONCG" \
+            '{
+              generated_at: now,
+              workflows: $workflows,
+              actionlint: $actionlint,
+              summary: {
+                used_secrets: $secrets,
+                duplicate_workflow_names: $dup_names,
+                duplicate_concurrency_groups: $dup_concurrency
+              },
+              repo_tree: $tree,
+              repo_du: $du,
+              repo_filecounts: $filecounts
+            }' > ssot/REPO_STATE.json
+
+      - name: Build readable REPO_STATE.md
+        run: |
+          set -euo pipefail
+          JSON="ssot/REPO_STATE.json"
+          MD="ssot/REPO_STATE.md"
+          : > "$MD"
+          echo "# REPO_STATE (inventory)" >> "$MD"
+          echo "" >> "$MD"
+          echo "Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> "$MD"
+          echo "" >> "$MD"
+
+          echo "## Secrets used in workflows" >> "$MD"
+          jq -r '.summary.used_secrets[]? | "- \(. )"' "$JSON" >> "$MD" || echo "(none)" >> "$MD"
+
+          echo "" >> "$MD"
+          echo "## Duplicate workflow names" >> "$MD"
+          jq -r '.summary.duplicate_workflow_names[]? | "- \(. )"' "$JSON" >> "$MD" || echo "(none)" >> "$MD"
+
+          echo "" >> "$MD"
+          echo "## Duplicate concurrency groups" >> "$MD"
+          jq -r '.summary.duplicate_concurrency_groups[]? | "- \(. )"' "$JSON" >> "$MD" || echo "(none)" >> "$MD"
+
+          echo "" >> "$MD"
+          echo "## Workflows" >> "$MD"
+          jq -r '.workflows[] | "- **\(.name // "(no name)")** — `\(.file)`"' "$JSON" >> "$MD"
+
+          echo "" >> "$MD"
+          echo "### Triggers & Paths (per workflow)" >> "$MD"
+          jq -r '.workflows[] | "#### \(.name // "(no name)")\n- file: `\(.file)`\n- on: ```json\n\(.on|tojson)\n```\n- permissions: ```json\n\(.permissions|tojson)\n```\n- concurrency: ```json\n\(.concurrency|tojson)\n```\n- secrets: \(.secrets|join(", "))\n"' "$JSON" >> "$MD"
+
+          echo "" >> "$MD"
+          echo "## actionlint output" >> "$MD"
+          echo '```' >> "$MD"
+          jq -r '.actionlint' "$JSON" >> "$MD"
+          echo '```' >> "$MD"
+
+          echo "" >> "$MD"
+          echo "## repo tree (first levels)" >> "$MD"
+          echo '```' >> "$MD"
+          jq -r '.repo_tree' "$JSON" >> "$MD"
+          echo '```' >> "$MD"
+
+          echo "" >> "$MD"
+          echo "## du -h (top dirs)" >> "$MD"
+          echo '```' >> "$MD"
+          jq -r '.repo_du' "$JSON" >> "$MD"
+          echo '```' >> "$MD"
+
+          echo "" >> "$MD"
+          echo "## file counts (top dirs)" >> "$MD"
+          echo '```' >> "$MD"
+          jq -r '.repo_filecounts' "$JSON" >> "$MD"
+          echo '```' >> "$MD"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-inventory-${{ github.run_id }}
+          path: |
+            .wtp/state/repo_inventory/**
+            ssot/REPO_STATE.json
+            ssot/REPO_STATE.md
+          retention-days: 14
+
+      - name: Commit SSOT repo state
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "repo: refresh REPO_STATE (inventory)"
+          file_pattern: |
+            ssot/REPO_STATE.json
+            ssot/REPO_STATE.md
+            .wtp/state/repo_inventory/**
