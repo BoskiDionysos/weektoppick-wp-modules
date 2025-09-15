@@ -270,18 +270,30 @@ jobs:
           chmod +x /tmp/wtp_snapshot.sh
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes /tmp/wtp_snapshot.sh "${USER}@${HOST}:/tmp/wtp_snapshot.sh"
 
-      - name: 4.5) Hotfix push .wtp/ssot.yml to server if exists
+      - name: 4.5) Ensure .wtp/ssot.yml on server (mkdir+chmod+verify)
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -f ".wtp/ssot.yml" ]]; then
-            sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
-              "${USER}@${HOST}" "mkdir -p '${TARGET}/.wtp'"
-            sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes \
-              ".wtp/ssot.yml" "${USER}@${HOST}:${TARGET}/.wtp/ssot.yml"
-          else
-            echo "::warning::.wtp/ssot.yml not found in repo – skipping push."
+
+          # 1) musi istnieć w repo
+          if [[ ! -f ".wtp/ssot.yml" ]]; then
+            echo "::error::.wtp/ssot.yml not found in repo"; exit 1
           fi
+
+          # 2) utwórz katalog na serwerze + prawa (niektórzy hostingodawcy blokują ukryte katalogi bez chmod)
+          sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
+            "${USER}@${HOST}" "mkdir -p '${TARGET}/.wtp' && chmod 755 '${TARGET}/.wtp'"
+
+          # 3) skopiuj plik
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes \
+            ".wtp/ssot.yml" "${USER}@${HOST}:${TARGET}/.wtp/ssot.yml"
+
+          # 4) twarda weryfikacja po stronie serwera (jeśli brak – przerwij job)
+          sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
+            "${USER}@${HOST}" "test -s '${TARGET}/.wtp/ssot.yml' && ls -l '${TARGET}/.wtp/ssot.yml'" \
+          || { echo "::error::Failed to place ${TARGET}/.wtp/ssot.yml on server"; exit 1; }
+
+          echo "::notice::ssot.yml present on server at ${TARGET}/.wtp/ssot.yml"
 
       - name: 5) Run remote snapshot script
         shell: bash
