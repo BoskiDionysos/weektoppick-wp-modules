@@ -63,8 +63,6 @@ jobs:
           set -euo pipefail
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes \
             scripts/wtp_snapshot.sh "${USER}@${HOST}:/tmp/wtp_snapshot.sh"
-          sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
-            "${USER}@${HOST}" "chmod +x /tmp/wtp_snapshot.sh"
 
       - name: 5) Run remote snapshot script
         shell: bash
@@ -72,7 +70,7 @@ jobs:
           set -euo pipefail
           sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
             "${USER}@${HOST}" \
-            "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' /tmp/wtp_snapshot.sh"
+            "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' bash /tmp/wtp_snapshot.sh"
           sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
             "${USER}@${HOST}" "rm -f /tmp/wtp_snapshot.sh"
 
