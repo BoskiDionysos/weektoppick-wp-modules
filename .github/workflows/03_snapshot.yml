@@ -316,9 +316,12 @@ jobs:
           set -euo pipefail
           SNAP="_ci_logs/${{ github.run_id }}/snapshot/snapshot.json"
           if [[ -s "$SNAP" ]]; then
-            php -r '
-              $j = json_decode(file_get_contents(getenv("SNAP")), true);
-              if(!$j){ exit(0); }
+            OUT="_ci_logs/${{ github.run_id }}/snapshot/snapshot-summary.json"
+            SNAP="$SNAP" OUT="$OUT" php -r '
+              $snap = getenv("SNAP") ?: "";
+              if ($snap === "" || !is_readable($snap)) { exit(0); }
+              $j = json_decode(file_get_contents($snap), true);
+              if (!$j) { exit(0); }
               $o = [
                 "run_id"=>$j["run_id"] ?? null,
                 "timestamp"=>$j["timestamp"] ?? null,
@@ -331,10 +334,10 @@ jobs:
                 "active_plugins"=>$j["summary"]["plugins_active"] ?? [],
                 "errors"=>$j["summary"]["errors"] ?? []
               ];
-              $json = json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
-              file_put_contents(getenv("OUT"), $json);
-              echo $json;
-            ' SNAP="$SNAP" OUT="_ci_logs/${{ github.run_id }}/snapshot/snapshot-summary.json" | tee -a "$GITHUB_STEP_SUMMARY"
+              $out = getenv("OUT") ?: "";
+              if ($out !== "") file_put_contents($out, json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+              echo json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
+            ' | tee -a "$GITHUB_STEP_SUMMARY"
 
             if [[ -n "${SITE_KEY:-}" ]]; then
               sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
@@ -440,24 +443,27 @@ jobs:
           set -euo pipefail
           DIR=".wtp/snapshots"
           mkdir -p "$DIR"
-          ls -1 "$DIR"/snapshot-*.json 2>/dev/null | grep -v 'snapshot-latest.json' | sed -E 's#.*/snapshot-([0-9]+)\.json#\1#g' | sort -n > /tmp/runs.txt || true
-          if [[ ! -s /tmp/runs.txt ]]; then
+          # zbierz ID runów z plików snapshot-<id>.json
+          RUNS=$(ls -1 "$DIR"/snapshot-*.json 2>/dev/null \
+            | grep -v 'snapshot-latest.json' \
+            | sed -E 's#.*/snapshot-([0-9]+)\.json#\1#' | sort -n || true)
+          if [[ -z "${RUNS}" ]]; then
             echo "found=0" >> $GITHUB_OUTPUT
             exit 0
           fi
-          LAST_RUN=$(tail -n1 /tmp/runs.txt)
-          PREV_RUN=$(sed -n '$p' /tmp/runs.txt | sed -n 'x;$p' 2>/dev/null || true)  # fallback; may be empty
+          LAST_RUN=$(echo "$RUNS" | tail -n1)
+          PREV_RUN=$(echo "$RUNS" | tail -n2 | head -n1)
           if [[ "$LAST_RUN" == "$PREV_RUN" || -z "$PREV_RUN" ]]; then
-            echo "found=1" >> $GITHUB_OUTPUT
+            echo "found=1"   >> $GITHUB_OUTPUT
             echo "last=$LAST_RUN" >> $GITHUB_OUTPUT
-            echo "prev=" >> $GITHUB_OUTPUT
+            echo "prev="     >> $GITHUB_OUTPUT
           else
-            echo "found=2" >> $GITHUB_OUTPUT
+            echo "found=2"   >> $GITHUB_OUTPUT
             echo "last=$LAST_RUN" >> $GITHUB_OUTPUT
             echo "prev=$PREV_RUN" >> $GITHUB_OUTPUT
           fi
 
-      - name: Build diff report (PHP, no jq)  # 1) detekcja zmian
+      - name: Build diff report (PHP, no jq)
         if: steps.pick.outputs.found != '0'
         shell: bash
         run: |
@@ -465,26 +471,32 @@ jobs:
           LAST_ID="${{ steps.pick.outputs.last }}"
           PREV_ID="${{ steps.pick.outputs.prev }}"
           LAST=".wtp/snapshots/snapshot-${LAST_ID}.json"
-          if [[ -n "${PREV_ID}" ]]; then PREV=".wtp/snapshots/snapshot-${PREV_ID}.json"; else PREV=""; fi
+          [[ -n "${PREV_ID}" ]] && PREV=".wtp/snapshots/snapshot-${PREV_ID}.json" || PREV=""
           OUT="_ci_logs/${{ github.run_id }}/snapshot/snapshot-diff.json"
           mkdir -p "_ci_logs/${{ github.run_id }}/snapshot"
 
-          php -r '
-            function j($p){ return ($p && is_readable($p)) ? (json_decode(file_get_contents($p), true) ?? null) : null; }
+          LAST="$LAST" PREV="$PREV" OUT="$OUT" php -r '
+            function j($p){
+              if (!$p || !is_readable($p)) return null;
+              $t = file_get_contents($p);
+              return $t!==false ? (json_decode($t, true) ?? null) : null;
+            }
             function setv($a){ return array_values(array_unique(is_array($a)?$a:[])); }
+
             $last = j(getenv("LAST"));
             $prev = j(getenv("PREV"));
-            $out = ["last_run"=>$last["run_id"]??null,"prev_run"=>$prev["run_id"]??null];
+            $out  = ["last_run"=>$last["run_id"]??null,"prev_run"=>$prev["run_id"]??null];
 
-            if(!$last){ file_put_contents(getenv("OUT"), json_encode($out)); exit; }
+            if(!$last){
+              file_put_contents(getenv("OUT"), json_encode($out));
+              exit;
+            }
 
-            // active plugins diff
             $la = setv($last["summary"]["plugins_active"]??[]);
             $pa = setv($prev["summary"]["plugins_active"]??[]);
-            $added = array_values(array_diff($la,$pa));
-            $removed= array_values(array_diff($pa,$la));
+            $added   = array_values(array_diff($la,$pa));
+            $removed = array_values(array_diff($pa,$la));
 
-            // trees sha diff
             $lt = is_array($last["plugins"]["trees"]??null)? $last["plugins"]["trees"] : [];
             $pt = is_array($prev["plugins"]["trees"]??null)? $prev["plugins"]["trees"] : [];
             $changedTrees = [];
@@ -494,28 +506,21 @@ jobs:
               if($ps!=="" && $ls!==$ps){ $changedTrees[$slug]=["prev"=>$ps,"last"=>$ls]; }
             }
 
-            // MU count change
             $lmu = is_array($last["plugins"]["must_use"]??null)? count($last["plugins"]["must_use"]) : 0;
             $pmu = is_array($prev["plugins"]["must_use"]??null)? count($prev["plugins"]["must_use"]) : 0;
 
-            // admins diff
             $ladm = setv($last["admins"]??[]);
             $padm = setv($prev["admins"]??[]);
             $admins_added   = array_values(array_diff($ladm,$padm));
             $admins_removed = array_values(array_diff($padm,$ladm));
 
-            // ssot change
             $ssot_last = $last["wtp"]["ssot_sha1"]??"";
             $ssot_prev = $prev["wtp"]["ssot_sha1"]??"";
             $ssot_changed = ($prev && $ssot_last!==$ssot_prev) ? ["prev"=>$ssot_prev,"last"=>$ssot_last] : null;
 
-            // versions
-            $wp_ver = $last["site"]["wp_version"]??null;
-            $php_ver= $last["site"]["php_version"]??null;
-
             $out += [
               "site"=>$last["site"]["url"]??null,
-              "versions"=>["wp"=>$wp_ver,"php"=>$php_ver],
+              "versions"=>["wp"=>$last["site"]["wp_version"]??null, "php"=>$last["site"]["php_version"]??null],
               "plugins"=>[
                 "total"=>$last["summary"]["counts"]["plugins_total"]??null,
                 "active_total"=>$last["summary"]["counts"]["plugins_active"]??null,
@@ -529,7 +534,7 @@ jobs:
               "errors"=>$last["summary"]["errors"]??[]
             ];
             file_put_contents(getenv("OUT"), json_encode($out, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
-          ' LAST="$LAST" PREV="$PREV" OUT="$OUT"
+          '
 
           echo "Built diff to $OUT"
 
@@ -540,15 +545,15 @@ jobs:
           name: snapshot-diff-${{ github.run_id }}
           path: _ci_logs/${{ github.run_id }}/snapshot/snapshot-diff.json
 
-      - name: Print diff summary + alerts  # 3) alerty ostrzegawcze
+      - name: Print diff summary + alerts
         if: steps.pick.outputs.found != '0'
         shell: bash
         run: |
           set -euo pipefail
           DIFF="_ci_logs/${{ github.run_id }}/snapshot/snapshot-diff.json"
-          php -r '
-            $p=getenv("DIFF");
-            if(!is_readable($p)){ exit; }
+          DIFF="$DIFF" php -r '
+            $p=getenv("DIFF") ?: "";
+            if($p==="" || !is_readable($p)){ exit; }
             $d=json_decode(file_get_contents($p),true)?:[];
             echo "## Snapshot diff\n\n";
             echo "- Site: ".($d["site"]??"n/a")."\n";
@@ -568,7 +573,6 @@ jobs:
             if($admR){ echo "::warning::Admins removed: ".implode(",", $admR)."\n"; }
             if($ssot){ echo "::warning::SSOT changed: prev=".$ssot["prev"]." -> last=".$ssot["last"]."\n"; }
 
-            // Write human summary to step summary
             echo "\n### Changes\n\n";
             echo "- Active plugins added: ".(empty($added)?"—":implode(", ",$added))."\n";
             echo "- Active plugins removed: ".(empty($removed)?"—":implode(", ",$removed))."\n";
@@ -576,4 +580,4 @@ jobs:
             echo "- Admins added: ".(empty($admA)?"—":implode(", ",$admA))."\n";
             echo "- Admins removed: ".(empty($admR)?"—":implode(", ",$admR))."\n";
             if($ssot){ echo "- SSOT changed.\n"; } else { echo "- SSOT unchanged or unavailable.\n"; }
-          ' DIFF="$DIFF" | tee -a "$GITHUB_STEP_SUMMARY"
+          ' | tee -a "$GITHUB_STEP_SUMMARY"
