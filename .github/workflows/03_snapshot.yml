@@ -28,6 +28,7 @@ jobs:
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
+      SITE_KEY: ${{ secrets.WTP_SITE_KEY }}
 
     steps:
       - name: 1) Checkout repo
@@ -52,7 +53,7 @@ jobs:
         shell: bash
         run: mkdir -p "_ci_logs/${{ github.run_id }}/snapshot"
 
-      - name: 4) Create & upload snapshot script (heredoc, PHP aggregator)
+      - name: 4) Create & upload snapshot script (PHP aggregator + RO publish)
         shell: bash
         run: |
           set -euo pipefail
@@ -174,15 +175,8 @@ jobs:
           $runId  = getenv('RUN_ID');
           $ts     = date('c');
 
-          function jread($path, $def) {
-            if (!file_exists($path) || !is_readable($path)) return $def;
-            $txt = file_get_contents($path);
-            $j = json_decode($txt, true);
-            return (is_array($j) || is_object($j)) ? $j : $def;
-          }
-          function fread_or($path, $def='') {
-            return (file_exists($path) && is_readable($path)) ? file_get_contents($path) : $def;
-          }
+          function jread($p,$d){ if(!is_readable($p)) return $d; $j=json_decode(file_get_contents($p),true); return (is_array($j)||is_object($j))?$j:$d; }
+          function fread_or($p,$d=''){ return (is_readable($p))?file_get_contents($p):$d; }
 
           $site   = jread("$logdir/site_info.json", new stdClass());
           $themes = jread("$logdir/themes.json", []);
@@ -194,73 +188,66 @@ jobs:
           $admins     = jread("$logdir/admins.json", []);
           $pluginsActive = jread("$logdir/plugins_active.json", []);
 
-          // trees summary from files
+          // trees
           $trees = [];
           $pluginsDir = "$logdir/plugins";
           if (is_dir($pluginsDir)) {
             foreach (scandir($pluginsDir) as $slug) {
-              if ($slug === '.' || $slug === '..') continue;
-              $pdir = "$pluginsDir/$slug";
-              if (!is_dir($pdir)) continue;
-              $treeFile  = "$pdir/tree.txt";
-              $hashes    = "$pdir/hashes.sha1";
-              $files = (file_exists($treeFile)) ? max(0, count(file($treeFile, FILE_IGNORE_NEW_LINES))) : 0;
+              if ($slug==='.'||$slug==='..') continue;
+              $pdir = "$pluginsDir/$slug"; if(!is_dir($pdir)) continue;
+              $treeFile="$pdir/tree.txt"; $hashes="$pdir/hashes.sha1";
+              $files = (is_readable($treeFile)) ? max(0,count(file($treeFile, FILE_IGNORE_NEW_LINES))) : 0;
               $sha = '';
-              if (file_exists($hashes)) {
-                $all = preg_replace('/\s+.*/', '', file_get_contents($hashes));
-                $all = preg_replace('/\s+/', '', $all);
-                $sha = substr(sha1($all), 0, 40);
+              if (is_readable($hashes)) {
+                $all=preg_replace('/\s+.*/','',file_get_contents($hashes));
+                $all=preg_replace('/\s+/','',$all);
+                $sha=substr(sha1($all),0,40);
               }
-              $trees[$slug] = ['files'=>$files, 'sha1'=>$sha];
+              $trees[$slug]=['files'=>$files,'sha1'=>$sha];
             }
           }
 
-          // counts (standard plugins != must-use)
-          $stdOnly = array_values(array_filter($pluginsStd, fn($p) =>
-            is_array($p) && (($p['status'] ?? '') !== 'must-use')
-          ));
+          // counts (standard != must-use)
+          $stdOnly = array_values(array_filter($pluginsStd, fn($p)=>is_array($p) && (($p['status']??'')!=='must-use')));
           $counts = [
-            'themes_total'   => is_array($themes) ? count($themes) : 0,
+            'themes_total'   => is_array($themes)?count($themes):0,
             'plugins_total'  => count($stdOnly),
-            'plugins_active' => is_array($pluginsActive) ? count($pluginsActive) : 0,
-            'plugins_mu'     => is_array($pluginsMU) ? count($pluginsMU) : 0,
-            'admins'         => is_array($admins) ? count($admins) : 0
+            'plugins_active' => is_array($pluginsActive)?count($pluginsActive):0,
+            'plugins_mu'     => is_array($pluginsMU)?count($pluginsMU):0,
+            'admins'         => is_array($admins)?count($admins):0
           ];
 
           // errors
           $errors = [];
           $errPath = "$logdir/errors.txt";
-          if (file_exists($errPath)) {
-            $lines = array_filter(array_map('trim', file($errPath)));
-            $errors = array_values($lines);
+          if (is_readable($errPath)) {
+            $errors = array_values(array_filter(array_map('trim', file($errPath))));
           }
 
-          // server info
-          $srv = ['user'=>'','uname'=>'','datetime'=>'','cwd'=>''];
-          $si = fread_or("$logdir/server_info.txt");
-          if ($si) {
-            foreach (explode("\n", $si) as $ln) {
-              if (preg_match('/^([a-z]+):\s*(.*)$/i', trim($ln), $m)) {
-                $srv[$m[1]] = $m[2];
-              }
+          // server
+          $srv=['user'=>'','uname'=>'','datetime'=>'','cwd'=>''];
+          $si=fread_or("$logdir/server_info.txt");
+          if($si){
+            foreach(explode("\n",$si) as $ln){
+              if(preg_match('/^([a-z]+):\s*(.*)$/i',trim($ln),$m)){ $srv[$m[1]]=$m[2]; }
             }
           }
 
           // ssot
-          $ssot_path = '.wtp/ssot.yml';
-          $ssot_sha1 = trim(fread_or("$logdir/ssot.sha1"));
-          $ssot_b64  = file_exists("$logdir/ssot.yml") ? base64_encode(file_get_contents("$logdir/ssot.yml")) : '';
+          $ssot_path='.wtp/ssot.yml';
+          $ssot_sha1=trim(fread_or("$logdir/ssot.sha1"));
+          $ssot_b64= is_readable("$logdir/ssot.yml") ? base64_encode(file_get_contents("$logdir/ssot.yml")) : '';
 
           $out = [
-            'run_id'    => intval($runId),
-            'timestamp' => $ts,
-            'site'      => $site,
-            'server'    => $srv,
-            'theme'     => ['active'=>$themeActive, 'all'=>$themes],
-            'plugins'   => ['standard'=>$pluginsStd, 'must_use'=>$pluginsMU, 'trees'=>$trees],
-            'admins'    => $admins,
-            'summary'   => ['plugins_active'=>$pluginsActive, 'counts'=>$counts, 'errors'=>$errors],
-            'wtp'       => ['ssot_path'=>$ssot_path, 'ssot_sha1'=>$ssot_sha1, 'ssot_b64'=>$ssot_b64]
+            'run_id'=>(int)$runId,
+            'timestamp'=>$ts,
+            'site'=>$site,
+            'server'=>$srv,
+            'theme'=>['active'=>$themeActive,'all'=>$themes],
+            'plugins'=>['standard'=>$pluginsStd,'must_use'=>$pluginsMU,'trees'=>$trees],
+            'admins'=>$admins,
+            'summary'=>['plugins_active'=>$pluginsActive,'counts'=>$counts,'errors'=>$errors],
+            'wtp'=>['ssot_path'=>$ssot_path,'ssot_sha1'=>$ssot_sha1,'ssot_b64'=>$ssot_b64]
           ];
 
           file_put_contents("$logdir/snapshot.json", json_encode($out, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
@@ -268,6 +255,21 @@ jobs:
 
           LOGDIR="${LOGDIR}" RUN_ID="${RUN_ID}" php /tmp/wtp_build_snapshot.php 2>>"${ERR_FILE}" || note_err "snapshot.json build failed."
           rm -f /tmp/wtp_build_snapshot.php || true
+
+          # ---------- J) Publish to RO (public URL) ----------
+          if [[ -n "${SITE_KEY:-}" ]]; then
+            PUB_DIR="${TARGET}/wp-content/uploads/wtp-ro/public/${SITE_KEY}"
+            mkdir -p "${PUB_DIR}" || note_err "Cannot create ${PUB_DIR}"
+            # stały i wersjonowany
+            cp -f "${LOGDIR}/snapshot.json" "${PUB_DIR}/snapshot.json" 2>>"${ERR_FILE}" || note_err "Copy snapshot.json -> latest failed."
+            cp -f "${LOGDIR}/snapshot.json" "${PUB_DIR}/snapshot-${RUN_ID}.json" 2>>"${ERR_FILE}" || note_err "Copy snapshot.json -> versioned failed."
+            # pomocnicze JSON-y też mogą się przydać do debug
+            cp -f "${LOGDIR}/plugins.json" "${PUB_DIR}/plugins.json" 2>/dev/null || true
+            cp -f "${LOGDIR}/themes.json"  "${PUB_DIR}/themes.json"  2>/dev/null || true
+            cp -f "${LOGDIR}/mu_plugins.json" "${PUB_DIR}/mu_plugins.json" 2>/dev/null || true
+          else
+            note_err "RO publish skipped: SITE_KEY empty."
+          fi
           SNAPEOF
 
           chmod +x /tmp/wtp_snapshot.sh
@@ -278,7 +280,7 @@ jobs:
         run: |
           set -euo pipefail
           sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
-            "${USER}@${HOST}" "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' bash /tmp/wtp_snapshot.sh && rm -f /tmp/wtp_snapshot.sh"
+            "${USER}@${HOST}" "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' SITE_KEY='${SITE_KEY:-}' bash /tmp/wtp_snapshot.sh && rm -f /tmp/wtp_snapshot.sh"
 
       - name: 6) Pull logs back
         shell: bash
@@ -320,6 +322,12 @@ jobs:
               [[ -n "$line" ]] && echo "::warning::$line"
             done < "$ERR"
           fi
+          if [[ -n "${SITE_KEY:-}" ]]; then
+            echo "::notice::RO latest: ${SITE_URL:-https://weektoppick.com}/wp-content/uploads/wtp-ro/public/${SITE_KEY}/snapshot.json"
+            echo "::notice::RO run:    ${SITE_URL:-https://weektoppick.com}/wp-content/uploads/wtp-ro/public/${SITE_KEY}/snapshot-${{ github.run_id }}.json"
+          else
+            echo "::warning::RO URLs not printed (SITE_KEY empty)."
+          fi
           echo "::notice::03_snapshot completed for run ${{ github.run_id }}."
 
   publish_snapshot:
@@ -357,7 +365,6 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$DEST_VER" "$DEST_LATEST"
-
           if git diff --staged --quiet; then
             echo "::notice::No changes to commit."
           else
