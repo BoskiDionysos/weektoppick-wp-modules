@@ -1,0 +1,30 @@
+{
+  "run_id": "17737493251",
+  "timestamp": "2025-09-15T15:01:24+00:00",
+  "site": {
+    "url": "https://weektoppick.com",
+    "home": "https://weektoppick.com",
+    "wp_version": "6.8.2",
+    "table_prefix": "wp_",
+    "language": "",
+    "timezone": "",
+    "php_version": "8.3.22"
+  },
+  "server": {
+    "user": "u493676300",
+    "uname": "Linux de-fra-web2061.main-hosting.eu 5.14.0-570.28.1.el9_6.x86_64 #1 SMP PREEMPT_DYNAMIC Tue Jul 22 07:56:01 EDT 2025 x86_64 x86_64 x86_64 GNU/Linux",
+    "datetime": "2025-09-15T15:01:23+00:00",
+    "cwd": "/home/u493676300/domains/weektoppick.com/public_html"
+  },
+  "theme": { "active": null, "all": [] },
+  "plugins": { "standard": [], "must_use": [], "trees": {} },
+  "admins": [],
+  "summary": {
+    "plugins_active": [],
+    "counts": { "themes_total": 0, "plugins_total": 0, "plugins_active": 0, "plugins_mu": 0, "admins": 0 },
+    "errors": ["jq missing – produced minimal snapshot"]
+  },
+  "wtp": {
+    "ssot_path": ".wtp/ssot.yml", "ssot_sha1": "", "ssot_b64": ""
+  }
+}
