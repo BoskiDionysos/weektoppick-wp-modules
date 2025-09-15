@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   wpcli:
-    # Uruchom tylko gdy 01_deploy zakończył się sukcesem, lub gdy ręcznie (workflow_dispatch)
+    # Run only when 01_deploy succeeded, or when triggered manually
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -26,12 +26,12 @@ jobs:
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
-      WTP_CI: "1"   # bypass LOCKS w MU-plugins
+      WTP_CI: "1"   # bypass LOCKS via MU-plugin
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup tools + known_hosts (STRICT)
+      - name: Setup tools and known_hosts (STRICT)
         run: |
           set -euo pipefail
           for v in HOST PORT USER PASS TARGET; do
@@ -47,13 +47,13 @@ jobs:
           ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
-      - name: Parse SSOT → plugins.install
+      - name: Parse SSOT -> plugins.install
         run: |
           set -euo pipefail
           test -f ".wtp/ssot.yml" || { echo "::error::.wtp/ssot.yml not found"; exit 1; }
-          # walidacja struktury
+          # validate structure
           yq -e '.plugins.install // []' .wtp/ssot.yml >/dev/null || { echo "::error::Invalid SSOT structure"; exit 1; }
-          # wyciągnij listę (może być pusta)
+          # extract list (may be empty)
           yq -r '.plugins.install[]? // empty' .wtp/ssot.yml > .wtp/plugins.install.list || true
           echo "---- plugins.install ----"
           cat .wtp/plugins.install.list || true
@@ -63,8 +63,8 @@ jobs:
           set -euo pipefail
           mkdir -p _ci_logs/${{ github.run_id }}/wpcli
 
-      # —————————————— KROK 1: SANITY + LOCAL WP-CLI NA SERWERZE ——————————————
-      - name: Remote sanity (cd TARGET + PHP) & install local WP-CLI
+      # ---------- STEP 1: SANITY + local WP-CLI on server ----------
+      - name: Remote sanity (cd TARGET + PHP) and install local WP-CLI
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" \
@@ -88,7 +88,7 @@ jobs:
           } > .wtp/state/ci_logs/server_info.txt
 RMT
 
-      # —————————————— KROK 2: PRZEŚLIJ LISTĘ (o ile jest) ——————————————
+      # ---------- STEP 2: Upload plugins list (if any) ----------
       - name: Upload plugins list to server (if any)
         if: ${{ hashFiles('.wtp/plugins.install.list') != '' }}
         run: |
@@ -97,7 +97,7 @@ RMT
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             ".wtp/plugins.install.list" "$USER@$HOST:$TARGET/.wtp.plugins.install.list"
 
-      # —————————————— KROK 3: OBRÓBKA WTYCZEK ——————————————
+      # ---------- STEP 3: Process plugins (install/update/activate) ----------
       - name: Process plugins (install/update/activate; WTP_CI=1)
         run: |
           set -euo pipefail
@@ -110,14 +110,14 @@ RMT
           export WTP_CI=1
           WP='php ./wp --skip-plugins --path="$TARGET"'
 
-          # katalog logów + puste pliki (twarde ścieżki, bez zmiennych w nazwach)
+          # logs directory + empty files (hard-coded paths)
           mkdir -p .wtp/state/ci_logs
           : > .wtp/state/ci_logs/plugins_installed.txt
           : > .wtp/state/ci_logs/plugins_updated.txt
           : > .wtp/state/ci_logs/plugins_existing.txt
           : > .wtp/state/ci_logs/errors.txt
 
-          # jeśli lista pusta – tylko zrzut aktywnych
+          # if list is empty -> only dump active list
           if [ ! -s .wtp.plugins.install.list ]; then
             $WP plugin list --format=csv > .wtp/state/ci_logs/active_plugins.csv || true
             exit 0
@@ -157,7 +157,7 @@ RMT
           php ./wp plugin list --format=csv > .wtp/state/ci_logs/active_plugins.csv || true
 RMT
 
-      # —————————————— KROK 4: ZBIERZ LOGI ——————————————
+      # ---------- STEP 4: Collect logs ----------
       - name: Pull logs back
         run: |
           set -euo pipefail
@@ -173,7 +173,7 @@ RMT
           path: _ci_logs/${{ github.run_id }}/wpcli/**
           retention-days: 14
 
-      # —————————————— KROK 5: RAPORT ——————————————
+      # ---------- STEP 5: Report ----------
       - name: Report errors if any (notice/warn)
         run: |
           set -euo pipefail
