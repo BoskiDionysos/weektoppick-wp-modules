@@ -1,0 +1,65 @@
+name: 00_ssh_check (SSH key smoke)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  ssh-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tools (curl+yq latest)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y curl
+          curl -sSL https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o yq
+          chmod +x yq && sudo mv yq /usr/local/bin/yq
+
+      - name: Read SSOT
+        id: ssot
+        run: |
+          set -euo pipefail
+          test -f ".wtp/ssot.yml" || { echo "::error::.wtp/ssot.yml not found"; exit 1; }
+          echo "host_secret=$(yq -r '.deploy.host_secret' .wtp/ssot.yml)" >> $GITHUB_OUTPUT
+          echo "port_secret=$(yq -r '.deploy.port_secret' .wtp/ssot.yml)" >> $GITHUB_OUTPUT
+          echo "user_secret=$(yq -r '.deploy.user_secret' .wtp/ssot.yml)" >> $GITHUB_OUTPUT
+          echo "target_secret=$(yq -r '.deploy.target_secret' .wtp/ssot.yml)" >> $GITHUB_OUTPUT
+          echo "ssh_key_secret=$(yq -r '.deploy.ssh_key_secret' .wtp/ssot.yml)" >> $GITHUB_OUTPUT
+
+      - name: Prepare SSH key & env
+        env:
+          HOST:   ${{ secrets[steps.ssot.outputs.host_secret] }}
+          PORT:   ${{ secrets[steps.ssot.outputs.port_secret] }}
+          USER:   ${{ secrets[steps.ssot.outputs.user_secret] }}
+          TARGET: ${{ secrets[steps.ssot.outputs.target_secret] }}
+          SSHKEY: ${{ secrets[steps.ssot.outputs.ssh_key_secret] }}
+        run: |
+          set -euo pipefail
+          for v in HOST PORT USER TARGET SSHKEY; do
+            test -n "${!v:-}" || { echo "::error::Missing $v"; exit 1; }
+          done
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf "%s" "$SSHKEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # dodaj klucz hosta (wymusza sprawdzenie host key)
+          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+          echo "HOST=$HOST"; echo "PORT=$PORT"; echo "USER=$USER"; echo "TARGET=$TARGET"
+
+      - name: SSH smoke (read-only)
+        run: |
+          set -euo pipefail
+          ssh -p "$PORT" -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=yes "$USER@$HOST" "bash -lc '
+            whoami; hostname; pwd;
+            cd \"$TARGET\" || { echo \"ERR: cannot cd to TARGET\"; exit 2; }
+            test -f wp-config.php && echo OK:wp-config || { echo ERR:no-wp-config; exit 3; }
+            ls -la | head -n 20
+          '"
