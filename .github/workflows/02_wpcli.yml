@@ -54,9 +54,10 @@ jobs:
           # validate structure
           yq -e '.plugins.install // []' .wtp/ssot.yml >/dev/null || { echo "::error::Invalid SSOT structure"; exit 1; }
           # extract list (may be empty)
-          yq -r '.plugins.install[]? // empty' .wtp/ssot.yml > .wtp/plugins.install.list || true
+          yq -r '.plugins.install // [] | .[]' .wtp/ssot.yml > .wtp/plugins.install.list || true
           echo "---- plugins.install ----"
           cat .wtp/plugins.install.list || true
+
 
       - name: Prepare local logs dir
         run: |
