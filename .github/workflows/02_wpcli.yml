@@ -125,68 +125,68 @@ jobs:
           : > .wtp/state/ci_logs/errors.txt
           : > .wtp/state/ci_logs/active_plugins.csv
 
-          echo "=== NET CHECK ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
-          (curl -sS -I https://api.wordpress.org/    | head -n1 || true) | tee -a .wtp/state/ci_logs/wpcli_summary.txt
-          (curl -sS -I https://downloads.wordpress.org/ | head -n1 || true) | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          echo "=== DIR LIST BEFORE ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          ls -la wp-content/plugins | tee -a .wtp/state/ci_logs/wpcli_summary.txt || true
 
           echo "=== ACTIVE PLUGINS (before) ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
           $WP plugin list --format=csv | tee .wtp/state/ci_logs/active_plugins.csv | tee -a .wtp/state/ci_logs/wpcli_summary.txt >/dev/null || true
 
-          if [ ! -s .wtp.plugins.install.list ]; then
-            echo "No plugins to process (empty list)" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
-            exit 0
-          fi
-
-          install_via_slug() {
-            local slug="$1" ver="$2" ok=0
+          # Fallback: instalacja zawsze z --force. Jeśli slug nie działa, próbujemy ZIP.
+          install_force() {
+            local slug="$1" ver="$2"
             if [ -n "$ver" ]; then
-              php ./wp --debug plugin install "$slug" --version="$ver" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log && ok=1
+              php ./wp --debug plugin install "$slug" --version="$ver" --force --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log
             else
-              php ./wp --debug plugin install "$slug" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log && ok=1
+              php ./wp --debug plugin install "$slug" --force --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log
             fi
-            return $ok
           }
 
-          install_via_zip() {
-            local slug="$1" ok=0
-            # dwie próby URL (często wystarcza pierwsza)
+          install_zip_force() {
+            local slug="$1"
             for url in \
               "https://downloads.wordpress.org/plugin/${slug}.zip" \
               "https://downloads.wordpress.org/plugin/${slug}.latest-stable.zip"
             do
               echo "ZIP try: $url" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
-              php ./wp --debug plugin install "$url" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log && { ok=1; break; }
+              php ./wp --debug plugin install "$url" --force --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log && return 0
             done
-            return $ok
+            return 1
           }
+
+          # Przetwarzanie listy z SSOT
+          if [ ! -s .wtp.plugins.install.list ]; then
+            echo "No plugins to process (empty list)" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+            exit 0
+          fi
 
           while IFS= read -r raw; do
             line="$(echo "$raw" | sed 's/#.*$//' | xargs)"; [ -z "$line" ] && continue
             slug="$line"; ver=""
             if printf "%s" "$line" | grep -q "@"; then slug="${line%@*}"; ver="${line##*@}"; fi
 
-            if php ./wp plugin is-installed "$slug" --path="$TARGET" --skip-plugins; then
-              echo "$slug" >> .wtp/state/ci_logs/plugins_existing.txt
-            fi
-
-            if install_via_slug "$slug" "$ver"; then
+            # 1) Spróbuj przez slug z --force
+            if install_force "$slug" "$ver"; then
               echo "$slug${ver:+@$ver}" >> .wtp/state/ci_logs/plugins_installed.txt
             else
               echo "install-fail(slug):$slug${ver:+@$ver}" >> .wtp/state/ci_logs/errors.txt
-              if install_via_zip "$slug"; then
+              # 2) Spróbuj ZIP z downloads.w.org
+              if install_zip_force "$slug"; then
                 echo "$slug" >> .wtp/state/ci_logs/plugins_installed.txt
               else
                 echo "install-fail(zip):$slug" >> .wtp/state/ci_logs/errors.txt
               fi
             fi
 
+            # 3) Aktywacja
             php ./wp --debug plugin activate "$slug" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log \
               || echo "activate-fail:$slug" >> .wtp/state/ci_logs/errors.txt
-
           done < .wtp.plugins.install.list
 
           echo "=== ACTIVE PLUGINS (after) ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
           $WP plugin list --format=csv | tee .wtp/state/ci_logs/active_plugins.csv | tee -a .wtp/state/ci_logs/wpcli_summary.txt >/dev/null || true
+
+          echo "=== DIR LIST AFTER ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          ls -la wp-content/plugins | tee -a .wtp/state/ci_logs/wpcli_summary.txt || true
           SCRIPT
 
       - name: Process plugins (install/update/activate; WTP_CI=1)
