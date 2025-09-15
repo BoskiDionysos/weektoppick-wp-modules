@@ -58,7 +58,6 @@ jobs:
           echo "---- plugins.install ----"
           cat .wtp/plugins.install.list || true
 
-
       - name: Prepare local logs dir
         run: |
           set -euo pipefail
@@ -84,6 +83,9 @@ jobs:
             echo "date:  $(date -Is)"
             echo "pwd:   $(pwd)"
           } > .wtp/state/ci_logs/server_info.txt
+          : > .wtp/state/ci_logs/wpcli_summary.txt
+          echo "=== SERVER INFO ==="                   | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          cat .wtp/state/ci_logs/server_info.txt     | tee -a .wtp/state/ci_logs/wpcli_summary.txt
           SCRIPT
 
       - name: Remote sanity (cd TARGET + PHP) and install local WP-CLI
@@ -114,16 +116,25 @@ jobs:
           export WTP_CI=1
           WP='php ./wp --skip-plugins --path="$TARGET"'
 
-          # logs directory + empty files (hard-coded paths)
           mkdir -p .wtp/state/ci_logs
           : > .wtp/state/ci_logs/plugins_installed.txt
           : > .wtp/state/ci_logs/plugins_updated.txt
           : > .wtp/state/ci_logs/plugins_existing.txt
           : > .wtp/state/ci_logs/errors.txt
+          : > .wtp/state/ci_logs/active_plugins.csv
+          # summary file continues from sanity step
+          echo "=== PLUGINS INPUT LIST ==="           | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          if [ -s .wtp.plugins.install.list ]; then
+            cat .wtp.plugins.install.list            | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          else
+            echo "(empty)"                           | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          fi
 
-          # if list is empty -> only dump active list
+          echo "=== ACTIVE PLUGINS (before) ==="     | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          $WP plugin list --format=csv               | tee .wtp/state/ci_logs/active_plugins.csv | tee -a .wtp/state/ci_logs/wpcli_summary.txt >/dev/null || true
+
           if [ ! -s .wtp.plugins.install.list ]; then
-            $WP plugin list --format=csv > .wtp/state/ci_logs/active_plugins.csv || true
+            echo "No plugins to process (empty list)"| tee -a .wtp/state/ci_logs/wpcli_summary.txt
             exit 0
           fi
 
@@ -138,27 +149,37 @@ jobs:
             if php ./wp plugin is-installed "$slug" --path="$TARGET" --skip-plugins; then
               echo "$slug" >> .wtp/state/ci_logs/plugins_existing.txt
               if [ -n "$ver" ]; then
-                php ./wp plugin update "$slug" --version="$ver" --path="$TARGET" --skip-plugins \
+                { php ./wp plugin update "$slug" --version="$ver" --path="$TARGET" --skip-plugins && echo "updated:$slug@$ver"; } \
+                  2>&1 | tee -a .wtp/state/ci_logs/wpcli_summary.txt \
                   || echo "update-fail:$slug@$ver" >> .wtp/state/ci_logs/errors.txt
+                echo "$slug@$ver" >> .wtp/state/ci_logs/plugins_updated.txt || true
               else
-                php ./wp plugin update "$slug" --path="$TARGET" --skip-plugins \
+                { php ./wp plugin update "$slug" --path="$TARGET" --skip-plugins && echo "updated:$slug"; } \
+                  2>&1 | tee -a .wtp/state/ci_logs/wpcli_summary.txt \
                   || echo "update-fail:$slug" >> .wtp/state/ci_logs/errors.txt
+                echo "$slug" >> .wtp/state/ci_logs/plugins_updated.txt || true
               fi
             else
               if [ -n "$ver" ]; then
-                php ./wp plugin install "$slug" --version="$ver" --path="$TARGET" --skip-plugins \
+                { php ./wp plugin install "$slug" --version="$ver" --path="$TARGET" --skip-plugins && echo "installed:$slug@$ver"; } \
+                  2>&1 | tee -a .wtp/state/ci_logs/wpcli_summary.txt \
                   || echo "install-fail:$slug@$ver" >> .wtp/state/ci_logs/errors.txt
+                echo "$slug@$ver" >> .wtp/state/ci_logs/plugins_installed.txt || true
               else
-                php ./wp plugin install "$slug" --path="$TARGET" --skip-plugins \
+                { php ./wp plugin install "$slug" --path="$TARGET" --skip-plugins && echo "installed:$slug"; } \
+                  2>&1 | tee -a .wtp/state/ci_logs/wpcli_summary.txt \
                   || echo "install-fail:$slug" >> .wtp/state/ci_logs/errors.txt
+                echo "$slug" >> .wtp/state/ci_logs/plugins_installed.txt || true
               fi
             fi
 
-            php ./wp plugin activate "$slug" --path="$TARGET" --skip-plugins \
+            { php ./wp plugin activate "$slug" --path="$TARGET" --skip-plugins && echo "activated:$slug"; } \
+              2>&1 | tee -a .wtp/state/ci_logs/wpcli_summary.txt \
               || echo "activate-fail:$slug" >> .wtp/state/ci_logs/errors.txt
           done < .wtp.plugins.install.list
 
-          php ./wp plugin list --format=csv > .wtp/state/ci_logs/active_plugins.csv || true
+          echo "=== ACTIVE PLUGINS (after) ==="      | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          $WP plugin list --format=csv               | tee .wtp/state/ci_logs/active_plugins.csv | tee -a .wtp/state/ci_logs/wpcli_summary.txt >/dev/null || true
           SCRIPT
 
       - name: Process plugins (install/update/activate; WTP_CI=1)
