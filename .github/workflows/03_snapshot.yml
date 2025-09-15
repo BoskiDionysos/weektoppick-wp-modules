@@ -4,8 +4,8 @@ on:
   workflow_run:
     workflows: ["02_wpcli (install/update/activate from SSOT, secure SSH)"]
     types: [completed]
-    branches: [main]        # ograniczamy lawinę runów do main
-  workflow_dispatch: {}     # ręcznie
+    branches: [main]
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: mkdir -p "_ci_logs/${{ github.run_id }}/snapshot"
 
-      - name: 4) Create & upload snapshot script (PHP aggregator + RO publish)
+      - name: 4) Create & upload snapshot script
         shell: bash
         run: |
           set -euo pipefail
@@ -67,8 +67,8 @@ jobs:
 
           LOGDIR="${TARGET}/.wtp/state/ci_logs/snapshot"
           mkdir -p "${LOGDIR}"
-
           ERR_FILE="${LOGDIR}/errors.txt"; : > "${ERR_FILE}"
+
           note_err(){ echo "$1" | tee -a "${ERR_FILE}" 1>&2 || true; }
           run_wp(){ php ./wp "$@" --path="${TARGET}"; }
 
@@ -96,13 +96,13 @@ jobs:
 
           # ---------- B) Themes ----------
           run_wp theme list --status=active --format=json > "${LOGDIR}/theme_active.json" 2>>"${ERR_FILE}" || note_err "wp theme list --status=active failed."
-          run_wp theme list --format=json > "${LOGDIR}/themes.json" 2>>"${ERR_FILE}" || note_err "wp theme list --format=json failed."
+          run_wp theme list --format=json > "${LOGDIR}/themes.json"       2>>"${ERR_FILE}" || note_err "wp theme list --format=json failed."
 
           # ---------- C) Plugins ----------
           run_wp plugin list --format=json > "${LOGDIR}/plugins.json" 2>>"${ERR_FILE}" || note_err "wp plugin list --format=json failed."
           run_wp plugin list --format=csv  > "${LOGDIR}/plugins.csv"  2>>"${ERR_FILE}" || note_err "wp plugin list --format=csv failed."
 
-          # ---------- C2) Per-plugin trees + SHA1 ----------
+          # C2) Per-plugin trees + SHA1
           PLUG_DIR="${TARGET}/wp-content/plugins"
           if [[ -d "${PLUG_DIR}" ]]; then
             if [[ -s "${LOGDIR}/plugins.json" ]]; then
@@ -160,7 +160,7 @@ jobs:
             echo "cwd: ${SERVER_CWD}"
           } > "${LOGDIR}/server_info.txt" 2>>"${ERR_FILE}" || note_err "server_info.txt failed."
 
-          # ---------- H) Summary (active list) ----------
+          # ---------- H) Active plugins ----------
           run_wp plugin list --status=active --field=name --format=json > "${LOGDIR}/plugins_active.json" 2>>"${ERR_FILE}" || note_err "wp plugin list --status=active --field=name failed."
           if [[ -s "${LOGDIR}/plugins_active.json" ]]; then
             sed -n 's/[^"[]*"\([^"]\+\)".*/\1/p' "${LOGDIR}/plugins_active.json" > "${LOGDIR}/plugins_active.txt" 2>>"${ERR_FILE}" || true
@@ -168,7 +168,7 @@ jobs:
             : > "${LOGDIR}/plugins_active.txt"
           fi
 
-          # ---------- I) Build snapshot.json w PHP (bez jq) ----------
+          # ---------- I) Build snapshot.json (PHP) ----------
           cat > /tmp/wtp_build_snapshot.php <<'PHPBUILDER'
           <?php
           error_reporting(E_ALL);
@@ -189,7 +189,7 @@ jobs:
           $admins     = jread("$logdir/admins.json", []);
           $pluginsActive = jread("$logdir/plugins_active.json", []);
 
-          // trees
+          // trees (standard plugins)
           $trees = [];
           $pluginsDir = "$logdir/plugins";
           if (is_dir($pluginsDir)) {
@@ -250,7 +250,6 @@ jobs:
             'summary'=>['plugins_active'=>$pluginsActive,'counts'=>$counts,'errors'=>$errors],
             'wtp'=>['ssot_path'=>$ssot_path,'ssot_sha1'=>$ssot_sha1,'ssot_b64'=>$ssot_b64]
           ];
-
           file_put_contents("$logdir/snapshot.json", json_encode($out, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
           PHPBUILDER
 
@@ -261,13 +260,11 @@ jobs:
           if [[ -n "${SITE_KEY:-}" ]]; then
             PUB_DIR="${TARGET}/wp-content/uploads/wtp-ro/public/${SITE_KEY}"
             mkdir -p "${PUB_DIR}" || note_err "Cannot create ${PUB_DIR}"
-            cp -f "${LOGDIR}/snapshot.json" "${PUB_DIR}/snapshot.json" 2>>"${ERR_FILE}" || note_err "Copy snapshot.json -> latest failed."
-            cp -f "${LOGDIR}/snapshot.json" "${PUB_DIR}/snapshot-${RUN_ID}.json" 2>>"${ERR_FILE}" || note_err "Copy snapshot.json -> versioned failed."
-            # pomocnicze do debug (opcjonalne)
-            cp -f "${LOGDIR}/plugins.json" "${PUB_DIR}/plugins.json" 2>/dev/null || true
-            cp -f "${LOGDIR}/themes.json"  "${PUB_DIR}/themes.json"  2>/dev/null || true
-            cp -f "${LOGDIR}/mu_plugins.json" "${PUB_DIR}/mu_plugins.json" 2>/dev/null || true
-            # PRUNE publicznych snapshotów – zostaw 30 najnowszych
+            cp -f "${LOGDIR}/snapshot.json" "${PUB_DIR}/snapshot.json" 2>>"${ERR_FILE}" || note_err "Copy -> latest failed."
+            cp -f "${LOGDIR}/snapshot.json" "${PUB_DIR}/snapshot-${RUN_ID}.json" 2>>"${ERR_FILE}" || note_err "Copy -> versioned failed."
+            cp -f "${LOGDIR}/plugins.json"     "${PUB_DIR}/plugins.json"      2>/dev/null || true
+            cp -f "${LOGDIR}/themes.json"      "${PUB_DIR}/themes.json"       2>/dev/null || true
+            cp -f "${LOGDIR}/mu_plugins.json"  "${PUB_DIR}/mu_plugins.json"   2>/dev/null || true
             ls -1 "${PUB_DIR}"/snapshot-*.json 2>/dev/null | sort -n | head -n -30 | xargs -r rm -f || true
           else
             note_err "RO publish skipped: SITE_KEY empty."
@@ -276,6 +273,20 @@ jobs:
 
           chmod +x /tmp/wtp_snapshot.sh
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes /tmp/wtp_snapshot.sh ${USER}@${HOST}:/tmp/wtp_snapshot.sh
+
+      - name: 4.5) Hotfix: push .wtp/ssot.yml to server if exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f ".wtp/ssot.yml" ]]; then
+            sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
+              "${USER}@${HOST}" "mkdir -p '${TARGET}/.wtp'"
+            sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes \
+              ".wtp/ssot.yml" "${USER}@${HOST}:${TARGET}/.wtp/ssot.yml"
+            echo "::notice::Pushed .wtp/ssot.yml to server."
+          else
+            echo "::warning::.wtp/ssot.yml not found in repo – skipping hotfix push."
+          fi
 
       - name: 5) Run remote snapshot script
         shell: bash
@@ -346,7 +357,7 @@ jobs:
               sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes \
                 "_ci_logs/${{ github.run_id }}/snapshot/snapshot-summary.json" \
                 ${USER}@${HOST}:"${TARGET}/wp-content/uploads/wtp-ro/public/${SITE_KEY}/snapshot-summary.json"
-              echo "::notice::RO summary: ${SITE_URL:-https://weektoppick.com}/wp-content/uploads/wtp-ro/public/${SITE_KEY}/snapshot-summary.json"
+              echo "::notice::RO summary pushed."
             else
               echo "::warning::SITE_KEY not set → public summary skipped."
             fi
@@ -369,10 +380,8 @@ jobs:
             done < "$ERR"
           fi
           if [[ -n "${SITE_KEY:-}" ]]; then
-            echo "::notice::RO latest: ${SITE_URL:-https://weektoppick.com}/wp-content/uploads/wtp-ro/public/${SITE_KEY}/snapshot.json"
-            echo "::notice::RO run:    ${SITE_URL:-https://weektoppick.com}/wp-content/uploads/wtp-ro/public/${SITE_KEY}/snapshot-${{ github.run_id }}.json"
-          else
-            echo "::warning::RO URLs not printed (SITE_KEY empty)."
+            echo "::notice::RO latest: /wp-content/uploads/wtp-ro/public/${SITE_KEY}/snapshot.json"
+            echo "::notice::RO run:    /wp-content/uploads/wtp-ro/public/${SITE_KEY}/snapshot-${{ github.run_id }}.json"
           fi
           echo "::notice::03_snapshot completed for run ${{ github.run_id }}."
 
@@ -524,9 +533,6 @@ jobs:
               $ps = $pt[$slug]["sha1"]??"";
               if($ps!=="" && $ls!==$ps){ $changedTrees[$slug]=["prev"=>$ps,"last"=>$ls]; }
             }
-
-            $lmu = is_array($last["plugins"]["must_use"]??null)? count($last["plugins"]["must_use"]) : 0;
-            $pmu = is_array($prev["plugins"]["must_use"]??null)? count($prev["plugins"]["must_use"]) : 0;
 
             $ladm = setv($last["admins"]??[]);
             $padm = setv($prev["admins"]??[]);
