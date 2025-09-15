@@ -270,7 +270,7 @@ jobs:
           chmod +x /tmp/wtp_snapshot.sh
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes /tmp/wtp_snapshot.sh "${USER}@${HOST}:/tmp/wtp_snapshot.sh"
 
-      - name: 4.5) Hotfix: push .wtp/ssot.yml to server if exists
+      - name: 4.5) Hotfix push .wtp/ssot.yml to server if exists
         shell: bash
         run: |
           set -euo pipefail
