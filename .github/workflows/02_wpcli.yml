@@ -63,13 +63,12 @@ jobs:
           set -euo pipefail
           mkdir -p _ci_logs/${{ github.run_id }}/wpcli
 
-      # ---------- STEP 1: SANITY + local WP-CLI on server ----------
       - name: Remote sanity (cd TARGET + PHP) and install local WP-CLI
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'RMT'
+            "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'EOF'
           set -euo pipefail
           cd "$TARGET" || { echo "::error::Cannot cd to TARGET"; exit 1; }
           php -v >/dev/null 2>&1 || { echo "::error::php CLI not available"; exit 1; }
@@ -86,9 +85,8 @@ jobs:
             echo "date:  $(date -Is)"
             echo "pwd:   $(pwd)"
           } > .wtp/state/ci_logs/server_info.txt
-RMT
+EOF
 
-      # ---------- STEP 2: Upload plugins list (if any) ----------
       - name: Upload plugins list to server (if any)
         if: ${{ hashFiles('.wtp/plugins.install.list') != '' }}
         run: |
@@ -97,13 +95,12 @@ RMT
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             ".wtp/plugins.install.list" "$USER@$HOST:$TARGET/.wtp.plugins.install.list"
 
-      # ---------- STEP 3: Process plugins (install/update/activate) ----------
       - name: Process plugins (install/update/activate; WTP_CI=1)
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'RMT'
+            "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'EOF'
           set -euo pipefail
           cd "$TARGET"
           export WP_ALLOW_ROOT=1
@@ -155,9 +152,8 @@ RMT
           done < .wtp.plugins.install.list
 
           php ./wp plugin list --format=csv > .wtp/state/ci_logs/active_plugins.csv || true
-RMT
+EOF
 
-      # ---------- STEP 4: Collect logs ----------
       - name: Pull logs back
         run: |
           set -euo pipefail
@@ -173,7 +169,6 @@ RMT
           path: _ci_logs/${{ github.run_id }}/wpcli/**
           retention-days: 14
 
-      # ---------- STEP 5: Report ----------
       - name: Report errors if any (notice/warn)
         run: |
           set -euo pipefail
