@@ -13,6 +13,6 @@ plugins:
     - wordfence
     - cookie-law-info
     - seo-by-rank-math
-    - pretty-links
+    - pretty-link
 ci:
   locks_bypass: "env:WTP_CI"
