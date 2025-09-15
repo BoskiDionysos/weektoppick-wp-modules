@@ -1,0 +1,232 @@
+name: 03_snapshot (WordPress → SSOT, pełny stan)
+
+on:
+  workflow_run:
+    workflows: ["02_wpcli (install/update/activate from SSOT, secure SSH)"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      commit_snapshot:
+        description: "Commit snapshot.json do repo (.wtp/snapshots/)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: snapshot
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      WTP_CI: "1"
+      HOST: ${{ secrets.DEPLOY_HOST }}
+      PORT: ${{ secrets.DEPLOY_PORT }}
+      USER: ${{ secrets.DEPLOY_USER }}
+      PASS: ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+
+    steps:
+      - name: 1) Checkout repo
+        uses: actions/checkout@v4
+
+      - name: 2) Setup tools + known_hosts (STRICT)
+        run: |
+          set -euo pipefail
+          for v in HOST PORT USER PASS TARGET; do
+            [ -n "${!v:-}" ] || { echo "::error::Missing $v"; exit 1; }
+          done
+          sudo apt-get update -y
+          sudo apt-get install -y curl sshpass jq
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -p "${PORT}" "${HOST}" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: 3) Prepare local dirs
+        run: mkdir -p "_ci_logs/${{ github.run_id }}/snapshot"
+
+      - name: 4) Create remote snapshot script
+        run: |
+          cat > /tmp/wtp_snapshot.sh <<'SNAPEOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          : "${TARGET:?TARGET is required}"
+          : "${RUN_ID:?RUN_ID is required}"
+          LOGDIR="${TARGET}/.wtp/state/ci_logs/snapshot"
+          mkdir -p "${LOGDIR}"
+          ERR_FILE="${LOGDIR}/errors.txt"; : > "${ERR_FILE}"
+
+          note_err(){ echo "$1" | tee -a "${ERR_FILE}" 1>&2 || true; }
+          run_wp(){ php ./wp "$@" --path="${TARGET}"; }
+
+          # --- jq check ---
+          JQ_OK=1
+          if ! command -v jq >/dev/null 2>&1; then
+            JQ_OK=0; note_err "jq not found – JSON aggregation will use minimal fallback."
+          fi
+
+          # --- Site/Core ---
+          SITE_URL="$(run_wp option get siteurl 2>/dev/null || true)"
+          SITE_HOME="$(run_wp option get home 2>/dev/null || true)"
+          WP_VER="$(run_wp core version 2>/dev/null || true)"
+          TABLE_PREFIX="$(grep -E "^\s*\\\$table_prefix\s*=" "${TARGET}/wp-config.php" 2>/dev/null \
+            | sed -E "s/.*['\"]([^'\"]+)['\"].*/\1/" | head -n1 || echo "wp_")"
+          WPLANG="$(run_wp option get WPLANG 2>/dev/null || true)"
+          TZ_STR="$(run_wp option get timezone_string 2>/dev/null || run_wp option get gmt_offset 2>/dev/null || true)"
+          PHP_VERSION="$(php -r 'echo PHP_VERSION;' 2>/dev/null || true)"
+          php -v > "${LOGDIR}/php_info.txt" || true
+          [[ "${JQ_OK}" -eq 1 ]] && jq -n \
+            --arg url "$SITE_URL" --arg home "$SITE_HOME" \
+            --arg wp_version "$WP_VER" --arg table_prefix "$TABLE_PREFIX" \
+            --arg language "$WPLANG" --arg timezone "$TZ_STR" \
+            --arg php_version "$PHP_VERSION" \
+            '{url:$url,home:$home,wp_version:$wp_version,table_prefix:$table_prefix,language:$language,timezone:$timezone,php_version:$php_version}' \
+            > "${LOGDIR}/site_info.json" || true
+
+          # --- Themes/Plugins/Users ---
+          run_wp theme list --status=active --format=json > "${LOGDIR}/theme_active.json" || true
+          run_wp theme list --format=json > "${LOGDIR}/themes.json" || true
+          run_wp plugin list --format=json > "${LOGDIR}/plugins.json" || true
+          run_wp plugin list --format=csv > "${LOGDIR}/plugins.csv" || true
+          run_wp plugin list --status=must-use --format=json > "${LOGDIR}/mu_plugins.json" || true
+          run_wp user list --role=administrator --field=user_login --format=json > "${LOGDIR}/admins.json" || true
+
+          # --- MU plugins extra ---
+          MU_DIR="${TARGET}/wp-content/mu-plugins"
+          if [[ -d "$MU_DIR" ]]; then
+            ls -la "$MU_DIR" > "${LOGDIR}/mu_plugins_ls.txt"
+            find "$MU_DIR" -type f -print0 | xargs -0 sha1sum > "${LOGDIR}/mu_plugins_hashes.txt" || true
+            find "$MU_DIR" -maxdepth 1 -type f -name "*.php" -print0 | \
+              xargs -0 head -n 50 | grep -E "^\s*\*\s*Plugin Name:" > "${LOGDIR}/mu_plugins_headers.txt" || true
+          fi
+
+          # --- SSOT ---
+          SSOT_PATH="${TARGET}/.wtp/ssot.yml"
+          SSOT_SHA1=""; SSOT_B64=""
+          if [[ -f "$SSOT_PATH" ]]; then
+            cp "$SSOT_PATH" "${LOGDIR}/ssot.yml"
+            SSOT_SHA1="$(sha1sum "$SSOT_PATH" | awk '{print $1}')"
+            echo "$SSOT_SHA1" > "${LOGDIR}/ssot.sha1"
+            SSOT_B64="$(base64 -w0 "$SSOT_PATH" || base64 "$SSOT_PATH" | tr -d '\n')"
+          fi
+
+          # --- Server info ---
+          SERVER_USER="$(whoami)"; SERVER_UNAME="$(uname -a)"
+          SERVER_DT="$(date -Is)"; SERVER_CWD="$(cd "$TARGET" && pwd)"
+          echo -e "user: $SERVER_USER\nuname: $SERVER_UNAME\ndatetime: $SERVER_DT\ncwd: $SERVER_CWD" > "${LOGDIR}/server_info.txt"
+
+          # --- Aggregation ---
+          TS_NOW="$(date -Is)"
+          if [[ "${JQ_OK}" -eq 1 ]]; then
+            jq -n \
+              --argjson run_id "$RUN_ID" --arg timestamp "$TS_NOW" \
+              --argfile site "${LOGDIR}/site_info.json" \
+              --argfile themes_all "${LOGDIR}/themes.json" \
+              --argfile plugins_std "${LOGDIR}/plugins.json" \
+              --argfile plugins_mu "${LOGDIR}/mu_plugins.json" \
+              --argfile admins "${LOGDIR}/admins.json" \
+              '{
+                run_id:$run_id,timestamp:$timestamp,site:$site,
+                theme:{all:$themes_all},plugins:{standard:$plugins_std,must_use:$plugins_mu},
+                admins:$admins,wtp:{ssot_path:".wtp/ssot.yml",ssot_sha1:"'$SSOT_SHA1'",ssot_b64:"'$SSOT_B64'"},
+                server:{user:"'$SERVER_USER'",uname:"'$SERVER_UNAME'",datetime:"'$SERVER_DT'",cwd:"'$SERVER_CWD'"}
+              }' > "${LOGDIR}/snapshot.json" || true
+          else
+            cat > "${LOGDIR}/snapshot.json" <<MINJSON
+{
+  "run_id": __RUN_ID__,
+  "timestamp": "__TS_NOW__",
+  "site": {"url":"__SITE_URL__","home":"__SITE_HOME__","wp_version":"__WP_VER__","table_prefix":"__TABLE_PREFIX__","language":"__WPLANG__","timezone":"__TZ_STR__","php_version":"__PHP_VERSION__"},
+  "server": {"user":"__SERVER_USER__","uname":"__SERVER_UNAME__","datetime":"__SERVER_DT__","cwd":"__SERVER_CWD__"},
+  "theme": {"active":null,"all":[]},
+  "plugins": {"standard":[],"must_use":[]},
+  "admins": [],
+  "summary": {"plugins_active":[],"counts":{"themes_total":0,"plugins_total":0,"plugins_active":0,"plugins_mu":0,"admins":0},"errors":["jq missing – produced minimal snapshot"]},
+  "wtp": {"ssot_path":".wtp/ssot.yml","ssot_sha1":"__SSOT_SHA1__","ssot_b64":"__SSOT_B64__"}
+}
+MINJSON
+            sed -i "s#__RUN_ID__#$RUN_ID#g; s#__TS_NOW__#$TS_NOW#g;
+              s#__SITE_URL__#$SITE_URL#g; s#__SITE_HOME__#$SITE_HOME#g; s#__WP_VER__#$WP_VER#g;
+              s#__TABLE_PREFIX__#$TABLE_PREFIX#g; s#__WPLANG__#$WPLANG#g; s#__TZ_STR__#$TZ_STR#g;
+              s#__PHP_VERSION__#$PHP_VERSION#g; s#__SERVER_USER__#$SERVER_USER#g;
+              s#__SERVER_UNAME__#$SERVER_UNAME#g; s#__SERVER_DT__#$SERVER_DT#g; s#__SERVER_CWD__#$SERVER_CWD#g;
+              s#__SSOT_SHA1__#$SSOT_SHA1#g; s#__SSOT_B64__#$SSOT_B64#g" "${LOGDIR}/snapshot.json"
+          fi
+          SNAPEOF
+          chmod +x /tmp/wtp_snapshot.sh
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes /tmp/wtp_snapshot.sh "${USER}@${HOST}:/tmp/"
+
+      - name: 5) Run remote snapshot script
+        run: |
+          sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes "${USER}@${HOST}" \
+            "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' bash /tmp/wtp_snapshot.sh && rm -f /tmp/wtp_snapshot.sh"
+
+      - name: 6) Pull logs back
+        run: |
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes -r \
+            "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/snapshot" "_ci_logs/${{ github.run_id }}/" || true
+
+      - name: 7) Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-logs-${{ github.run_id }}
+          path: _ci_logs/${{ github.run_id }}/snapshot/**
+
+      - name: 8) Validate snapshot.json
+        run: |
+          SNAP_FILE="_ci_logs/${{ github.run_id }}/snapshot/snapshot.json"
+          if [[ -s "$SNAP_FILE" ]]; then
+            echo "::notice::Snapshot JSON created ($(wc -c < "$SNAP_FILE") bytes)"
+            jq empty "$SNAP_FILE" || echo "::warning::Generated JSON may be malformed"
+          else
+            echo "::error::No snapshot.json generated"
+            exit 1
+          fi
+
+      - name: 9) Report summary
+        run: |
+          ERR_FILE="_ci_logs/${{ github.run_id }}/snapshot/errors.txt"
+          if [[ -s "$ERR_FILE" ]]; then
+            echo "::group::Snapshot errors"; cat "$ERR_FILE"; echo "::endgroup::"
+            while IFS= read -r line; do [[ -n "$line" ]] && echo "::warning::$line"; done < "$ERR_FILE"
+          fi
+          echo "::notice::03_snapshot completed for run ${{ github.run_id }}."
+
+  commit_snapshot:
+    needs: snapshot
+    if: ${{ inputs.commit_snapshot == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Download snapshot artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: snapshot-logs-${{ github.run_id }}
+          path: _ci_logs/${{ github.run_id }}/snapshot/
+
+      - name: Commit snapshot.json
+        run: |
+          SNAP_LOCAL="_ci_logs/${{ github.run_id }}/snapshot/snapshot.json"
+          DEST_DIR=".wtp/snapshots"
+          DEST_FILE="${DEST_DIR}/snapshot-${{ github.run_id }}.json"
+          [[ -s "$SNAP_LOCAL" ]] || { echo "::error::snapshot.json missing"; exit 1; }
+          mkdir -p "$DEST_DIR"; cp "$SNAP_LOCAL" "$DEST_FILE"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$DEST_FILE"
+          if git diff --staged --quiet; then
+            echo "::notice::No changes to commit."
+          else
+            git commit -m "Add snapshot JSON for run ${{ github.run_id }}"
+            git push
+          fi
