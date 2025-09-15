@@ -63,12 +63,10 @@ jobs:
           set -euo pipefail
           mkdir -p _ci_logs/${{ github.run_id }}/wpcli
 
-      - name: Remote sanity (cd TARGET + PHP) and install local WP-CLI
+      - name: Create remote sanity script
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'EOF'
+          cat > /tmp/sanity_script.sh <<'SCRIPT'
           set -euo pipefail
           cd "$TARGET" || { echo "::error::Cannot cd to TARGET"; exit 1; }
           php -v >/dev/null 2>&1 || { echo "::error::php CLI not available"; exit 1; }
@@ -85,7 +83,17 @@ jobs:
             echo "date:  $(date -Is)"
             echo "pwd:   $(pwd)"
           } > .wtp/state/ci_logs/server_info.txt
-  EOF
+          SCRIPT
+
+      - name: Remote sanity (cd TARGET + PHP) and install local WP-CLI
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" scp -P "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "/tmp/sanity_script.sh" "$USER@$HOST:$TARGET/temp_sanity.sh"
+          sshpass -p "$PASS" ssh -p "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$USER@$HOST" "cd '$TARGET' && TARGET='$TARGET' bash temp_sanity.sh && rm temp_sanity.sh"
 
       - name: Upload plugins list to server (if any)
         if: ${{ hashFiles('.wtp/plugins.install.list') != '' }}
@@ -95,12 +103,10 @@ jobs:
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             ".wtp/plugins.install.list" "$USER@$HOST:$TARGET/.wtp.plugins.install.list"
 
-      - name: Process plugins (install/update/activate; WTP_CI=1)
+      - name: Create plugin processing script
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST" "TARGET='${TARGET}' bash -s" <<'EOF'
+          cat > /tmp/plugins_script.sh <<'SCRIPT'
           set -euo pipefail
           cd "$TARGET"
           export WP_ALLOW_ROOT=1
@@ -152,7 +158,17 @@ jobs:
           done < .wtp.plugins.install.list
 
           php ./wp plugin list --format=csv > .wtp/state/ci_logs/active_plugins.csv || true
-  EOF
+          SCRIPT
+
+      - name: Process plugins (install/update/activate; WTP_CI=1)
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" scp -P "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "/tmp/plugins_script.sh" "$USER@$HOST:$TARGET/temp_plugins.sh"
+          sshpass -p "$PASS" ssh -p "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$USER@$HOST" "cd '$TARGET' && TARGET='$TARGET' bash temp_plugins.sh && rm temp_plugins.sh"
 
       - name: Pull logs back
         run: |
