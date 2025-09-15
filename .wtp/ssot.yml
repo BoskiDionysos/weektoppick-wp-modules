@@ -7,6 +7,12 @@ deploy:
 site:
   base_url: https://weektoppick.com
 plugins:
-  install: []
+  install:
+    - classic-editor
+    - litespeed-cache
+    - wordfence
+    - cookie-law-info
+    - seo-by-rank-math
+    - pretty-link
 ci:
   locks_bypass: "env:WTP_CI"
