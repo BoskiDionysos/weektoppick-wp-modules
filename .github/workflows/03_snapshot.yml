@@ -4,12 +4,7 @@ on:
   workflow_run:
     workflows: ["02_wpcli (install/update/activate from SSOT, secure SSH)"]
     types: [completed]
-  workflow_dispatch:
-    inputs:
-      commit_snapshot:
-        description: "Commit snapshot.json do repo (.wtp/snapshots/)"
-        type: boolean
-        default: false
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -55,7 +50,9 @@ jobs:
 
       - name: 3) Prepare local dirs
         shell: bash
-        run: mkdir -p "_ci_logs/${{ github.run_id }}/snapshot"
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${{ github.run_id }}/snapshot"
 
       - name: 4) Upload snapshot script
         shell: bash
@@ -81,8 +78,10 @@ jobs:
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes -r \
             "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/snapshot" \
             "_ci_logs/${{ github.run_id }}/"
+          # dla pewności: wymuś istnienie kluczowych plików
+          [[ -f "_ci_logs/${{ github.run_id }}/snapshot/snapshot.json" ]] || echo '{}' > "_ci_logs/${{ github.run_id }}/snapshot/snapshot.json"
 
-      - name: 7) Upload artifact
+      - name: 7) Upload artifact (backup)
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-logs-${{ github.run_id }}
@@ -100,7 +99,45 @@ jobs:
             echo "::error::No snapshot.json generated"; exit 1
           fi
 
-      - name: 9) Report summary
+      - name: 9) Publish snapshot + RO mirror to repo (no artifacts needed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC_DIR="_ci_logs/${{ github.run_id }}/snapshot"
+          SNAP_FILE="${SRC_DIR}/snapshot.json"
+
+          # Katalogi docelowe w repo
+          SNAP_DIR=".wtp/snapshots"
+          RO_DIR=".wtp/state/ro/public/${{ github.run_id }}"
+          RO_LATEST=".wtp/state/ro/public/latest"
+
+          mkdir -p "${SNAP_DIR}" "${RO_DIR}"
+          cp -a "${SRC_DIR}/." "${RO_DIR}/"
+
+          # Najważniejsze 2 aliasy
+          cp "${SNAP_FILE}" "${SNAP_DIR}/snapshot-${{ github.run_id }}.json"
+          cp "${SNAP_FILE}" "${SNAP_DIR}/snapshot-latest.json"
+
+          # Utrzymaj czytelny alias 'latest' dla RO
+          rm -rf "${RO_LATEST}"
+          mkdir -p "$(dirname "${RO_LATEST}")"
+          cp -a "${RO_DIR}" "${RO_LATEST}"
+
+          # Commit
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${SNAP_DIR}/snapshot-${{ github.run_id }}.json" "${SNAP_DIR}/snapshot-latest.json" "${RO_DIR}" "${RO_LATEST}"
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."
+          else
+            git commit -m "Publish snapshot run ${{ github.run_id }} (+RO mirror)"
+            git push
+          fi
+
+          echo "::notice::RO latest: /.wtp/state/ro/public/latest/snapshot.json"
+          echo "::notice::RO run:   /.wtp/state/ro/public/${{ github.run_id }}/snapshot.json"
+
+      - name: 10) Report summary
         shell: bash
         run: |
           set -euo pipefail
@@ -114,40 +151,3 @@ jobs:
             done < "$ERR"
           fi
           echo "::notice::03_snapshot completed for run ${{ github.run_id }}."
-
-  commit_snapshot:
-    needs: snapshot
-    if: ${{ inputs.commit_snapshot == true }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Download snapshot artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: snapshot-logs-${{ github.run_id }}
-          path: _ci_logs/${{ github.run_id }}/snapshot/
-
-      - name: Commit snapshot.json
-        shell: bash
-        run: |
-          set -euo pipefail
-          SRC="_ci_logs/${{ github.run_id }}/snapshot/snapshot.json"
-          DEST_DIR=".wtp/snapshots"
-          DEST_FILE="${DEST_DIR}/snapshot-${{ github.run_id }}.json"
-          [[ -s "$SRC" ]] || { echo "::error::snapshot.json missing"; exit 1; }
-          mkdir -p "$DEST_DIR"
-          cp "$SRC" "$DEST_FILE"
-          cp "$SRC" "${DEST_DIR}/snapshot-latest.json"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$DEST_FILE" "${DEST_DIR}/snapshot-latest.json"
-          if git diff --staged --quiet; then
-            echo "::notice::No changes to commit."
-          else
-            git commit -m "Add snapshot JSON for run ${{ github.run_id }}"
-            git push
-          fi
