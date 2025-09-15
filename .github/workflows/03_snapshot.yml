@@ -4,12 +4,7 @@ on:
   workflow_run:
     workflows: ["02_wpcli (install/update/activate from SSOT, secure SSH)"]
     types: [completed]
-  workflow_dispatch:
-    inputs:
-      commit_snapshot:
-        description: "Commit snapshot.json do repo (.wtp/snapshots/)"
-        type: boolean
-        default: false
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -57,7 +52,7 @@ jobs:
         shell: bash
         run: mkdir -p "_ci_logs/${{ github.run_id }}/snapshot"
 
-      - name: 4) Create & upload snapshot script (heredoc)
+      - name: 4) Create & upload snapshot script (heredoc, PHP aggregator)
         shell: bash
         run: |
           set -euo pipefail
@@ -85,7 +80,6 @@ jobs:
           PHP_VERSION="$(php -r 'echo PHP_VERSION;' 2>/dev/null || true)"
           php -v > "${LOGDIR}/php_info.txt" 2>&1 || note_err "php -v failed."
 
-          # Zapisz site_info.json bez jq – przez printf (PHP i tak scali)
           {
             printf '%s\n' '{'
             printf '  "url": "%s",\n' "${SITE_URL}"
@@ -106,12 +100,10 @@ jobs:
           run_wp plugin list --format=json > "${LOGDIR}/plugins.json" 2>>"${ERR_FILE}" || note_err "wp plugin list --format=json failed."
           run_wp plugin list --format=csv  > "${LOGDIR}/plugins.csv"  2>>"${ERR_FILE}" || note_err "wp plugin list --format=csv failed."
 
-          # ---------- C2) Per-plugin trees + SHA1 (nie wymaga jq) ----------
+          # ---------- C2) Per-plugin trees + SHA1 ----------
           PLUG_DIR="${TARGET}/wp-content/plugins"
           if [[ -d "${PLUG_DIR}" ]]; then
-            # lista slugów z wp-cli, fallback: katalogi
             if [[ -s "${LOGDIR}/plugins.json" ]]; then
-              # wyciągnij nazwę sluga prostym grepem/sed gdy brak jq
               sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${LOGDIR}/plugins.json" | sort -u > "${LOGDIR}/_slugs.txt" || true
             else
               find "${PLUG_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > "${LOGDIR}/_slugs.txt" || true
@@ -169,7 +161,6 @@ jobs:
           # ---------- H) Summary (active list) ----------
           run_wp plugin list --status=active --field=name --format=json > "${LOGDIR}/plugins_active.json" 2>>"${ERR_FILE}" || note_err "wp plugin list --status=active --field=name failed."
           if [[ -s "${LOGDIR}/plugins_active.json" ]]; then
-            # dodatkowo txt (po jednym slugu)
             sed -n 's/[^"[]*"\([^"]\+\)".*/\1/p' "${LOGDIR}/plugins_active.json" > "${LOGDIR}/plugins_active.txt" 2>>"${ERR_FILE}" || true
           else
             : > "${LOGDIR}/plugins_active.txt"
@@ -187,7 +178,7 @@ jobs:
             if (!file_exists($path) || !is_readable($path)) return $def;
             $txt = file_get_contents($path);
             $j = json_decode($txt, true);
-            return is_array($j) || is_object($j) ? $j : $def;
+            return (is_array($j) || is_object($j)) ? $j : $def;
           }
           function fread_or($path, $def='') {
             return (file_exists($path) && is_readable($path)) ? file_get_contents($path) : $def;
@@ -201,10 +192,9 @@ jobs:
           $pluginsStd = jread("$logdir/plugins.json", []);
           $pluginsMU  = jread("$logdir/mu_plugins.json", []);
           $admins     = jread("$logdir/admins.json", []);
-
           $pluginsActive = jread("$logdir/plugins_active.json", []);
 
-          // trees summary (z plików tree.txt i hashes.sha1)
+          // trees summary from files
           $trees = [];
           $pluginsDir = "$logdir/plugins";
           if (is_dir($pluginsDir)) {
@@ -225,10 +215,13 @@ jobs:
             }
           }
 
-          // counts
+          // counts (standard plugins != must-use)
+          $stdOnly = array_values(array_filter($pluginsStd, fn($p) =>
+            is_array($p) && (($p['status'] ?? '') !== 'must-use')
+          ));
           $counts = [
             'themes_total'   => is_array($themes) ? count($themes) : 0,
-            'plugins_total'  => is_array($pluginsStd) ? count($pluginsStd) : 0,
+            'plugins_total'  => count($stdOnly),
             'plugins_active' => is_array($pluginsActive) ? count($pluginsActive) : 0,
             'plugins_mu'     => is_array($pluginsMU) ? count($pluginsMU) : 0,
             'admins'         => is_array($admins) ? count($admins) : 0
@@ -242,7 +235,7 @@ jobs:
             $errors = array_values($lines);
           }
 
-          // server info (tekst -> array)
+          // server info
           $srv = ['user'=>'','uname'=>'','datetime'=>'','cwd'=>''];
           $si = fread_or("$logdir/server_info.txt");
           if ($si) {
@@ -256,7 +249,7 @@ jobs:
           // ssot
           $ssot_path = '.wtp/ssot.yml';
           $ssot_sha1 = trim(fread_or("$logdir/ssot.sha1"));
-          $ssot_b64  = trim(fread_or("$logdir/ssot.yml")) ? base64_encode(fread_or("$logdir/ssot.yml")) : '';
+          $ssot_b64  = file_exists("$logdir/ssot.yml") ? base64_encode(file_get_contents("$logdir/ssot.yml")) : '';
 
           $out = [
             'run_id'    => intval($runId),
@@ -329,15 +322,17 @@ jobs:
           fi
           echo "::notice::03_snapshot completed for run ${{ github.run_id }}."
 
-  commit_snapshot:
+  publish_snapshot:
     needs: snapshot
-    if: ${{ inputs.commit_snapshot == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-
+    permissions:
+      contents: write
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Download snapshot artifact
         uses: actions/download-artifact@v4
@@ -345,22 +340,36 @@ jobs:
           name: snapshot-logs-${{ github.run_id }}
           path: _ci_logs/${{ github.run_id }}/snapshot/
 
-      - name: Commit snapshot.json
+      - name: Commit snapshot.json to repo (versioned + latest)
         shell: bash
         run: |
           set -euo pipefail
           SRC="_ci_logs/${{ github.run_id }}/snapshot/snapshot.json"
           DEST_DIR=".wtp/snapshots"
-          DEST_FILE="${DEST_DIR}/snapshot-${{ github.run_id }}.json"
+          DEST_VER="${DEST_DIR}/snapshot-${{ github.run_id }}.json"
+          DEST_LATEST="${DEST_DIR}/snapshot-latest.json"
+
           [[ -s "$SRC" ]] || { echo "::error::snapshot.json missing"; exit 1; }
           mkdir -p "$DEST_DIR"
-          cp "$SRC" "$DEST_FILE"
+          cp "$SRC" "$DEST_VER"
+          cp "$SRC" "$DEST_LATEST"
+
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$DEST_FILE"
+          git add "$DEST_VER" "$DEST_LATEST"
+
           if git diff --staged --quiet; then
             echo "::notice::No changes to commit."
           else
-            git commit -m "Add snapshot JSON for run ${{ github.run_id }}"
+            git commit -m "Snapshot ${GITHUB_RUN_ID}: add ${DEST_VER} and update snapshot-latest.json"
             git push
           fi
+
+      - name: Print RAW URLs (for external analysis)
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO="${{ github.repository }}"
+          BRANCH="${{ github.ref_name }}"
+          echo "::notice::RAW latest: https://raw.githubusercontent.com/${REPO}/${BRANCH}/.wtp/snapshots/snapshot-latest.json"
+          echo "::notice::RAW run:    https://raw.githubusercontent.com/${REPO}/${BRANCH}/.wtp/snapshots/snapshot-${{ github.run_id }}.json"
