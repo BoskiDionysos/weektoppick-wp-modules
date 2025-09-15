@@ -20,7 +20,8 @@ concurrency:
 
 jobs:
   snapshot:
-    if: >
+    # ◀─ 1) POPRAWIONY LITERAL BLOCK
+    if: |
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
@@ -139,25 +140,9 @@ jobs:
                 server:{user:"'$SERVER_USER'",uname:"'$SERVER_UNAME'",datetime:"'$SERVER_DT'",cwd:"'$SERVER_CWD'"}
               }' > "${LOGDIR}/snapshot.json" || true
           else
-            cat > "${LOGDIR}/snapshot.json" <<MINJSON
-{
-  "run_id": __RUN_ID__,
-  "timestamp": "__TS_NOW__",
-  "site": {"url":"__SITE_URL__","home":"__SITE_HOME__","wp_version":"__WP_VER__","table_prefix":"__TABLE_PREFIX__","language":"__WPLANG__","timezone":"__TZ_STR__","php_version":"__PHP_VERSION__"},
-  "server": {"user":"__SERVER_USER__","uname":"__SERVER_UNAME__","datetime":"__SERVER_DT__","cwd":"__SERVER_CWD__"},
-  "theme": {"active":null,"all":[]},
-  "plugins": {"standard":[],"must_use":[]},
-  "admins": [],
-  "summary": {"plugins_active":[],"counts":{"themes_total":0,"plugins_total":0,"plugins_active":0,"plugins_mu":0,"admins":0},"errors":["jq missing – produced minimal snapshot"]},
-  "wtp": {"ssot_path":".wtp/ssot.yml","ssot_sha1":"__SSOT_SHA1__","ssot_b64":"__SSOT_B64__"}
-}
+            cat > "${LOGDIR}/snapshot.json" <<'MINJSON'
+{"error":"jq missing – produced minimal snapshot"}
 MINJSON
-            sed -i "s#__RUN_ID__#$RUN_ID#g; s#__TS_NOW__#$TS_NOW#g;
-              s#__SITE_URL__#$SITE_URL#g; s#__SITE_HOME__#$SITE_HOME#g; s#__WP_VER__#$WP_VER#g;
-              s#__TABLE_PREFIX__#$TABLE_PREFIX#g; s#__WPLANG__#$WPLANG#g; s#__TZ_STR__#$TZ_STR#g;
-              s#__PHP_VERSION__#$PHP_VERSION#g; s#__SERVER_USER__#$SERVER_USER#g;
-              s#__SERVER_UNAME__#$SERVER_UNAME#g; s#__SERVER_DT__#$SERVER_DT#g; s#__SERVER_CWD__#$SERVER_CWD#g;
-              s#__SSOT_SHA1__#$SSOT_SHA1#g; s#__SSOT_B64__#$SSOT_B64#g" "${LOGDIR}/snapshot.json"
           fi
           SNAPEOF
           chmod +x /tmp/wtp_snapshot.sh
