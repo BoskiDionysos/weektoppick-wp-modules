@@ -1,12 +1,1 @@
-deploy:
-  host_secret: DEPLOY_HOST
-  port_secret: DEPLOY_PORT
-  user_secret: DEPLOY_USER
-  pass_secret: DEPLOY_PASS
-  target_secret: DEPLOY_TARGET
-site:
-  base_url: https://weektoppick.com
-plugins:
-  install: []
-ci:
-  locks_bypass: "env:WTP_CI"
+
