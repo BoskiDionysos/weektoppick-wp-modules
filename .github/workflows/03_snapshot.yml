@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       commit_snapshot:
-        description: "Commit snapshot.json + logi do repo (.wtp/snapshots/)"
+        description: "Commit snapshot.json do repo (.wtp/snapshots/)"
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write
@@ -38,7 +38,7 @@ jobs:
       - name: 1) Checkout repo
         uses: actions/checkout@v4
 
-      - name: 2) Setup tools + known_hosts
+      - name: 2) Setup tools + known_hosts (STRICT)
         shell: bash
         run: |
           set -euo pipefail
@@ -62,7 +62,7 @@ jobs:
         run: |
           set -euo pipefail
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes \
-            "scripts/wtp_snapshot.sh" "${USER}@${HOST}:/tmp/"
+            "scripts/wtp_snapshot.sh" "${USER}@${HOST}:/tmp/wtp_snapshot.sh"
           sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
             "${USER}@${HOST}" "chmod +x /tmp/wtp_snapshot.sh"
 
@@ -72,7 +72,7 @@ jobs:
           set -euo pipefail
           sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
             "${USER}@${HOST}" \
-            "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' /tmp/wtp_snapshot.sh"
+            "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' bash /tmp/wtp_snapshot.sh"
           sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
             "${USER}@${HOST}" "rm -f /tmp/wtp_snapshot.sh"
 
@@ -84,7 +84,7 @@ jobs:
             "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/snapshot" \
             "_ci_logs/${{ github.run_id }}/"
 
-      - name: 7) Upload artifact (opcjonalnie)
+      - name: 7) Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-logs-${{ github.run_id }}
@@ -102,28 +102,54 @@ jobs:
             echo "::error::No snapshot.json generated"; exit 1
           fi
 
-      - name: 9) Commit snapshot + logs to repo
-        if: ${{ inputs.commit_snapshot == true }}
+      - name: 9) Report summary
         shell: bash
         run: |
           set -euo pipefail
+          ERR="_ci_logs/${{ github.run_id }}/snapshot/errors.txt"
+          if [[ -s "$ERR" ]]; then
+            echo "::group::Snapshot errors"
+            cat "$ERR"
+            echo "::endgroup::"
+            while IFS= read -r line; do
+              [[ -n "$line" ]] && echo "::warning::$line"
+            done < "$ERR"
+          fi
+          echo "::notice::03_snapshot completed for run ${{ github.run_id }}."
+
+  commit_snapshot:
+    needs: snapshot
+    if: ${{ inputs.commit_snapshot == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Download snapshot artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: snapshot-logs-${{ github.run_id }}
+          path: _ci_logs/${{ github.run_id }}/snapshot/
+
+      - name: Commit snapshot.json
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="_ci_logs/${{ github.run_id }}/snapshot/snapshot.json"
           DEST_DIR=".wtp/snapshots"
+          DEST_FILE="${DEST_DIR}/snapshot-${{ github.run_id }}.json"
+          [[ -s "$SRC" ]] || { echo "::error::snapshot.json missing"; exit 1; }
           mkdir -p "$DEST_DIR"
-
-          for f in snapshot.json errors.txt summary.txt wpcli_summary.txt; do
-            SRC="_ci_logs/${{ github.run_id }}/snapshot/$f"
-            if [[ -s "$SRC" ]]; then
-              cp "$SRC" "$DEST_DIR/snapshot-${{ github.run_id }}-$f"
-              ln -sf "snapshot-${{ github.run_id }}-$f" "$DEST_DIR/snapshot-latest-$f"
-            fi
-          done
-
+          cp "$SRC" "$DEST_FILE"
+          cp "$SRC" "${DEST_DIR}/snapshot-latest.json"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$DEST_DIR"/*
+          git add "$DEST_FILE" "${DEST_DIR}/snapshot-latest.json"
           if git diff --staged --quiet; then
             echo "::notice::No changes to commit."
           else
-            git commit -m "Add snapshot + logs for run ${{ github.run_id }}"
+            git commit -m "Add snapshot JSON for run ${{ github.run_id }}"
             git push
           fi
