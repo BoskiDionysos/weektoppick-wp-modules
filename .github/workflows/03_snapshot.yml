@@ -57,13 +57,10 @@ jobs:
         shell: bash
         run: mkdir -p "_ci_logs/${{ github.run_id }}/snapshot"
 
-      - name: 4) Create & upload snapshot script (+ ship jq)
+      - name: 4) Create & upload snapshot script (heredoc)
         shell: bash
         run: |
           set -euo pipefail
-          curl -L -o /tmp/jq 'https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64'
-          chmod +x /tmp/jq
-
           cat > /tmp/wtp_snapshot.sh <<'SNAPEOF'
           #!/usr/bin/env bash
           set -euo pipefail
@@ -78,17 +75,6 @@ jobs:
           note_err(){ echo "$1" | tee -a "${ERR_FILE}" 1>&2 || true; }
           run_wp(){ php ./wp "$@" --path="${TARGET}"; }
 
-          # ---------- Detect jq ----------
-          JQ_CANDIDATE="${TARGET}/.wtp/state/bin/jq"
-          if [[ -x "$JQ_CANDIDATE" ]]; then
-            JQ="$JQ_CANDIDATE"
-          elif command -v jq >/dev/null 2>&1; then
-            JQ="jq"
-          else
-            JQ=""
-            note_err "jq not found – JSON aggregation will use minimal fallback."
-          fi
-
           # ---------- A) Site/Core ----------
           SITE_URL="$(run_wp option get siteurl 2>/dev/null || true)"
           SITE_HOME="$(run_wp option get home 2>/dev/null || true)"
@@ -99,14 +85,18 @@ jobs:
           PHP_VERSION="$(php -r 'echo PHP_VERSION;' 2>/dev/null || true)"
           php -v > "${LOGDIR}/php_info.txt" 2>&1 || note_err "php -v failed."
 
-          if [[ -n "$JQ" ]]; then
-            "$JQ" -n --arg url "$SITE_URL" --arg home "$SITE_HOME" \
-              --arg wp_version "$WP_VER" --arg table_prefix "$TABLE_PREFIX" \
-              --arg language "$WPLANG" --arg timezone "$TZ_STR" \
-              --arg php_version "$PHP_VERSION" \
-              '{url:$url,home:$home,wp_version:$wp_version,table_prefix:$table_prefix,language:$language,timezone:$timezone,php_version:$php_version}' \
-              > "${LOGDIR}/site_info.json" || note_err "site_info.json failed."
-          fi
+          # Zapisz site_info.json bez jq – przez printf (PHP i tak scali)
+          {
+            printf '%s\n' '{'
+            printf '  "url": "%s",\n' "${SITE_URL}"
+            printf '  "home": "%s",\n' "${SITE_HOME}"
+            printf '  "wp_version": "%s",\n' "${WP_VER}"
+            printf '  "table_prefix": "%s",\n' "${TABLE_PREFIX}"
+            printf '  "language": "%s",\n' "${WPLANG}"
+            printf '  "timezone": "%s",\n' "${TZ_STR}"
+            printf '  "php_version": "%s"\n' "${PHP_VERSION}"
+            printf '%s\n' '}'
+          } > "${LOGDIR}/site_info.json" || note_err "site_info.json write failed."
 
           # ---------- B) Themes ----------
           run_wp theme list --status=active --format=json > "${LOGDIR}/theme_active.json" 2>>"${ERR_FILE}" || note_err "wp theme list --status=active failed."
@@ -114,37 +104,25 @@ jobs:
 
           # ---------- C) Plugins ----------
           run_wp plugin list --format=json > "${LOGDIR}/plugins.json" 2>>"${ERR_FILE}" || note_err "wp plugin list --format=json failed."
-          run_wp plugin list --format=csv > "${LOGDIR}/plugins.csv" 2>>"${ERR_FILE}" || note_err "wp plugin list --format=csv failed."
+          run_wp plugin list --format=csv  > "${LOGDIR}/plugins.csv"  2>>"${ERR_FILE}" || note_err "wp plugin list --format=csv failed."
 
-          # ---------- C2) Trees + SHA1 ----------
+          # ---------- C2) Per-plugin trees + SHA1 (nie wymaga jq) ----------
           PLUG_DIR="${TARGET}/wp-content/plugins"
-          TREES_SUMMARY="${LOGDIR}/plugins_trees.json"
-          echo '{}' > "${TREES_SUMMARY}" || true
-
-          get_slugs() {
-            if [[ -n "$JQ" && -s "${LOGDIR}/plugins.json" ]]; then
-              "$JQ" -r '.[].name' "${LOGDIR}/plugins.json" 2>/dev/null || true
-            elif [[ -d "$PLUG_DIR" ]]; then
-              find "$PLUG_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
+          if [[ -d "${PLUG_DIR}" ]]; then
+            # lista slugów z wp-cli, fallback: katalogi
+            if [[ -s "${LOGDIR}/plugins.json" ]]; then
+              # wyciągnij nazwę sluga prostym grepem/sed gdy brak jq
+              sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${LOGDIR}/plugins.json" | sort -u > "${LOGDIR}/_slugs.txt" || true
+            else
+              find "${PLUG_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > "${LOGDIR}/_slugs.txt" || true
             fi
-          }
-
-          get_slugs | while IFS= read -r slug; do
-            [[ -n "$slug" && -d "${PLUG_DIR}/${slug}" ]] || continue
-            OUTDIR="${LOGDIR}/plugins/${slug}"
-            mkdir -p "${OUTDIR}"
-            find "${PLUG_DIR}/${slug}" -type f -print0 | sort -z | tr '\0' '\n' > "${OUTDIR}/tree.txt" 2>>"${ERR_FILE}" || true
-            { find "${PLUG_DIR}/${slug}" -type f -print0 | sort -z | xargs -0 sha1sum; } > "${OUTDIR}/hashes.sha1" 2>>"${ERR_FILE}" || true
-
-            FILES_CNT="$(wc -l < "${OUTDIR}/tree.txt" 2>/dev/null || echo 0)"
-            ALL_SHA="$(awk '{print $1}' "${OUTDIR}/hashes.sha1" 2>/dev/null | tr -d '\n' | sha1sum 2>/dev/null | awk '{print $1}' || echo "")"
-
-            if [[ -n "$JQ" ]]; then
-              TMP="$(mktemp)"
-              "$JQ" --arg slug "$slug" --argjson files "$FILES_CNT" --arg sha1 "$ALL_SHA" \
-                   '. + {($slug): {files:$files, sha1:$sha1}}' "${TREES_SUMMARY}" > "${TMP}" && mv "${TMP}" "${TREES_SUMMARY}"
-            fi
-          done
+            while IFS= read -r slug; do
+              [[ -n "$slug" && -d "${PLUG_DIR}/${slug}" ]] || continue
+              OUTDIR="${LOGDIR}/plugins/${slug}"; mkdir -p "${OUTDIR}"
+              find "${PLUG_DIR}/${slug}" -type f -print0 | sort -z | tr '\0' '\n' > "${OUTDIR}/tree.txt" 2>>"${ERR_FILE}" || true
+              { find "${PLUG_DIR}/${slug}" -type f -print0 | sort -z | xargs -0 sha1sum; } > "${OUTDIR}/hashes.sha1" 2>>"${ERR_FILE}" || true
+            done < "${LOGDIR}/_slugs.txt"
+          fi
 
           # ---------- D) MU-plugins ----------
           MU_DIR="${TARGET}/wp-content/mu-plugins"
@@ -188,123 +166,119 @@ jobs:
             echo "cwd: ${SERVER_CWD}"
           } > "${LOGDIR}/server_info.txt" 2>>"${ERR_FILE}" || note_err "server_info.txt failed."
 
-          # ---------- H) Summary ----------
+          # ---------- H) Summary (active list) ----------
           run_wp plugin list --status=active --field=name --format=json > "${LOGDIR}/plugins_active.json" 2>>"${ERR_FILE}" || note_err "wp plugin list --status=active --field=name failed."
-          if [[ -n "$JQ" ]]; then
-            if [[ -s "${LOGDIR}/plugins_active.json" ]]; then
-              "$JQ" -r '.[]' "${LOGDIR}/plugins_active.json" > "${LOGDIR}/plugins_active.txt" 2>>"${ERR_FILE}" || :
-            else
-              : > "${LOGDIR}/plugins_active.txt"
-            fi
-            THEMES_TOTAL=$("$JQ" 'length' "${LOGDIR}/themes.json" 2>/dev/null || echo 0)
-            PLUGINS_TOTAL=$("$JQ" 'length' "${LOGDIR}/plugins.json" 2>/dev/null || echo 0)
-            PLUGINS_ACTIVE_CNT=$("$JQ" 'length' "${LOGDIR}/plugins_active.json" 2>/dev/null || echo 0)
-            PLUGINS_MU_CNT=$("$JQ" 'length' "${LOGDIR}/mu_plugins.json" 2>/dev/null || echo 0)
-            ADMINS_CNT=$("$JQ" 'length' "${LOGDIR}/admins.json" 2>/dev/null || echo 0)
-            "$JQ" -n --argjson themes_total "$THEMES_TOTAL" \
-                   --argjson plugins_total "$PLUGINS_TOTAL" \
-                   --argjson plugins_active "$PLUGINS_ACTIVE_CNT" \
-                   --argjson plugins_mu "$PLUGINS_MU_CNT" \
-                   --argjson admins "$ADMINS_CNT" \
-                   '{themes_total:$themes_total, plugins_total:$plugins_total, plugins_active:$plugins_active, plugins_mu:$plugins_mu, admins:$admins}' \
-                   > "${LOGDIR}/counts.json" 2>>"${ERR_FILE}" || echo '{}' > "${LOGDIR}/counts.json"
-            if [[ -s "${ERR_FILE}" ]]; then
-              "$JQ" -Rs 'split("\n") | map(select(length>0))' "${ERR_FILE}" > "${LOGDIR}/errors.json" 2>/dev/null || echo '[]' > "${LOGDIR}/errors.json"
-            else
-              echo '[]' > "${LOGDIR}/errors.json"
-            fi
+          if [[ -s "${LOGDIR}/plugins_active.json" ]]; then
+            # dodatkowo txt (po jednym slugu)
+            sed -n 's/[^"[]*"\([^"]\+\)".*/\1/p' "${LOGDIR}/plugins_active.json" > "${LOGDIR}/plugins_active.txt" 2>>"${ERR_FILE}" || true
           else
             : > "${LOGDIR}/plugins_active.txt"
-            echo '{}' > "${LOGDIR}/counts.json"
-            echo '[]'  > "${LOGDIR}/errors.json"
           fi
 
-          # ---------- I) snapshot.json ----------
-          TS_NOW="$(date -Is)"
-          if [[ -n "$JQ" ]]; then
-            [[ -f "${LOGDIR}/site_info.json" ]]  || echo '{}' > "${LOGDIR}/site_info.json"
-            [[ -f "${LOGDIR}/themes.json"   ]]   || echo '[]' > "${LOGDIR}/themes.json"
-            [[ -f "${LOGDIR}/plugins.json"  ]]   || echo '[]' > "${LOGDIR}/plugins.json"
-            [[ -f "${LOGDIR}/mu_plugins.json" ]] || echo '[]' > "${LOGDIR}/mu_plugins.json"
-            [[ -f "${LOGDIR}/admins.json"   ]]   || echo '[]' > "${LOGDIR}/admins.json"
-            [[ -f "${TREES_SUMMARY}"        ]]   || echo '{}' > "${TREES_SUMMARY}"
-            [[ -f "${LOGDIR}/counts.json"   ]]   || echo '{}' > "${LOGDIR}/counts.json"
-            [[ -f "${LOGDIR}/errors.json"   ]]   || echo '[]' > "${LOGDIR}/errors.json"
+          # ---------- I) Build snapshot.json w PHP (bez jq) ----------
+          cat > /tmp/wtp_build_snapshot.php <<'PHPBUILDER'
+          <?php
+          error_reporting(E_ALL);
+          $logdir = getenv('LOGDIR');
+          $runId  = getenv('RUN_ID');
+          $ts     = date('c');
 
-            THEME_ACTIVE_JSON="$("$JQ" 'if type=="array" and length>0 then .[0] else null end' "${LOGDIR}/theme_active.json" 2>/dev/null || echo 'null')"
+          function jread($path, $def) {
+            if (!file_exists($path) || !is_readable($path)) return $def;
+            $txt = file_get_contents($path);
+            $j = json_decode($txt, true);
+            return is_array($j) || is_object($j) ? $j : $def;
+          }
+          function fread_or($path, $def='') {
+            return (file_exists($path) && is_readable($path)) ? file_get_contents($path) : $def;
+          }
 
-            "$JQ" -n \
-              --argjson run_id "$RUN_ID" \
-              --arg timestamp "$TS_NOW" \
-              --argfile site "${LOGDIR}/site_info.json" \
-              --argfile themes_all "${LOGDIR}/themes.json" \
-              --argfile plugins_std "${LOGDIR}/plugins.json" \
-              --argfile plugins_mu "${LOGDIR}/mu_plugins.json" \
-              --argfile admins "${LOGDIR}/admins.json" \
-              --argfile trees "${TREES_SUMMARY}" \
-              --argfile counts "${LOGDIR}/counts.json" \
-              --argfile errors "${LOGDIR}/errors.json" \
-              --arg theme_active "${THEME_ACTIVE_JSON}" \
-              --arg server_user "${SERVER_USER}" \
-              --arg server_uname "${SERVER_UNAME}" \
-              --arg server_datetime "${SERVER_DT}" \
-              --arg server_cwd "${SERVER_CWD}" \
-              --arg ssot_path ".wtp/ssot.yml" \
-              --arg ssot_sha1 "${SSOT_SHA1}" \
-              --arg ssot_b64 "${SSOT_B64}" \
-              --argfile act "${LOGDIR}/plugins_active.json" \
-              '{
-                run_id:$run_id,
-                timestamp:$timestamp,
-                site:$site,
-                server:{user:$server_user,uname:$server_uname,datetime:$server_datetime,cwd:$server_cwd},
-                theme:{active:(try ($theme_active|fromjson) catch null), all:$themes_all},
-                plugins:{standard:$plugins_std, must_use:$plugins_mu, trees:$trees},
-                admins:$admins,
-                summary:{plugins_active:$act, counts:$counts, errors:$errors},
-                wtp:{ssot_path:$ssot_path, ssot_sha1:$ssot_sha1, ssot_b64:$ssot_b64}
-              }' > "${LOGDIR}/snapshot.json" 2>>"${ERR_FILE}" || note_err "snapshot.json build failed."
-          else
-            {
-              printf '%s\n' '{'
-              printf '  "run_id": "%s",\n' "${RUN_ID}"
-              printf '  "timestamp": "%s",\n' "${TS_NOW}"
-              printf '%s\n' '  "site": {'
-              printf '    "url": "%s",\n' "${SITE_URL}"
-              printf '    "home": "%s",\n' "${SITE_HOME}"
-              printf '    "wp_version": "%s",\n' "${WP_VER}"
-              printf '    "table_prefix": "%s",\n' "${TABLE_PREFIX}"
-              printf '    "language": "%s",\n' "${WPLANG}"
-              printf '    "timezone": "%s",\n' "${TZ_STR}"
-              printf '    "php_version": "%s"\n' "${PHP_VERSION}"
-              printf '%s\n' '  },'
-              printf '%s\n' '  "server": {'
-              printf '    "user": "%s",\n' "${SERVER_USER}"
-              printf '    "uname": "%s",\n' "${SERVER_UNAME}"
-              printf '    "datetime": "%s",\n' "${SERVER_DT}"
-              printf '    "cwd": "%s"\n' "${SERVER_CWD}"
-              printf '%s\n' '  },'
-              printf '%s\n' '  "theme": { "active": null, "all": [] },'
-              printf '%s\n' '  "plugins": { "standard": [], "must_use": [], "trees": {} },'
-              printf '%s\n' '  "admins": [],'
-              printf '%s\n' '  "summary": {'
-              printf '%s\n' '    "plugins_active": [],'
-              printf '%s\n' '    "counts": { "themes_total": 0, "plugins_total": 0, "plugins_active": 0, "plugins_mu": 0, "admins": 0 },'
-              printf '%s\n' '    "errors": ["jq missing – produced minimal snapshot"]'
-              printf '%s\n' '  },'
-              printf '%s\n' '  "wtp": {'
-              printf '    "ssot_path": ".wtp/ssot.yml", "ssot_sha1": "%s", "ssot_b64": "%s"\n' "${SSOT_SHA1}" "${SSOT_B64}"
-              printf '%s\n' '  }'
-              printf '%s\n' '}'
-            } > "${LOGDIR}/snapshot.json" || note_err "fallback write failed."
-          fi
+          $site   = jread("$logdir/site_info.json", new stdClass());
+          $themes = jread("$logdir/themes.json", []);
+          $tact   = jread("$logdir/theme_active.json", []);
+          $themeActive = (is_array($tact) && count($tact)>0) ? $tact[0] : null;
+
+          $pluginsStd = jread("$logdir/plugins.json", []);
+          $pluginsMU  = jread("$logdir/mu_plugins.json", []);
+          $admins     = jread("$logdir/admins.json", []);
+
+          $pluginsActive = jread("$logdir/plugins_active.json", []);
+
+          // trees summary (z plików tree.txt i hashes.sha1)
+          $trees = [];
+          $pluginsDir = "$logdir/plugins";
+          if (is_dir($pluginsDir)) {
+            foreach (scandir($pluginsDir) as $slug) {
+              if ($slug === '.' || $slug === '..') continue;
+              $pdir = "$pluginsDir/$slug";
+              if (!is_dir($pdir)) continue;
+              $treeFile  = "$pdir/tree.txt";
+              $hashes    = "$pdir/hashes.sha1";
+              $files = (file_exists($treeFile)) ? max(0, count(file($treeFile, FILE_IGNORE_NEW_LINES))) : 0;
+              $sha = '';
+              if (file_exists($hashes)) {
+                $all = preg_replace('/\s+.*/', '', file_get_contents($hashes));
+                $all = preg_replace('/\s+/', '', $all);
+                $sha = substr(sha1($all), 0, 40);
+              }
+              $trees[$slug] = ['files'=>$files, 'sha1'=>$sha];
+            }
+          }
+
+          // counts
+          $counts = [
+            'themes_total'   => is_array($themes) ? count($themes) : 0,
+            'plugins_total'  => is_array($pluginsStd) ? count($pluginsStd) : 0,
+            'plugins_active' => is_array($pluginsActive) ? count($pluginsActive) : 0,
+            'plugins_mu'     => is_array($pluginsMU) ? count($pluginsMU) : 0,
+            'admins'         => is_array($admins) ? count($admins) : 0
+          ];
+
+          // errors
+          $errors = [];
+          $errPath = "$logdir/errors.txt";
+          if (file_exists($errPath)) {
+            $lines = array_filter(array_map('trim', file($errPath)));
+            $errors = array_values($lines);
+          }
+
+          // server info (tekst -> array)
+          $srv = ['user'=>'','uname'=>'','datetime'=>'','cwd'=>''];
+          $si = fread_or("$logdir/server_info.txt");
+          if ($si) {
+            foreach (explode("\n", $si) as $ln) {
+              if (preg_match('/^([a-z]+):\s*(.*)$/i', trim($ln), $m)) {
+                $srv[$m[1]] = $m[2];
+              }
+            }
+          }
+
+          // ssot
+          $ssot_path = '.wtp/ssot.yml';
+          $ssot_sha1 = trim(fread_or("$logdir/ssot.sha1"));
+          $ssot_b64  = trim(fread_or("$logdir/ssot.yml")) ? base64_encode(fread_or("$logdir/ssot.yml")) : '';
+
+          $out = [
+            'run_id'    => intval($runId),
+            'timestamp' => $ts,
+            'site'      => $site,
+            'server'    => $srv,
+            'theme'     => ['active'=>$themeActive, 'all'=>$themes],
+            'plugins'   => ['standard'=>$pluginsStd, 'must_use'=>$pluginsMU, 'trees'=>$trees],
+            'admins'    => $admins,
+            'summary'   => ['plugins_active'=>$pluginsActive, 'counts'=>$counts, 'errors'=>$errors],
+            'wtp'       => ['ssot_path'=>$ssot_path, 'ssot_sha1'=>$ssot_sha1, 'ssot_b64'=>$ssot_b64]
+          ];
+
+          file_put_contents("$logdir/snapshot.json", json_encode($out, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+          PHPBUILDER
+
+          LOGDIR="${LOGDIR}" RUN_ID="${RUN_ID}" php /tmp/wtp_build_snapshot.php 2>>"${ERR_FILE}" || note_err "snapshot.json build failed."
+          rm -f /tmp/wtp_build_snapshot.php || true
           SNAPEOF
 
           chmod +x /tmp/wtp_snapshot.sh
-          # Utwórz katalog na jq i wyślij pliki (bez apostrofów w scp)
-          sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes "${USER}@${HOST}" "mkdir -p \"${TARGET}/.wtp/state/bin\""
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes /tmp/wtp_snapshot.sh ${USER}@${HOST}:/tmp/wtp_snapshot.sh
-          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes /tmp/jq ${USER}@${HOST}:"${TARGET}/.wtp/state/bin/jq"
 
       - name: 5) Run remote snapshot script
         shell: bash
