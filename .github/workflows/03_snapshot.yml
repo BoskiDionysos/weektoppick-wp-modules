@@ -120,9 +120,7 @@ jobs:
               [[ -n "$slug" && -d "${PLUG_DIR}/${slug}" ]] || continue
               OUTDIR="${LOGDIR}/plugins/${slug}"
               mkdir -p "${OUTDIR}"
-              # lista plików – stabilna kolejność
               find "${PLUG_DIR}/${slug}" -type f -print0 | sort -z | xargs -0 -I{} printf "%s\n" "{}" > "${OUTDIR}/tree.txt" 2>>"${ERR_FILE}" || true
-              # per-file sha1 – stabilna kolejność
               find "${PLUG_DIR}/${slug}" -type f -print0 | sort -z | xargs -0 sha1sum > "${OUTDIR}/hashes.sha1" 2>>"${ERR_FILE}" || { : > "${OUTDIR}/hashes.sha1"; }
               FILES_CNT="$(wc -l < "${OUTDIR}/tree.txt" 2>/dev/null || echo 0)"
               ALL_SHA="$(awk '{print $1}' "${OUTDIR}/hashes.sha1" 2>/dev/null | tr -d '\n' | sha1sum 2>/dev/null | awk '{print $1}' || echo "")"
@@ -138,7 +136,6 @@ jobs:
           if [[ -d "${MU_DIR}" ]]; then
             ls -la "${MU_DIR}" > "${LOGDIR}/mu-plugins/_ls.txt" 2>>"${ERR_FILE}" || note_err "ls mu-plugins failed."
             find "${MU_DIR}" -type f -print0 | sort -z | xargs -0 sha1sum > "${LOGDIR}/mu-plugins/_hashes.txt" 2>>"${ERR_FILE}" || true
-            # nagłówki dla PHP (Plugin Name)
             find "${MU_DIR}" -maxdepth 1 -type f -name "*.php" -print0 | while IFS= read -r -d '' f; do
               head -n 50 "$f" | grep -E "^\s*\*\s*Plugin Name:" -m1 > "${LOGDIR}/mu-plugins/$(basename "$f").header.txt" 2>>"${ERR_FILE}" || true
             done
@@ -251,55 +248,39 @@ jobs:
                 wtp:{ssot_path:$ssot_path, ssot_sha1:$ssot_sha1, ssot_b64:$ssot_b64}
               }' > "${LOGDIR}/snapshot.json" 2>>"${ERR_FILE}" || note_err "snapshot.json build failed."
           else
-            # Minimal fallback (bez jq) – bezpieczny szablon + sed
-            cat > "${LOGDIR}/snapshot.json" <<'MINJSON'
-{
-  "run_id": "__RUN_ID__",
-  "timestamp": "__TS_NOW__",
-  "site": {
-    "url": "__SITE_URL__",
-    "home": "__SITE_HOME__",
-    "wp_version": "__WP_VER__",
-    "table_prefix": "__TABLE_PREFIX__",
-    "language": "__WPLANG__",
-    "timezone": "__TZ_STR__",
-    "php_version": "__PHP_VERSION__"
-  },
-  "server": {
-    "user": "__SERVER_USER__",
-    "uname": "__SERVER_UNAME__",
-    "datetime": "__SERVER_DT__",
-    "cwd": "__SERVER_CWD__"
-  },
-  "theme": { "active": null, "all": [] },
-  "plugins": { "standard": [], "must_use": [], "trees": {} },
-  "admins": [],
-  "summary": {
-    "plugins_active": [],
-    "counts": { "themes_total": 0, "plugins_total": 0, "plugins_active": 0, "plugins_mu": 0, "admins": 0 },
-    "errors": ["jq missing – produced minimal snapshot"]
-  },
-  "wtp": { "ssot_path": ".wtp/ssot.yml", "ssot_sha1": "__SSOT_SHA1__", "ssot_b64": "__SSOT_B64__" }
-}
-MINJSON
-            # Podmiana placeholderów (bez ucieczki – awarie trafią do errors.txt)
-            sed -i \
-              -e "s#__RUN_ID__#${RUN_ID}#g" \
-              -e "s#__TS_NOW__#${TS_NOW}#g" \
-              -e "s#__SITE_URL__#${SITE_URL}#g" \
-              -e "s#__SITE_HOME__#${SITE_HOME}#g" \
-              -e "s#__WP_VER__#${WP_VER}#g" \
-              -e "s#__TABLE_PREFIX__#${TABLE_PREFIX}#g" \
-              -e "s#__WPLANG__#${WPLANG}#g" \
-              -e "s#__TZ_STR__#${TZ_STR}#g" \
-              -e "s#__PHP_VERSION__#${PHP_VERSION}#g" \
-              -e "s#__SERVER_USER__#${SERVER_USER}#g" \
-              -e "s#__SERVER_UNAME__#${SERVER_UNAME}#g" \
-              -e "s#__SERVER_DT__#${SERVER_DT}#g" \
-              -e "s#__SERVER_CWD__#${SERVER_CWD}#g" \
-              -e "s#__SSOT_SHA1__#${SSOT_SHA1}#g" \
-              -e "s#__SSOT_B64__#${SSOT_B64}#g" \
-              "${LOGDIR}/snapshot.json" || note_err "sed fallback replacement failed."
+            # Minimal fallback bez jq – BEZ dodatkowego heredoca (żeby YAML nie wariował)
+            {
+              printf '%s\n' '{'
+              printf '  "run_id": "%s",\n' "${RUN_ID}"
+              printf '  "timestamp": "%s",\n' "${TS_NOW}"
+              printf '%s\n' '  "site": {'
+              printf '    "url": "%s",\n' "${SITE_URL}"
+              printf '    "home": "%s",\n' "${SITE_HOME}"
+              printf '    "wp_version": "%s",\n' "${WP_VER}"
+              printf '    "table_prefix": "%s",\n' "${TABLE_PREFIX}"
+              printf '    "language": "%s",\n' "${WPLANG}"
+              printf '    "timezone": "%s",\n' "${TZ_STR}"
+              printf '    "php_version": "%s"\n' "${PHP_VERSION}"
+              printf '%s\n' '  },'
+              printf '%s\n' '  "server": {'
+              printf '    "user": "%s",\n' "${SERVER_USER}"
+              printf '    "uname": "%s",\n' "${SERVER_UNAME}"
+              printf '    "datetime": "%s",\n' "${SERVER_DT}"
+              printf '    "cwd": "%s"\n' "${SERVER_CWD}"
+              printf '%s\n' '  },'
+              printf '%s\n' '  "theme": { "active": null, "all": [] },'
+              printf '%s\n' '  "plugins": { "standard": [], "must_use": [], "trees": {} },'
+              printf '%s\n' '  "admins": [],'
+              printf '%s\n' '  "summary": {'
+              printf '%s\n' '    "plugins_active": [],'
+              printf '%s\n' '    "counts": { "themes_total": 0, "plugins_total": 0, "plugins_active": 0, "plugins_mu": 0, "admins": 0 },'
+              printf '%s\n' '    "errors": ["jq missing – produced minimal snapshot"]'
+              printf '%s\n' '  },'
+              printf '%s\n' '  "wtp": {'
+              printf '    "ssot_path": ".wtp/ssot.yml", "ssot_sha1": "%s", "ssot_b64": "%s"\n' "${SSOT_SHA1}" "${SSOT_B64}"
+              printf '%s\n' '  }'
+              printf '%s\n' '}'
+            } > "${LOGDIR}/snapshot.json" || note_err "fallback write failed."
           fi
           SNAPEOF
 
