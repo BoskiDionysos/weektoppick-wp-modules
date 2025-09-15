@@ -85,7 +85,7 @@ jobs:
             echo "date:  $(date -Is)"
             echo "pwd:   $(pwd)"
           } > .wtp/state/ci_logs/server_info.txt
-EOF
+  EOF
 
       - name: Upload plugins list to server (if any)
         if: ${{ hashFiles('.wtp/plugins.install.list') != '' }}
@@ -152,7 +152,7 @@ EOF
           done < .wtp.plugins.install.list
 
           php ./wp plugin list --format=csv > .wtp/state/ci_logs/active_plugins.csv || true
-EOF
+  EOF
 
       - name: Pull logs back
         run: |
