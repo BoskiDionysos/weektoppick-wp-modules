@@ -4,9 +4,8 @@ on:
   workflow_run:
     workflows: ["02_wpcli (install/update/activate from SSOT, secure SSH)"]
     types: [completed]
-  workflow_dispatch: {}
-  schedule:
-    - cron: "0 3 * * *"    # 2) codzienny snapshot o 03:00 UTC
+    branches: [main]        # ograniczamy lawinę runów do main
+  workflow_dispatch: {}     # ręcznie
 
 permissions:
   contents: write
@@ -19,7 +18,6 @@ jobs:
   snapshot:
     if: |
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
@@ -259,15 +257,18 @@ jobs:
           LOGDIR="${LOGDIR}" RUN_ID="${RUN_ID}" php /tmp/wtp_build_snapshot.php 2>>"${ERR_FILE}" || note_err "snapshot.json build failed."
           rm -f /tmp/wtp_build_snapshot.php || true
 
-          # ---------- J) Publish to RO (public URL) ----------
+          # ---------- J) Publish to RO (public URL) + PRUNE (keep 30) ----------
           if [[ -n "${SITE_KEY:-}" ]]; then
             PUB_DIR="${TARGET}/wp-content/uploads/wtp-ro/public/${SITE_KEY}"
             mkdir -p "${PUB_DIR}" || note_err "Cannot create ${PUB_DIR}"
             cp -f "${LOGDIR}/snapshot.json" "${PUB_DIR}/snapshot.json" 2>>"${ERR_FILE}" || note_err "Copy snapshot.json -> latest failed."
             cp -f "${LOGDIR}/snapshot.json" "${PUB_DIR}/snapshot-${RUN_ID}.json" 2>>"${ERR_FILE}" || note_err "Copy snapshot.json -> versioned failed."
+            # pomocnicze do debug (opcjonalne)
             cp -f "${LOGDIR}/plugins.json" "${PUB_DIR}/plugins.json" 2>/dev/null || true
             cp -f "${LOGDIR}/themes.json"  "${PUB_DIR}/themes.json"  2>/dev/null || true
             cp -f "${LOGDIR}/mu_plugins.json" "${PUB_DIR}/mu_plugins.json" 2>/dev/null || true
+            # PRUNE publicznych snapshotów – zostaw 30 najnowszych
+            ls -1 "${PUB_DIR}"/snapshot-*.json 2>/dev/null | sort -n | head -n -30 | xargs -r rm -f || true
           else
             note_err "RO publish skipped: SITE_KEY empty."
           fi
@@ -417,6 +418,25 @@ jobs:
             git push
           fi
 
+      - name: Prune old snapshots in repo (keep last 30)
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIR=".wtp/snapshots"
+          N=30
+          mapfile -t TO_DELETE < <(ls -1 "$DIR"/snapshot-*.json 2>/dev/null \
+            | grep -v 'snapshot-latest.json' \
+            | sed -E 's#.*/snapshot-([0-9]+)\.json#\1 \0#' \
+            | sort -n \
+            | awk -v n="$N" 'NR<=NF {list[NR]=$2} END{for(i=1;i<=NR-n;i++) print list[i]}' )
+          if (( ${#TO_DELETE[@]} )); then
+            git rm -f "${TO_DELETE[@]}" || true
+            git commit -m "chore(snapshot): prune old snapshots (keep last ${N})" || true
+            git push || true
+          else
+            echo "Nothing to prune."
+          fi
+
       - name: Print RAW URLs (for external analysis)
         shell: bash
         run: |
@@ -443,7 +463,6 @@ jobs:
           set -euo pipefail
           DIR=".wtp/snapshots"
           mkdir -p "$DIR"
-          # zbierz ID runów z plików snapshot-<id>.json
           RUNS=$(ls -1 "$DIR"/snapshot-*.json 2>/dev/null \
             | grep -v 'snapshot-latest.json' \
             | sed -E 's#.*/snapshot-([0-9]+)\.json#\1#' | sort -n || true)
@@ -535,8 +554,6 @@ jobs:
             ];
             file_put_contents(getenv("OUT"), json_encode($out, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
           '
-
-          echo "Built diff to $OUT"
 
       - name: Upload diff artifact
         if: steps.pick.outputs.found != '0'
