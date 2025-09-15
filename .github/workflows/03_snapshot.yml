@@ -308,6 +308,49 @@ jobs:
             echo "::error::No snapshot.json generated"; exit 1
           fi
 
+      - name: 8.5) Publish & print snapshot summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          SNAP="_ci_logs/${{ github.run_id }}/snapshot/snapshot.json"
+          if [[ -s "$SNAP" ]]; then
+            # Zbuduj krótkie podsumowanie (bez jq – PHP ma wszędzie)
+            php -r '
+              $j = json_decode(file_get_contents(getenv("SNAP")), true);
+              if(!$j){ exit(0); }
+              $o = [
+                "run_id"=>$j["run_id"] ?? null,
+                "timestamp"=>$j["timestamp"] ?? null,
+                "site"=>[
+                  "url"=>$j["site"]["url"] ?? null,
+                  "wp_version"=>$j["site"]["wp_version"] ?? null,
+                  "php_version"=>$j["site"]["php_version"] ?? null
+                ],
+                "counts"=>$j["summary"]["counts"] ?? [],
+                "active_plugins"=>$j["summary"]["plugins_active"] ?? [],
+                "errors"=>$j["summary"]["errors"] ?? []
+              ];
+              $json = json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
+              file_put_contents(getenv("OUT"), $json);
+              echo $json;
+            ' SNAP="$SNAP" OUT="_ci_logs/${{ github.run_id }}/snapshot/snapshot-summary.json" | tee -a "$GITHUB_STEP_SUMMARY"
+
+            # Jeśli mamy SITE_KEY → opublikuj mini-podsumowanie jako publiczny plik
+            if [[ -n "${SITE_KEY:-}" ]]; then
+              sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
+                "${USER}@${HOST}" "mkdir -p \"${TARGET}/wp-content/uploads/wtp-ro/public/${SITE_KEY}\""
+              sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes \
+                "_ci_logs/${{ github.run_id }}/snapshot/snapshot-summary.json" \
+                ${USER}@${HOST}:"${TARGET}/wp-content/uploads/wtp-ro/public/${SITE_KEY}/snapshot-summary.json"
+              echo "::notice::RO summary: ${SITE_URL:-https://weektoppick.com}/wp-content/uploads/wtp-ro/public/${SITE_KEY}/snapshot-summary.json"
+            else
+              echo "::warning::SITE_KEY not set → public summary skipped."
+            fi
+          else
+            echo "::warning::No snapshot.json to summarize."
+          fi
+
       - name: 9) Report summary
         if: always()
         shell: bash
