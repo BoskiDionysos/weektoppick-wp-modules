@@ -1,0 +1,26 @@
+{
+  "classic-editor": {
+    "files": 6,
+    "sha1": "4e5c299ec9783b9ed285260d9c9e35bce712c06d"
+  },
+  "cookie-law-info": {
+    "files": 345,
+    "sha1": "d82707abf2c3c106249f569cf746392ddb57ba26"
+  },
+  "litespeed-cache": {
+    "files": 307,
+    "sha1": "963a1d99a123c44391228b1d5930f308a36d4673"
+  },
+  "pretty-link": {
+    "files": 368,
+    "sha1": "e95a64af8ebf24c13418205dbe36f12b64009392"
+  },
+  "seo-by-rank-math": {
+    "files": 895,
+    "sha1": "f2766d621a0d118517b8d5576c7fc0c252a530a0"
+  },
+  "wordfence": {
+    "files": 729,
+    "sha1": "9686990a7d8537d63aacc205b4cb56ca99152b70"
+  }
+}
