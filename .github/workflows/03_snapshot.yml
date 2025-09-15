@@ -4,8 +4,12 @@ on:
   workflow_run:
     workflows: ["02_wpcli (install/update/activate from SSOT, secure SSH)"]
     types: [completed]
-    branches: [main]
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      commit_snapshot:
+        description: "Commit snapshot.json do repo (.wtp/snapshots/)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -54,7 +58,7 @@ jobs:
         shell: bash
         run: mkdir -p "_ci_logs/${{ github.run_id }}/snapshot"
 
-      - name: 4) Create & upload snapshot script
+      - name: 4) Create & upload remote snapshot script
         shell: bash
         run: |
           set -euo pipefail
@@ -72,7 +76,7 @@ jobs:
           note_err(){ echo "$1" | tee -a "${ERR_FILE}" 1>&2 || true; }
           run_wp(){ php ./wp "$@" --path="${TARGET}"; }
 
-          # ---------- A) Site/Core ----------
+          # --- A) Site/Core
           SITE_URL="$(run_wp option get siteurl 2>/dev/null || true)"
           SITE_HOME="$(run_wp option get home 2>/dev/null || true)"
           WP_VER="$(run_wp core version 2>/dev/null || true)"
@@ -92,19 +96,20 @@ jobs:
             printf '  "timezone": "%s",\n' "${TZ_STR}"
             printf '  "php_version": "%s"\n' "${PHP_VERSION}"
             printf '%s\n' '}'
-          } > "${LOGDIR}/site_info.json" || note_err "site_info.json write failed."
+          } > "${LOGDIR}/site_info.json" || note_err "site_info.json failed."
 
-          # ---------- B) Themes ----------
-          run_wp theme list --status=active --format=json > "${LOGDIR}/theme_active.json" 2>>"${ERR_FILE}" || note_err "wp theme list --status=active failed."
-          run_wp theme list --format=json > "${LOGDIR}/themes.json"       2>>"${ERR_FILE}" || note_err "wp theme list --format=json failed."
+          # --- B) Themes
+          run_wp theme list --status=active --format=json > "${LOGDIR}/theme_active.json" 2>>"${ERR_FILE}" || note_err "wp theme list active failed."
+          run_wp theme list --format=json > "${LOGDIR}/themes.json" 2>>"${ERR_FILE}" || note_err "wp theme list failed."
 
-          # ---------- C) Plugins ----------
-          run_wp plugin list --format=json > "${LOGDIR}/plugins.json" 2>>"${ERR_FILE}" || note_err "wp plugin list --format=json failed."
-          run_wp plugin list --format=csv  > "${LOGDIR}/plugins.csv"  2>>"${ERR_FILE}" || note_err "wp plugin list --format=csv failed."
+          # --- C) Plugins (standard)
+          run_wp plugin list --format=json > "${LOGDIR}/plugins.json" 2>>"${ERR_FILE}" || note_err "wp plugin list json failed."
+          run_wp plugin list --format=csv  > "${LOGDIR}/plugins.csv" 2>>"${ERR_FILE}" || note_err "wp plugin list csv failed."
 
-          # C2) Per-plugin trees + SHA1
+          # Per-plugin trees + hashes
           PLUG_DIR="${TARGET}/wp-content/plugins"
           if [[ -d "${PLUG_DIR}" ]]; then
+            # spróbuj z listy wp-cli, jak brak – z systemu plików
             if [[ -s "${LOGDIR}/plugins.json" ]]; then
               sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${LOGDIR}/plugins.json" | sort -u > "${LOGDIR}/_slugs.txt" || true
             else
@@ -118,7 +123,7 @@ jobs:
             done < "${LOGDIR}/_slugs.txt"
           fi
 
-          # ---------- D) MU-plugins ----------
+          # --- D) MU-plugins
           MU_DIR="${TARGET}/wp-content/mu-plugins"
           mkdir -p "${LOGDIR}/mu-plugins"
           if [[ -d "${MU_DIR}" ]]; then
@@ -132,15 +137,15 @@ jobs:
             echo "mu-plugins directory not found." > "${LOGDIR}/mu-plugins/_ls.txt"
             : > "${LOGDIR}/mu-plugins/_hashes.txt"
           fi
-          run_wp plugin list --status=must-use --format=json > "${LOGDIR}/mu_plugins.json" 2>>"${ERR_FILE}" || note_err "wp plugin list --status=must-use failed."
+          run_wp plugin list --status=must-use --format=json > "${LOGDIR}/mu_plugins.json" 2>>"${ERR_FILE}" || note_err "wp plugin list must-use failed."
 
-          # ---------- E) Users ----------
-          run_wp user list --role=administrator --field=user_login --format=json > "${LOGDIR}/admins.json" 2>>"${ERR_FILE}" || note_err "wp user list --role=administrator failed."
+          # --- E) Users (admins)
+          run_wp user list --role=administrator --field=user_login --format=json > "${LOGDIR}/admins.json" 2>>"${ERR_FILE}" || note_err "wp user list admin failed."
 
-          # ---------- F) WTP / SSOT ----------
+          # --- F) WTP / SSOT
           SSOT_PATH="${TARGET}/.wtp/ssot.yml"; SSOT_SHA1=""; SSOT_B64=""
           if [[ -f "${SSOT_PATH}" ]]; then
-            cp "${SSOT_PATH}" "${LOGDIR}/ssot.yml" 2>>"${ERR_FILE}" || note_err "Copy ssot.yml failed."
+            cp "${SSOT_PATH}" "${LOGDIR}/ssot.yml" 2>>"${ERR_FILE}" || note_err "copy ssot.yml failed."
             SSOT_SHA1="$(sha1sum "${SSOT_PATH}" | awk '{print $1}')" || true
             echo "${SSOT_SHA1}" > "${LOGDIR}/ssot.sha1" || true
             SSOT_B64="$(base64 -w0 "${SSOT_PATH}" 2>/dev/null || base64 "${SSOT_PATH}" | tr -d '\n')" || true
@@ -148,7 +153,7 @@ jobs:
             note_err "SSOT file .wtp/ssot.yml not found."
           fi
 
-          # ---------- G) Server ----------
+          # --- G) Server info
           SERVER_USER="$(whoami 2>/dev/null || true)"
           SERVER_UNAME="$(uname -a 2>/dev/null || true)"
           SERVER_DT="$(date -Is 2>/dev/null || true)"
@@ -160,44 +165,43 @@ jobs:
             echo "cwd: ${SERVER_CWD}"
           } > "${LOGDIR}/server_info.txt" 2>>"${ERR_FILE}" || note_err "server_info.txt failed."
 
-          # ---------- H) Active plugins ----------
-          run_wp plugin list --status=active --field=name --format=json > "${LOGDIR}/plugins_active.json" 2>>"${ERR_FILE}" || note_err "wp plugin list --status=active --field=name failed."
+          # --- H) Active plugins (summary helpers)
+          run_wp plugin list --status=active --field=name --format=json > "${LOGDIR}/plugins_active.json" 2>>"${ERR_FILE}" || note_err "wp plugin list active names failed."
           if [[ -s "${LOGDIR}/plugins_active.json" ]]; then
             sed -n 's/[^"[]*"\([^"]\+\)".*/\1/p' "${LOGDIR}/plugins_active.json" > "${LOGDIR}/plugins_active.txt" 2>>"${ERR_FILE}" || true
           else
             : > "${LOGDIR}/plugins_active.txt"
           fi
 
-          # ---------- I) Build snapshot.json (PHP) ----------
+          # --- I) Build snapshot.json (PHP – bez jq)
           cat > /tmp/wtp_build_snapshot.php <<'PHPBUILDER'
           <?php
           error_reporting(E_ALL);
-          $logdir = getenv('LOGDIR');
-          $runId  = getenv('RUN_ID');
-          $ts     = date('c');
+          $log = getenv('LOGDIR');
+          $run = getenv('RUN_ID');
+          $ts  = date('c');
+          function jr($p,$d){ return ($p && is_readable($p)) ? (json_decode(file_get_contents($p), true) ?? $d) : $d; }
+          function fr($p,$d=''){ return ($p && is_readable($p)) ? file_get_contents($p) : $d; }
 
-          function jread($p,$d){ return ($p && is_readable($p)) ? (json_decode(file_get_contents($p), true) ?? $d) : $d; }
-          function fread_or($p,$d=''){ return ($p && is_readable($p)) ? file_get_contents($p) : $d; }
-
-          $site   = jread("$logdir/site_info.json", new stdClass());
-          $themes = jread("$logdir/themes.json", []);
-          $tact   = jread("$logdir/theme_active.json", []);
+          $site   = jr("$log/site_info.json", new stdClass());
+          $themes = jr("$log/themes.json", []);
+          $tact   = jr("$log/theme_active.json", []);
           $themeActive = (is_array($tact) && count($tact)>0) ? $tact[0] : null;
 
-          $pluginsStd = jread("$logdir/plugins.json", []);
-          $pluginsMU  = jread("$logdir/mu_plugins.json", []);
-          $admins     = jread("$logdir/admins.json", []);
-          $pluginsActive = jread("$logdir/plugins_active.json", []);
+          $pluginsStd = jr("$log/plugins.json", []);
+          $pluginsMU  = jr("$log/mu_plugins.json", []);
+          $admins     = jr("$log/admins.json", []);
+          $pluginsActive = jr("$log/plugins_active.json", []);
 
-          // trees (standard plugins)
+          // trees
           $trees = [];
-          $pluginsDir = "$logdir/plugins";
-          if (is_dir($pluginsDir)) {
-            foreach (scandir($pluginsDir) as $slug) {
+          $dir = "$log/plugins";
+          if (is_dir($dir)) {
+            foreach (scandir($dir) as $slug) {
               if ($slug==='.'||$slug==='..') continue;
-              $pdir = "$pluginsDir/$slug"; if(!is_dir($pdir)) continue;
-              $treeFile="$pdir/tree.txt"; $hashes="$pdir/hashes.sha1";
-              $files = (is_readable($treeFile)) ? max(0,count(file($treeFile, FILE_IGNORE_NEW_LINES))) : 0;
+              $p = "$dir/$slug"; if(!is_dir($p)) continue;
+              $tree="$p/tree.txt"; $hashes="$p/hashes.sha1";
+              $files = (is_readable($tree)) ? max(0,count(file($tree, FILE_IGNORE_NEW_LINES))) : 0;
               $sha = '';
               if (is_readable($hashes)) {
                 $all=preg_replace('/\s+.*/','',file_get_contents($hashes));
@@ -208,7 +212,7 @@ jobs:
             }
           }
 
-          // counts (standard != must-use)
+          // counts (standard != MU)
           $stdOnly = array_values(array_filter($pluginsStd, fn($p)=>is_array($p) && (($p['status']??'')!=='must-use')));
           $counts = [
             'themes_total'   => is_array($themes)?count($themes):0,
@@ -220,14 +224,12 @@ jobs:
 
           // errors
           $errors = [];
-          $errPath = "$logdir/errors.txt";
-          if (is_readable($errPath)) {
-            $errors = array_values(array_filter(array_map('trim', file($errPath))));
-          }
+          $e="$log/errors.txt";
+          if (is_readable($e)) { $errors = array_values(array_filter(array_map('trim', file($e)))); }
 
           // server
           $srv=['user'=>'','uname'=>'','datetime'=>'','cwd'=>''];
-          $si=fread_or("$logdir/server_info.txt");
+          $si=fr("$log/server_info.txt");
           if($si){
             foreach(explode("\n",$si) as $ln){
               if(preg_match('/^([a-z]+):\s*(.*)$/i',trim($ln),$m)){ $srv[$m[1]]=$m[2]; }
@@ -236,11 +238,11 @@ jobs:
 
           // ssot
           $ssot_path='.wtp/ssot.yml';
-          $ssot_sha1=trim(fread_or("$logdir/ssot.sha1"));
-          $ssot_b64= is_readable("$logdir/ssot.yml") ? base64_encode(file_get_contents("$logdir/ssot.yml")) : '';
+          $ssot_sha1=trim(fr("$log/ssot.sha1"));
+          $ssot_b64= is_readable("$log/ssot.yml") ? base64_encode(file_get_contents("$log/ssot.yml")) : '';
 
           $out = [
-            'run_id'=>(int)$runId,
+            'run_id'=>(int)$run,
             'timestamp'=>$ts,
             'site'=>$site,
             'server'=>$srv,
@@ -250,29 +252,23 @@ jobs:
             'summary'=>['plugins_active'=>$pluginsActive,'counts'=>$counts,'errors'=>$errors],
             'wtp'=>['ssot_path'=>$ssot_path,'ssot_sha1'=>$ssot_sha1,'ssot_b64'=>$ssot_b64]
           ];
-          file_put_contents("$logdir/snapshot.json", json_encode($out, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+          file_put_contents("$log/snapshot.json", json_encode($out, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
           PHPBUILDER
 
           LOGDIR="${LOGDIR}" RUN_ID="${RUN_ID}" php /tmp/wtp_build_snapshot.php 2>>"${ERR_FILE}" || note_err "snapshot.json build failed."
           rm -f /tmp/wtp_build_snapshot.php || true
 
-          # ---------- J) Publish to RO (public URL) + PRUNE (keep 30) ----------
+          # --- J) Publish RO (optional)
           if [[ -n "${SITE_KEY:-}" ]]; then
             PUB_DIR="${TARGET}/wp-content/uploads/wtp-ro/public/${SITE_KEY}"
             mkdir -p "${PUB_DIR}" || note_err "Cannot create ${PUB_DIR}"
-            cp -f "${LOGDIR}/snapshot.json" "${PUB_DIR}/snapshot.json" 2>>"${ERR_FILE}" || note_err "Copy -> latest failed."
-            cp -f "${LOGDIR}/snapshot.json" "${PUB_DIR}/snapshot-${RUN_ID}.json" 2>>"${ERR_FILE}" || note_err "Copy -> versioned failed."
-            cp -f "${LOGDIR}/plugins.json"     "${PUB_DIR}/plugins.json"      2>/dev/null || true
-            cp -f "${LOGDIR}/themes.json"      "${PUB_DIR}/themes.json"       2>/dev/null || true
-            cp -f "${LOGDIR}/mu_plugins.json"  "${PUB_DIR}/mu_plugins.json"   2>/dev/null || true
-            ls -1 "${PUB_DIR}"/snapshot-*.json 2>/dev/null | sort -n | head -n -30 | xargs -r rm -f || true
-          else
-            note_err "RO publish skipped: SITE_KEY empty."
+            cp -f "${LOGDIR}/snapshot.json" "${PUB_DIR}/snapshot.json" 2>>"${ERR_FILE}" || true
+            cp -f "${LOGDIR}/snapshot.json" "${PUB_DIR}/snapshot-${RUN_ID}.json" 2>>"${ERR_FILE}" || true
           fi
           SNAPEOF
 
           chmod +x /tmp/wtp_snapshot.sh
-          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes /tmp/wtp_snapshot.sh ${USER}@${HOST}:/tmp/wtp_snapshot.sh
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes /tmp/wtp_snapshot.sh "${USER}@${HOST}:/tmp/wtp_snapshot.sh"
 
       - name: 4.5) Hotfix: push .wtp/ssot.yml to server if exists
         shell: bash
@@ -283,9 +279,8 @@ jobs:
               "${USER}@${HOST}" "mkdir -p '${TARGET}/.wtp'"
             sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes \
               ".wtp/ssot.yml" "${USER}@${HOST}:${TARGET}/.wtp/ssot.yml"
-            echo "::notice::Pushed .wtp/ssot.yml to server."
           else
-            echo "::warning::.wtp/ssot.yml not found in repo – skipping hotfix push."
+            echo "::warning::.wtp/ssot.yml not found in repo – skipping push."
           fi
 
       - name: 5) Run remote snapshot script
@@ -321,50 +316,6 @@ jobs:
             echo "::error::No snapshot.json generated"; exit 1
           fi
 
-      - name: 8.5) Publish & print snapshot summary (public)
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          SNAP="_ci_logs/${{ github.run_id }}/snapshot/snapshot.json"
-          if [[ -s "$SNAP" ]]; then
-            OUT="_ci_logs/${{ github.run_id }}/snapshot/snapshot-summary.json"
-            SNAP="$SNAP" OUT="$OUT" php -r '
-              $snap = getenv("SNAP") ?: "";
-              if ($snap === "" || !is_readable($snap)) { exit(0); }
-              $j = json_decode(file_get_contents($snap), true);
-              if (!$j) { exit(0); }
-              $o = [
-                "run_id"=>$j["run_id"] ?? null,
-                "timestamp"=>$j["timestamp"] ?? null,
-                "site"=>[
-                  "url"=>$j["site"]["url"] ?? null,
-                  "wp_version"=>$j["site"]["wp_version"] ?? null,
-                  "php_version"=>$j["site"]["php_version"] ?? null
-                ],
-                "counts"=>$j["summary"]["counts"] ?? [],
-                "active_plugins"=>$j["summary"]["plugins_active"] ?? [],
-                "errors"=>$j["summary"]["errors"] ?? []
-              ];
-              $out = getenv("OUT") ?: "";
-              if ($out !== "") file_put_contents($out, json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
-              echo json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
-            ' | tee -a "$GITHUB_STEP_SUMMARY"
-
-            if [[ -n "${SITE_KEY:-}" ]]; then
-              sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
-                "${USER}@${HOST}" "mkdir -p \"${TARGET}/wp-content/uploads/wtp-ro/public/${SITE_KEY}\""
-              sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes \
-                "_ci_logs/${{ github.run_id }}/snapshot/snapshot-summary.json" \
-                ${USER}@${HOST}:"${TARGET}/wp-content/uploads/wtp-ro/public/${SITE_KEY}/snapshot-summary.json"
-              echo "::notice::RO summary pushed."
-            else
-              echo "::warning::SITE_KEY not set → public summary skipped."
-            fi
-          else
-            echo "::warning::No snapshot.json to summarize."
-          fi
-
       - name: 9) Report summary
         if: always()
         shell: bash
@@ -375,35 +326,15 @@ jobs:
             echo "::group::Snapshot errors"
             cat "$ERR" || true
             echo "::endgroup::"
-            while IFS= read -r line; do
-              [[ -n "$line" ]] && echo "::warning::$line"
-            done < "$ERR"
+            while IFS= read -r line; do [[ -n "$line" ]] && echo "::warning::$line"; done < "$ERR"
           fi
           if [[ -n "${SITE_KEY:-}" ]]; then
             echo "::notice::RO latest: /wp-content/uploads/wtp-ro/public/${SITE_KEY}/snapshot.json"
-            echo "::notice::RO run:    /wp-content/uploads/wtp-ro/public/${SITE_KEY}/snapshot-${{ github.run_id }}.json"
           fi
           echo "::notice::03_snapshot completed for run ${{ github.run_id }}."
 
-  publish_snapshot:
-    needs: snapshot
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Download snapshot artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: snapshot-logs-${{ github.run_id }}
-          path: _ci_logs/${{ github.run_id }}/snapshot/
-
-      - name: Commit snapshot.json to repo (versioned + latest)
+      - name: 10) (Optional) Commit snapshot to repo
+        if: ${{ inputs.commit_snapshot }}
         shell: bash
         run: |
           set -euo pipefail
@@ -411,196 +342,16 @@ jobs:
           DEST_DIR=".wtp/snapshots"
           DEST_VER="${DEST_DIR}/snapshot-${{ github.run_id }}.json"
           DEST_LATEST="${DEST_DIR}/snapshot-latest.json"
-
           [[ -s "$SRC" ]] || { echo "::error::snapshot.json missing"; exit 1; }
           mkdir -p "$DEST_DIR"
           cp "$SRC" "$DEST_VER"
           cp "$SRC" "$DEST_LATEST"
-
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$DEST_VER" "$DEST_LATEST"
           if git diff --staged --quiet; then
             echo "::notice::No changes to commit."
           else
-            git commit -m "Snapshot ${GITHUB_RUN_ID}: add ${DEST_VER} and update snapshot-latest.json"
+            git commit -m "Add snapshot JSON for run ${{ github.run_id }} (and update snapshot-latest.json)"
             git push
           fi
-
-      - name: Prune old snapshots in repo (keep last 30)
-        shell: bash
-        run: |
-          set -euo pipefail
-          DIR=".wtp/snapshots"
-          N=30
-          mapfile -t TO_DELETE < <(ls -1 "$DIR"/snapshot-*.json 2>/dev/null \
-            | grep -v 'snapshot-latest.json' \
-            | sed -E 's#.*/snapshot-([0-9]+)\.json#\1 \0#' \
-            | sort -n \
-            | awk -v n="$N" 'NR<=NF {list[NR]=$2} END{for(i=1;i<=NR-n;i++) print list[i]}' )
-          if (( ${#TO_DELETE[@]} )); then
-            git rm -f "${TO_DELETE[@]}" || true
-            git commit -m "chore(snapshot): prune old snapshots (keep last ${N})" || true
-            git push || true
-          else
-            echo "Nothing to prune."
-          fi
-
-      - name: Print RAW URLs (for external analysis)
-        shell: bash
-        run: |
-          set -euo pipefail
-          REPO="${{ github.repository }}"
-          BRANCH="${{ github.ref_name }}"
-          echo "::notice::RAW latest: https://raw.githubusercontent.com/${REPO}/${BRANCH}/.wtp/snapshots/snapshot-latest.json"
-          echo "::notice::RAW run:    https://raw.githubusercontent.com/${REPO}/${BRANCH}/.wtp/snapshots/snapshot-${{ github.run_id }}.json"
-
-  diff_snapshot:
-    needs: publish_snapshot
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout repo (with history)
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Locate latest & previous snapshots
-        id: pick
-        shell: bash
-        run: |
-          set -euo pipefail
-          DIR=".wtp/snapshots"
-          mkdir -p "$DIR"
-          RUNS=$(ls -1 "$DIR"/snapshot-*.json 2>/dev/null \
-            | grep -v 'snapshot-latest.json' \
-            | sed -E 's#.*/snapshot-([0-9]+)\.json#\1#' | sort -n || true)
-          if [[ -z "${RUNS}" ]]; then
-            echo "found=0" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          LAST_RUN=$(echo "$RUNS" | tail -n1)
-          PREV_RUN=$(echo "$RUNS" | tail -n2 | head -n1)
-          if [[ "$LAST_RUN" == "$PREV_RUN" || -z "$PREV_RUN" ]]; then
-            echo "found=1"   >> $GITHUB_OUTPUT
-            echo "last=$LAST_RUN" >> $GITHUB_OUTPUT
-            echo "prev="     >> $GITHUB_OUTPUT
-          else
-            echo "found=2"   >> $GITHUB_OUTPUT
-            echo "last=$LAST_RUN" >> $GITHUB_OUTPUT
-            echo "prev=$PREV_RUN" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Build diff report (PHP, no jq)
-        if: steps.pick.outputs.found != '0'
-        shell: bash
-        run: |
-          set -euo pipefail
-          LAST_ID="${{ steps.pick.outputs.last }}"
-          PREV_ID="${{ steps.pick.outputs.prev }}"
-          LAST=".wtp/snapshots/snapshot-${LAST_ID}.json"
-          [[ -n "${PREV_ID}" ]] && PREV=".wtp/snapshots/snapshot-${PREV_ID}.json" || PREV=""
-          OUT="_ci_logs/${{ github.run_id }}/snapshot/snapshot-diff.json"
-          mkdir -p "_ci_logs/${{ github.run_id }}/snapshot"
-
-          LAST="$LAST" PREV="$PREV" OUT="$OUT" php -r '
-            function j($p){
-              if (!$p || !is_readable($p)) return null;
-              $t = file_get_contents($p);
-              return $t!==false ? (json_decode($t, true) ?? null) : null;
-            }
-            function setv($a){ return array_values(array_unique(is_array($a)?$a:[])); }
-
-            $last = j(getenv("LAST"));
-            $prev = j(getenv("PREV"));
-            $out  = ["last_run"=>$last["run_id"]??null,"prev_run"=>$prev["run_id"]??null];
-
-            if(!$last){
-              file_put_contents(getenv("OUT"), json_encode($out));
-              exit;
-            }
-
-            $la = setv($last["summary"]["plugins_active"]??[]);
-            $pa = setv($prev["summary"]["plugins_active"]??[]);
-            $added   = array_values(array_diff($la,$pa));
-            $removed = array_values(array_diff($pa,$la));
-
-            $lt = is_array($last["plugins"]["trees"]??null)? $last["plugins"]["trees"] : [];
-            $pt = is_array($prev["plugins"]["trees"]??null)? $prev["plugins"]["trees"] : [];
-            $changedTrees = [];
-            foreach ($lt as $slug=>$meta){
-              $ls = $meta["sha1"]??"";
-              $ps = $pt[$slug]["sha1"]??"";
-              if($ps!=="" && $ls!==$ps){ $changedTrees[$slug]=["prev"=>$ps,"last"=>$ls]; }
-            }
-
-            $ladm = setv($last["admins"]??[]);
-            $padm = setv($prev["admins"]??[]);
-            $admins_added   = array_values(array_diff($ladm,$padm));
-            $admins_removed = array_values(array_diff($padm,$ladm));
-
-            $ssot_last = $last["wtp"]["ssot_sha1"]??"";
-            $ssot_prev = $prev["wtp"]["ssot_sha1"]??"";
-            $ssot_changed = ($prev && $ssot_last!==$ssot_prev) ? ["prev"=>$ssot_prev,"last"=>$ssot_last] : null;
-
-            $out += [
-              "site"=>$last["site"]["url"]??null,
-              "versions"=>["wp"=>$last["site"]["wp_version"]??null, "php"=>$last["site"]["php_version"]??null],
-              "plugins"=>[
-                "total"=>$last["summary"]["counts"]["plugins_total"]??null,
-                "active_total"=>$last["summary"]["counts"]["plugins_active"]??null,
-                "mu_total"=>$last["summary"]["counts"]["plugins_mu"]??null,
-                "active_added"=>$added,
-                "active_removed"=>$removed,
-                "trees_changed"=>$changedTrees
-              ],
-              "admins"=>["added"=>$admins_added,"removed"=>$admins_removed],
-              "ssot_changed"=>$ssot_changed,
-              "errors"=>$last["summary"]["errors"]??[]
-            ];
-            file_put_contents(getenv("OUT"), json_encode($out, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
-          '
-
-      - name: Upload diff artifact
-        if: steps.pick.outputs.found != '0'
-        uses: actions/upload-artifact@v4
-        with:
-          name: snapshot-diff-${{ github.run_id }}
-          path: _ci_logs/${{ github.run_id }}/snapshot/snapshot-diff.json
-
-      - name: Print diff summary + alerts
-        if: steps.pick.outputs.found != '0'
-        shell: bash
-        run: |
-          set -euo pipefail
-          DIFF="_ci_logs/${{ github.run_id }}/snapshot/snapshot-diff.json"
-          DIFF="$DIFF" php -r '
-            $p=getenv("DIFF") ?: "";
-            if($p==="" || !is_readable($p)){ exit; }
-            $d=json_decode(file_get_contents($p),true)?:[];
-            echo "## Snapshot diff\n\n";
-            echo "- Site: ".($d["site"]??"n/a")."\n";
-            echo "- Runs: last=".($d["last_run"]??"")." prev=".($d["prev_run"]??"")."\n";
-            echo "- WP/PHP: ".(($d["versions"]["wp"]??"n/a")." / ".($d["versions"]["php"]??"n/a"))."\n";
-            $added = $d["plugins"]["active_added"]??[];
-            $removed = $d["plugins"]["active_removed"]??[];
-            $trees = $d["plugins"]["trees_changed"]??[];
-            $admA = $d["admins"]["added"]??[];
-            $admR = $d["admins"]["removed"]??[];
-            $ssot = $d["ssot_changed"]??null;
-
-            if($added){ echo "::warning::Active plugins added: ".implode(",", $added)."\n"; }
-            if($removed){ echo "::warning::Active plugins removed: ".implode(",", $removed)."\n"; }
-            if($trees && count($trees)>0){ echo "::warning::Plugin files changed (trees sha): ".implode(",", array_keys($trees))."\n"; }
-            if($admA){ echo "::warning::Admins added: ".implode(",", $admA)."\n"; }
-            if($admR){ echo "::warning::Admins removed: ".implode(",", $admR)."\n"; }
-            if($ssot){ echo "::warning::SSOT changed: prev=".$ssot["prev"]." -> last=".$ssot["last"]."\n"; }
-
-            echo "\n### Changes\n\n";
-            echo "- Active plugins added: ".(empty($added)?"—":implode(", ",$added))."\n";
-            echo "- Active plugins removed: ".(empty($removed)?"—":implode(", ",$removed))."\n";
-            echo "- Plugins with file hash changes: ".(empty($trees)?"—":implode(", ",array_keys($trees)))."\n";
-            echo "- Admins added: ".(empty($admA)?"—":implode(", ",$admA))."\n";
-            echo "- Admins removed: ".(empty($admR)?"—":implode(", ",$admR))."\n";
-            if($ssot){ echo "- SSOT changed.\n"; } else { echo "- SSOT unchanged or unavailable.\n"; }
-          ' | tee -a "$GITHUB_STEP_SUMMARY"
