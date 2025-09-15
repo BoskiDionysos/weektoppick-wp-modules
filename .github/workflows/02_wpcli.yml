@@ -125,19 +125,18 @@ jobs:
           : > .wtp/state/ci_logs/wpcli_raw.log
           : > .wtp/state/ci_logs/wpcli_summary.txt
 
-          echo "=== PLUGINS INPUT LIST ==="           | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          echo "=== PLUGINS INPUT LIST ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
           if [ -s .wtp.plugins.install.list ]; then
-            cat .wtp.plugins.install.list            | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+            cat .wtp.plugins.install.list | tee -a .wtp/state/ci_logs/wpcli_summary.txt
           else
-            echo "(empty)"                           | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+            echo "(empty)" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
           fi
 
-          echo "=== ACTIVE PLUGINS (before) ==="     | tee -a .wtp/state/ci_logs/wpcli_summary.txt
-          $WP plugin list --format=csv               | tee .wtp/state/ci_logs/active_plugins.csv | tee -a .wtp/state/ci_logs/wpcli_summary.txt >/dev/null || true
+          echo "=== ACTIVE PLUGINS (before) ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          php ./wp plugin list --format=csv --path="$TARGET" --skip-plugins | tee .wtp/state/ci_logs/active_plugins.csv | tee -a .wtp/state/ci_logs/wpcli_summary.txt >/dev/null || echo "active-dump-fail:plugin-list-csv" >> .wtp/state/ci_logs/errors.txt
 
-          # helpers: install by slug (with optional version) and by ZIP fallback
           install_force () {
-            local slug="$1"; local ver="${2:-}"
+            slug="$1"; ver="${2:-}"
             if [ -n "$ver" ]; then
               php ./wp --debug plugin install "$slug" --version="$ver" --force --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log
             else
@@ -145,17 +144,13 @@ jobs:
             fi
             return ${PIPESTATUS[0]}
           }
-
           install_zip_force () {
-            local slug="$1"
-            local zip="/tmp/${slug}.zip"
-            local url="https://downloads.wordpress.org/plugin/${slug}.latest-stable.zip"
+            slug="$1"; zip="/tmp/${slug}.zip"; url="https://downloads.wordpress.org/plugin/${slug}.latest-stable.zip"
             curl -fL -o "$zip" "$url" 2>> .wtp/state/ci_logs/wpcli_raw.log || return 1
             php ./wp --debug plugin install "$zip" --force --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log
             return ${PIPESTATUS[0]}
           }
 
-          # nothing to do?
           if [ ! -s .wtp.plugins.install.list ]; then
             echo "No plugins to process (empty list)" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
             exit 0
@@ -166,21 +161,14 @@ jobs:
             slug="$line"; ver=""
             if printf "%s" "$line" | grep -q "@"; then slug="${line%@*}"; ver="${line##*@}"; fi
 
-            # already installed?
             if php ./wp plugin is-installed "$slug" --path="$TARGET" --skip-plugins; then
               echo "$slug" >> .wtp/state/ci_logs/plugins_existing.txt
-              # try update (with version if provided)
               if [ -n "$ver" ]; then
-                php ./wp --debug plugin update "$slug" --version="$ver" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log \
-                  && echo "updated:$slug@$ver" >> .wtp/state/ci_logs/plugins_updated.txt \
-                  || echo "update-fail:$slug@$ver" >> .wtp/state/ci_logs/errors.txt
+                php ./wp --debug plugin update "$slug" --version="$ver" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log && echo "updated:$slug@$ver" >> .wtp/state/ci_logs/plugins_updated.txt || echo "update-fail:$slug@$ver" >> .wtp/state/ci_logs/errors.txt
               else
-                php ./wp --debug plugin update "$slug" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log \
-                  && echo "updated:$slug" >> .wtp/state/ci_logs/plugins_updated.txt \
-                  || echo "update-fail:$slug" >> .wtp/state/ci_logs/errors.txt
+                php ./wp --debug plugin update "$slug" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log && echo "updated:$slug" >> .wtp/state/ci_logs/plugins_updated.txt || echo "update-fail:$slug" >> .wtp/state/ci_logs/errors.txt
               fi
             else
-              # try install by slug first; if fails, fallback to ZIP; error only if both fail
               installed=false
               if install_force "$slug" "$ver"; then
                 echo "$slug${ver:+@$ver}" >> .wtp/state/ci_logs/plugins_installed.txt
@@ -196,13 +184,12 @@ jobs:
               fi
             fi
 
-            # activate regardless; if activation fails, log it
-            php ./wp --debug plugin activate "$slug" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log \
-              || echo "activate-fail:$slug" >> .wtp/state/ci_logs/errors.txt
+            php ./wp --debug plugin activate "$slug" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log || echo "activate-fail:$slug" >> .wtp/state/ci_logs/errors.txt
           done < .wtp.plugins.install.list
 
-          echo "=== ACTIVE PLUGINS (after) ==="      | tee -a .wtp/state/ci_logs/wpcli_summary.txt
-          $WP plugin list --format=csv               | tee .wtp/state/ci_logs/active_plugins.csv | tee -a .wtp/state/ci_logs/wpcli_summary.txt >/dev/null || true
+          echo "=== ACTIVE PLUGINS (after) ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          php ./wp plugin list --format=csv --path="$TARGET" --skip-plugins | tee .wtp/state/ci_logs/active_plugins.csv | tee -a .wtp/state/ci_logs/wpcli_summary.txt >/dev/null || echo "active-dump-fail:plugin-list-csv" >> .wtp/state/ci_logs/errors.txt
+          php ./wp plugin list --status=active --field=name --path="$TARGET" --skip-plugins > .wtp/state/ci_logs/plugins_active.txt || echo "active-dump-fail:active-field" >> .wtp/state/ci_logs/errors.txt
           SCRIPT
 
 
