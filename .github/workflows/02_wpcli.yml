@@ -116,69 +116,70 @@ jobs:
           export WTP_CI=1
           WP='php ./wp --skip-plugins --path="$TARGET"'
 
-          # --- DIAGNOSTYKA I PRZYGOTOWANIE ---
           mkdir -p .wtp/state/ci_logs
           : > .wtp/state/ci_logs/wpcli_raw.log
           : > .wtp/state/ci_logs/wpcli_summary.txt
-          {
-            echo "FS_METHOD(before): $($WP config get FS_METHOD 2>/dev/null || echo '(unset)')"
-            echo "WP_CONTENT_DIR: $($WP eval 'echo WP_CONTENT_DIR;' 2>/dev/null || true)"
-            echo "WP_PLUGIN_DIR:  $($WP eval 'echo WP_PLUGIN_DIR;' 2>/dev/null || true)"
-            echo "whoami: $(whoami)"
-            echo "plugins dir ls -ld:"
-            ls -ld wp-content/plugins || true
-          } | tee -a .wtp/state/ci_logs/wpcli_summary.txt
-
-          # Wymuś bezpośredni zapis (typowe na shared hostingu)
-          if ! $WP config get FS_METHOD >/dev/null 2>&1; then
-            $WP config set FS_METHOD direct --raw --type=constant || true
-          fi
-
-          # Pliki logów akcji
           : > .wtp/state/ci_logs/plugins_installed.txt
           : > .wtp/state/ci_logs/plugins_updated.txt
           : > .wtp/state/ci_logs/plugins_existing.txt
           : > .wtp/state/ci_logs/errors.txt
           : > .wtp/state/ci_logs/active_plugins.csv
 
+          echo "=== NET CHECK ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          (curl -sS -I https://api.wordpress.org/    | head -n1 || true) | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          (curl -sS -I https://downloads.wordpress.org/ | head -n1 || true) | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+
           echo "=== ACTIVE PLUGINS (before) ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
           $WP plugin list --format=csv | tee .wtp/state/ci_logs/active_plugins.csv | tee -a .wtp/state/ci_logs/wpcli_summary.txt >/dev/null || true
 
-          # Jeśli lista pusta -> tylko raport
           if [ ! -s .wtp.plugins.install.list ]; then
             echo "No plugins to process (empty list)" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
             exit 0
           fi
 
-          echo "=== PROCESSING ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          install_via_slug() {
+            local slug="$1" ver="$2" ok=0
+            if [ -n "$ver" ]; then
+              php ./wp --debug plugin install "$slug" --version="$ver" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log && ok=1
+            else
+              php ./wp --debug plugin install "$slug" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log && ok=1
+            fi
+            return $ok
+          }
+
+          install_via_zip() {
+            local slug="$1" ok=0
+            # dwie próby URL (często wystarcza pierwsza)
+            for url in \
+              "https://downloads.wordpress.org/plugin/${slug}.zip" \
+              "https://downloads.wordpress.org/plugin/${slug}.latest-stable.zip"
+            do
+              echo "ZIP try: $url" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+              php ./wp --debug plugin install "$url" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log && { ok=1; break; }
+            done
+            return $ok
+          }
+
           while IFS= read -r raw; do
             line="$(echo "$raw" | sed 's/#.*$//' | xargs)"; [ -z "$line" ] && continue
             slug="$line"; ver=""
             if printf "%s" "$line" | grep -q "@"; then slug="${line%@*}"; ver="${line##*@}"; fi
 
-            # is-installed
             if php ./wp plugin is-installed "$slug" --path="$TARGET" --skip-plugins; then
               echo "$slug" >> .wtp/state/ci_logs/plugins_existing.txt
             fi
 
-            # install / update (z pełnym debugiem do raw loga)
-            if [ -n "$ver" ]; then
-              php ./wp --debug plugin install "$slug" --version="$ver" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log \
-                && echo "$slug@$ver" >> .wtp/state/ci_logs/plugins_installed.txt \
-                || echo "install-fail:$slug@$ver" >> .wtp/state/ci_logs/errors.txt
-              php ./wp --debug plugin update "$slug" --version="$ver" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log \
-                && echo "$slug@$ver" >> .wtp/state/ci_logs/plugins_updated.txt \
-                || true
+            if install_via_slug "$slug" "$ver"; then
+              echo "$slug${ver:+@$ver}" >> .wtp/state/ci_logs/plugins_installed.txt
             else
-              php ./wp --debug plugin install "$slug" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log \
-                && echo "$slug" >> .wtp/state/ci_logs/plugins_installed.txt \
-                || echo "install-fail:$slug" >> .wtp/state/ci_logs/errors.txt
-              php ./wp --debug plugin update "$slug" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log \
-                && echo "$slug" >> .wtp/state/ci_logs/plugins_updated.txt \
-                || true
+              echo "install-fail(slug):$slug${ver:+@$ver}" >> .wtp/state/ci_logs/errors.txt
+              if install_via_zip "$slug"; then
+                echo "$slug" >> .wtp/state/ci_logs/plugins_installed.txt
+              else
+                echo "install-fail(zip):$slug" >> .wtp/state/ci_logs/errors.txt
+              fi
             fi
 
-            # activate
             php ./wp --debug plugin activate "$slug" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log \
               || echo "activate-fail:$slug" >> .wtp/state/ci_logs/errors.txt
 
@@ -186,8 +187,6 @@ jobs:
 
           echo "=== ACTIVE PLUGINS (after) ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
           $WP plugin list --format=csv | tee .wtp/state/ci_logs/active_plugins.csv | tee -a .wtp/state/ci_logs/wpcli_summary.txt >/dev/null || true
-
-          echo "FS_METHOD(after): $($WP config get FS_METHOD 2>/dev/null || echo '(unset)')" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
           SCRIPT
 
       - name: Process plugins (install/update/activate; WTP_CI=1)
