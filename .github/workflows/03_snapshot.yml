@@ -61,12 +61,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-
-          # Pobierz statyczny jq do przesłania na serwer
           curl -L -o /tmp/jq 'https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64'
           chmod +x /tmp/jq
 
-          # Skrypt snapshotu (heredoc)
           cat > /tmp/wtp_snapshot.sh <<'SNAPEOF'
           #!/usr/bin/env bash
           set -euo pipefail
@@ -79,13 +76,12 @@ jobs:
 
           ERR_FILE="${LOGDIR}/errors.txt"; : > "${ERR_FILE}"
           note_err(){ echo "$1" | tee -a "${ERR_FILE}" 1>&2 || true; }
-
           run_wp(){ php ./wp "$@" --path="${TARGET}"; }
 
-          # Preferuj jq dostarczony w /tmp/jq (z workflowa), fallback: systemowy
-          JQ_BIN="/tmp/jq"
-          if [[ -x "$JQ_BIN" ]]; then
-            JQ="$JQ_BIN"
+          # jq: preferuj /tmp/jq dostarczone z workflowa
+          if [[ -f /tmp/jq ]]; then chmod +x /tmp/jq || true; fi
+          if [[ -x /tmp/jq ]]; then
+            JQ="/tmp/jq"
           elif command -v jq >/dev/null 2>&1; then
             JQ="jq"
           else
@@ -104,8 +100,7 @@ jobs:
           php -v > "${LOGDIR}/php_info.txt" 2>&1 || note_err "php -v failed."
 
           if [[ -n "$JQ" ]]; then
-            "$JQ" -n \
-              --arg url "$SITE_URL" --arg home "$SITE_HOME" \
+            "$JQ" -n --arg url "$SITE_URL" --arg home "$SITE_HOME" \
               --arg wp_version "$WP_VER" --arg table_prefix "$TABLE_PREFIX" \
               --arg language "$WPLANG" --arg timezone "$TZ_STR" \
               --arg php_version "$PHP_VERSION" \
@@ -121,33 +116,39 @@ jobs:
           run_wp plugin list --format=json > "${LOGDIR}/plugins.json" 2>>"${ERR_FILE}" || note_err "wp plugin list --format=json failed."
           run_wp plugin list --format=csv > "${LOGDIR}/plugins.csv" 2>>"${ERR_FILE}" || note_err "wp plugin list --format=csv failed."
 
-          # ---------- C2) Per-plugin trees + SHA1 (zawsze, nawet bez jq) ----------
+          # ---------- C2) Per-plugin trees + SHA1 (bez process-substitution) ----------
           PLUG_DIR="${TARGET}/wp-content/plugins"
           TREES_SUMMARY="${LOGDIR}/plugins_trees.json"
           echo '{}' > "${TREES_SUMMARY}" || true
-          if [[ -d "${PLUG_DIR}" ]]; then
-            # Jeżeli mamy listę z wp-cli, użyj sluga z JSON; w przeciwnym wypadku katalogi z dysku
-            if [[ -s "${LOGDIR}/plugins.json" ]] && [[ -n "$JQ" ]]; then
-              mapfile -t SLUGS < <("$JQ" -r '.[].name' "${LOGDIR}/plugins.json" 2>/dev/null || true)
-            else
-              mapfile -t SLUGS < <(find "${PLUG_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+
+          get_slugs() {
+            if [[ -n "$JQ" && -s "${LOGDIR}/plugins.json" ]]; then
+              "$JQ" -r '.[].name' "${LOGDIR}/plugins.json" 2>/dev/null || true
+            elif [[ -d "$PLUG_DIR" ]]; then
+              find "$PLUG_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort
             fi
-            for slug in "${SLUGS[@]:-}"; do
-              [[ -n "$slug" && -d "${PLUG_DIR}/${slug}" ]] || continue
-              OUTDIR="${LOGDIR}/plugins/${slug}"
-              mkdir -p "${OUTDIR}"
-              find "${PLUG_DIR}/${slug}" -type f -print0 | sort -z | xargs -0 -I{} printf "%s\n" "{}" > "${OUTDIR}/tree.txt" 2>>"${ERR_FILE}" || true
-              find "${PLUG_DIR}/${slug}" -type f -print0 | sort -z | xargs -0 sha1sum > "${OUTDIR}/hashes.sha1" 2>>"${ERR_FILE}" || { : > "${OUTDIR}/hashes.sha1"; }
-              FILES_CNT="$(wc -l < "${OUTDIR}/tree.txt" 2>/dev/null || echo 0)"
-              ALL_SHA="$(awk '{print $1}' "${OUTDIR}/hashes.sha1" 2>/dev/null | tr -d '\n' | sha1sum 2>/dev/null | awk '{print $1}' || echo "")"
-              # Podsumowanie tylko gdy mamy jq
-              if [[ -n "$JQ" ]]; then
-                TMP="$(mktemp)"
-                "$JQ" --arg slug "$slug" --argjson files "$FILES_CNT" --arg sha1 "$ALL_SHA" \
-                  '. + {($slug): {files:$files, sha1:$sha1}}' "${TREES_SUMMARY}" > "${TMP}" && mv "${TMP}" "${TREES_SUMMARY}"
-              fi
-            done
-          fi
+          }
+
+          get_slugs | while IFS= read -r slug; do
+            [[ -n "$slug" && -d "${PLUG_DIR}/${slug}" ]] || continue
+            OUTDIR="${LOGDIR}/plugins/${slug}"
+            mkdir -p "${OUTDIR}"
+
+            # tree.txt
+            find "${PLUG_DIR}/${slug}" -type f -print0 | sort -z | tr '\0' '\n' > "${OUTDIR}/tree.txt" 2>>"${ERR_FILE}" || true
+
+            # hashes.sha1 (stabilna kolejność)
+            { find "${PLUG_DIR}/${slug}" -type f -print0 | sort -z | xargs -0 sha1sum; } > "${OUTDIR}/hashes.sha1" 2>>"${ERR_FILE}" || true
+
+            FILES_CNT="$(wc -l < "${OUTDIR}/tree.txt" 2>/dev/null || echo 0)"
+            ALL_SHA="$(awk '{print $1}' "${OUTDIR}/hashes.sha1" 2>/dev/null | tr -d '\n' | sha1sum 2>/dev/null | awk '{print $1}' || echo "")"
+
+            if [[ -n "$JQ" ]]; then
+              TMP="$(mktemp)"
+              "$JQ" --arg slug "$slug" --argjson files "$FILES_CNT" --arg sha1 "$ALL_SHA" \
+                   '. + {($slug): {files:$files, sha1:$sha1}}' "${TREES_SUMMARY}" > "${TMP}" && mv "${TMP}" "${TREES_SUMMARY}"
+            fi
+          done
 
           # ---------- D) MU-plugins ----------
           MU_DIR="${TARGET}/wp-content/mu-plugins"
@@ -155,9 +156,10 @@ jobs:
           if [[ -d "${MU_DIR}" ]]; then
             ls -la "${MU_DIR}" > "${LOGDIR}/mu-plugins/_ls.txt" 2>>"${ERR_FILE}" || note_err "ls mu-plugins failed."
             find "${MU_DIR}" -type f -print0 | sort -z | xargs -0 sha1sum > "${LOGDIR}/mu-plugins/_hashes.txt" 2>>"${ERR_FILE}" || true
-            find "${MU_DIR}" -maxdepth 1 -type f -name "*.php" -print0 | while IFS= read -r -d '' f; do
-              head -n 50 "$f" | grep -E "^\s*\*\s*Plugin Name:" -m1 > "${LOGDIR}/mu-plugins/$(basename "$f").header.txt" 2>>"${ERR_FILE}" || true
-            done
+            find "${MU_DIR}" -maxdepth 1 -type f -name "*.php" -print0 | \
+              while IFS= read -r -d '' f; do
+                head -n 50 "$f" | grep -E "^\s*\*\s*Plugin Name:" -m1 > "${LOGDIR}/mu-plugins/$(basename "$f").header.txt" 2>>"${ERR_FILE}" || true
+              done
           else
             echo "mu-plugins directory not found." > "${LOGDIR}/mu-plugins/_ls.txt"
             : > "${LOGDIR}/mu-plugins/_hashes.txt"
@@ -224,14 +226,14 @@ jobs:
           # ---------- I) snapshot.json ----------
           TS_NOW="$(date -Is)"
           if [[ -n "$JQ" ]]; then
-            [[ -f "${LOGDIR}/site_info.json" ]]      || echo '{}' > "${LOGDIR}/site_info.json"
-            [[ -f "${LOGDIR}/themes.json" ]]         || echo '[]' > "${LOGDIR}/themes.json"
-            [[ -f "${LOGDIR}/plugins.json" ]]        || echo '[]' > "${LOGDIR}/plugins.json"
-            [[ -f "${LOGDIR}/mu_plugins.json" ]]     || echo '[]' > "${LOGDIR}/mu_plugins.json"
-            [[ -f "${LOGDIR}/admins.json" ]]         || echo '[]' > "${LOGDIR}/admins.json"
-            [[ -f "${TREES_SUMMARY}" ]]              || echo '{}' > "${TREES_SUMMARY}"
-            [[ -f "${LOGDIR}/counts.json" ]]         || echo '{}' > "${LOGDIR}/counts.json"
-            [[ -f "${LOGDIR}/errors.json" ]]         || echo '[]' > "${LOGDIR}/errors.json"
+            [[ -f "${LOGDIR}/site_info.json" ]]  || echo '{}' > "${LOGDIR}/site_info.json"
+            [[ -f "${LOGDIR}/themes.json"   ]]   || echo '[]' > "${LOGDIR}/themes.json"
+            [[ -f "${LOGDIR}/plugins.json"  ]]   || echo '[]' > "${LOGDIR}/plugins.json"
+            [[ -f "${LOGDIR}/mu_plugins.json" ]] || echo '[]' > "${LOGDIR}/mu_plugins.json"
+            [[ -f "${LOGDIR}/admins.json"   ]]   || echo '[]' > "${LOGDIR}/admins.json"
+            [[ -f "${TREES_SUMMARY}"        ]]   || echo '{}' > "${TREES_SUMMARY}"
+            [[ -f "${LOGDIR}/counts.json"   ]]   || echo '{}' > "${LOGDIR}/counts.json"
+            [[ -f "${LOGDIR}/errors.json"   ]]   || echo '[]' > "${LOGDIR}/errors.json"
 
             THEME_ACTIVE_JSON="$("$JQ" 'if type=="array" and length>0 then .[0] else null end' "${LOGDIR}/theme_active.json" 2>/dev/null || echo 'null')"
 
@@ -267,7 +269,7 @@ jobs:
                 wtp:{ssot_path:$ssot_path, ssot_sha1:$ssot_sha1, ssot_b64:$ssot_b64}
               }' > "${LOGDIR}/snapshot.json" 2>>"${ERR_FILE}" || note_err "snapshot.json build failed."
           else
-            # Minimal fallback (bez jq) – składamy JSON przez printf (bez heredoców w heredocu)
+            # Fallback bez jq – printf (bez process-substitution)
             {
               printf '%s\n' '{'
               printf '  "run_id": "%s",\n' "${RUN_ID}"
@@ -304,7 +306,6 @@ jobs:
           SNAPEOF
 
           chmod +x /tmp/wtp_snapshot.sh
-          # Wyślij skrypt + jq na serwer
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes /tmp/wtp_snapshot.sh "${USER}@${HOST}:/tmp/wtp_snapshot.sh"
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes /tmp/jq "${USER}@${HOST}:/tmp/jq"
 
@@ -313,7 +314,7 @@ jobs:
         run: |
           set -euo pipefail
           sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
-            "${USER}@${HOST}" "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' bash /tmp/wtp_snapshot.sh && rm -f /tmp/wtp_snapshot.sh"
+            "${USER}@${HOST}" "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' bash /tmp/wtp_snapshot.sh && rm -f /tmp/wtp_snapshot.sh /tmp/jq"
 
       - name: 6) Pull logs back
         shell: bash
