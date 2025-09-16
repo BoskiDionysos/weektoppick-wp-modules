@@ -40,11 +40,8 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y rsync sshpass curl
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          # zbuduj known_hosts → będziemy wymuszać weryfikację hosta
           ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
-          echo "::add-mask::$HOST"
-          echo "::add-mask::$USER"
 
       - name: Sanity (SSH, read-only)
         run: |
@@ -61,18 +58,21 @@ jobs:
       - name: Prepare remote dirs + backup themes (safe timestamp)
         run: |
           set -euo pipefail
+          # lokalny katalog logów
+          mkdir -p "_ci_logs/${{ github.run_id }}/deploy"
+
           # SAFE timestamp (no colons) for filenames
           SAFE_TS="$(date -u +'%Y%m%dT%H%M%SZ')"
-          echo "SAFE_TS=${SAFE_TS}" > _ci_logs/${{ github.run_id }}/deploy/safe_ts.env
+          echo "SAFE_TS=${SAFE_TS}" > "_ci_logs/${{ github.run_id }}/deploy/safe_ts.env"
 
-          # 1) Upewnij się, że katalogi docelowe istnieją
+          # katalogi docelowe na serwerze
           sshpass -p "$PASS" ssh -p "$PORT" \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             "$USER@$HOST" "bash -lc '
               mkdir -p \"$TARGET/wp-content/mu-plugins\" \"$TARGET/wp-content/plugins\" \"$TARGET/wp-content/themes\" \"$TARGET/.wtp/backups\"
             '"
 
-          # 2) Backup themes (punkt przywracania) — używamy SAFE_TS
+          # backup themes z SAFE_TS
           sshpass -p "$PASS" ssh -p "$PORT" \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             "$USER@$HOST" "bash -lc '
@@ -83,7 +83,6 @@ jobs:
       - name: Build rsync exclude (protected-plugins.txt)
         run: |
           set -euo pipefail
-          mkdir -p _ci_logs/${{ github.run_id }}/deploy
           EXCL="_ci_logs/${{ github.run_id }}/deploy/rsync-exclude.txt"
           : > "$EXCL"
           if [ -f ".wtp/protected-plugins.txt" ]; then
@@ -133,49 +132,13 @@ jobs:
             echo "Skip themes" | tee "_ci_logs/${{ github.run_id }}/deploy/rsync_themes.txt"
           fi
 
-      - name: RSYNC .wtp (SSOT, config)
+      - name: Remote listing AFTER
         run: |
           set -euo pipefail
-          if [ -d ".wtp" ]; then
-            sshpass -p "$PASS" rsync -az -v --itemize-changes \
-              -e "ssh -p ${PORT} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts" \
-              ".wtp/" "${USER}@${HOST}:${TARGET}/.wtp/" \
-              | tee "_ci_logs/${{ github.run_id }}/deploy/rsync_wtp.txt"
-          else
-            echo "Skip .wtp" | tee "_ci_logs/${{ github.run_id }}/deploy/rsync_wtp.txt"
-          fi
-
-      - name: Remote listing AFTER (plugins/themes/mu-plugins)
-        run: |
-          set -euo pipefail
-          # Plugins
           sshpass -p "$PASS" ssh -p "$PORT" \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             "$USER@$HOST" "ls -1 '${TARGET}/wp-content/plugins' || true" \
             | tee "_ci_logs/${{ github.run_id }}/deploy/remote_plugins_after.txt"
-          # MU-plugins
-          sshpass -p "$PASS" ssh -p "$PORT" \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST" "ls -1 '${TARGET}/wp-content/mu-plugins' || true" \
-            | tee "_ci_logs/${{ github.run_id }}/deploy/remote_mu_plugins_after.txt"
-          # Themes
-          sshpass -p "$PASS" ssh -p "$PORT" \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST" "ls -1 '${TARGET}/wp-content/themes' || true" \
-            | tee "_ci_logs/${{ github.run_id }}/deploy/remote_themes_after.txt"
-
-      - name: Sanitize filenames for artifact (no colons)
-        shell: bash
-        run: |
-          set -euo pipefail
-          ROOT="_ci_logs/${{ github.run_id }}"
-          # Zamień ":" na "-" we wszystkich plikach i katalogach w logach
-          # (najpierw pliki, potem katalogi — find -depth zapewnia, że najpierw zmieniamy głęboko zagnieżdżone pliki)
-          find "$ROOT" -depth -name '*:*' -print0 | while IFS= read -r -d '' p; do
-            new="$(echo "$p" | tr ':' '-')"
-            mkdir -p "$(dirname "$new")"
-            mv "$p" "$new"
-          done || true
 
       - name: Upload artifact (deploy logs)
         uses: actions/upload-artifact@v4
