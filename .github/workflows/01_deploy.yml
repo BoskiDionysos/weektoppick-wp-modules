@@ -43,6 +43,8 @@ jobs:
           # zbuduj known_hosts → będziemy wymuszać weryfikację hosta
           ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
+          echo "::add-mask::$HOST"
+          echo "::add-mask::$USER"
 
       - name: Sanity (SSH, read-only)
         run: |
@@ -54,6 +56,23 @@ jobs:
               cd \"$TARGET\" || { echo \"ERR: cannot cd TARGET\"; exit 2; }
               test -f wp-config.php && echo OK:wp-config || { echo ERR:no-wp-config; exit 3; }
               ls -la | head -n 20
+            '"
+
+      - name: Prepare remote dirs + backup themes
+        run: |
+          set -euo pipefail
+          # 1) Upewnij się, że katalogi docelowe istnieją
+          sshpass -p "$PASS" ssh -p "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$USER@$HOST" "bash -lc '
+              mkdir -p \"$TARGET/wp-content/mu-plugins\" \"$TARGET/wp-content/plugins\" \"$TARGET/wp-content/themes\" \"$TARGET/.wtp/backups\"
+            '"
+          # 2) Backup themes (punkt przywracania)
+          sshpass -p "$PASS" ssh -p "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$USER@$HOST" "bash -lc '
+              TS=\$(date +%Y%m%d-%H%M%S)
+              tar -czf \"$TARGET/.wtp/backups/themes-\$TS-${{ github.run_id }}.tar.gz\" -C \"$TARGET/wp-content\" themes || true
             '"
 
       - name: Build rsync exclude (protected-plugins.txt)
@@ -109,13 +128,36 @@ jobs:
             echo "Skip themes" | tee "_ci_logs/${{ github.run_id }}/deploy/rsync_themes.txt"
           fi
 
-      - name: Remote listing AFTER
+      - name: RSYNC .wtp (SSOT, config)
         run: |
           set -euo pipefail
+          if [ -d ".wtp" ]; then
+            sshpass -p "$PASS" rsync -az -v --itemize-changes \
+              -e "ssh -p ${PORT} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts" \
+              ".wtp/" "${USER}@${HOST}:${TARGET}/.wtp/" \
+              | tee "_ci_logs/${{ github.run_id }}/deploy/rsync_wtp.txt"
+          else
+            echo "Skip .wtp" | tee "_ci_logs/${{ github.run_id }}/deploy/rsync_wtp.txt"
+          fi
+
+      - name: Remote listing AFTER (plugins/themes/mu-plugins)
+        run: |
+          set -euo pipefail
+          # Plugins
           sshpass -p "$PASS" ssh -p "$PORT" \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             "$USER@$HOST" "ls -1 '${TARGET}/wp-content/plugins' || true" \
             | tee "_ci_logs/${{ github.run_id }}/deploy/remote_plugins_after.txt"
+          # MU-plugins
+          sshpass -p "$PASS" ssh -p "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$USER@$HOST" "ls -1 '${TARGET}/wp-content/mu-plugins' || true" \
+            | tee "_ci_logs/${{ github.run_id }}/deploy/remote_mu_plugins_after.txt"
+          # Themes
+          sshpass -p "$PASS" ssh -p "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$USER@$HOST" "ls -1 '${TARGET}/wp-content/themes' || true" \
+            | tee "_ci_logs/${{ github.run_id }}/deploy/remote_themes_after.txt"
 
       - name: Upload artifact (deploy logs)
         uses: actions/upload-artifact@v4
