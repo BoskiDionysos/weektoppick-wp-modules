@@ -3,15 +3,7 @@ name: 05_patcher
 on:
   repository_dispatch:
     types: [ai-patcher]
-  workflow_dispatch:
-    inputs:
-      path:          { description: "Target path in repo", required: false, type: string }
-      message:       { description: "Commit message",      required: false, type: string, default: "Agent patch" }
-      branch:        { description: "Branch",              required: false, type: string, default: "main" }
-      content_plain: { description: "Content (plain)",     required: false, type: string }
-      content_b64:   { description: "Content (base64)",    required: false, type: string }
-      raw_url:       { description: "Fetch content from URL", required: false, type: string }
-      sha256:        { description: "Optional SHA-256",    required: false, type: string }
+  workflow_dispatch: {}   # ręcznie na próbę
 
 permissions:
   contents: read
@@ -23,115 +15,114 @@ concurrency:
 jobs:
   patch:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
+    env:
+      GH_PAT: ${{ secrets.WTP_GITHUB_PAT }}
+      OPENAI_API_KEY: ${{ secrets.WTP_OPENAI_API_KEY }}
+      OWNER: ${{ github.repository_owner }}
+      REPO:  ${{ github.event.repository.name }}
     steps:
-      - name: Build normalized input -> /tmp/input.json
-        id: in
+      - uses: actions/checkout@v4
+
+      - name: Gather context (payload → /tmp/input.json)
         run: |
           set -euo pipefail
+          # 1) Raw payload z repository_dispatch (może być puste)
+          printf '%s' '${{ toJson(github.event.client_payload) }}' > /tmp/incoming.json
 
-          # Złap payload z repository_dispatch (może być "null") i z workflow_dispatch (inputs)
-          REP_PAY='${{ toJson(github.event.client_payload) }}'
-          WFI='${{ toJson(github.event.inputs) }}'
-
-          # Jeśli client_payload to "null", zamień na "{}"
-          printf '%s' "${REP_PAY}" | sed -e 's/^null$/{}/' > /tmp/rep.json
-          printf '%s' "${WFI}"      | sed -e 's/^null$/{}/' > /tmp/wfi.json
-
-          echo "::group::RAW payloads"
-          echo "repository_dispatch: $(cat /tmp/rep.json)"
-          echo "workflow_dispatch : $(cat /tmp/wfi.json)"
-          echo "::endgroup::"
-
-          node - <<'JS'
-            const fs = require('fs');
-            const rep = JSON.parse(fs.readFileSync('/tmp/rep.json', 'utf8') || '{}');
-            const wfi = JSON.parse(fs.readFileSync('/tmp/wfi.json', 'utf8') || '{}');
-
-            // Priorytet: repository_dispatch > workflow_dispatch inputs
-            const src = { ...wfi, ...rep };
-
-            const out = {
-              path:          String(src.path ?? '').trim(),
-              message:       String(src.message ?? 'Agent patch').trim(),
-              branch:        String(src.branch ?? 'main').trim(),
-              sha256:        String(src.sha256 ?? '').trim(),
-              raw_url:       String(src.raw_url ?? '').trim(),
-              content_b64:   String(src.content_b64 ?? '').trim(),
-              content_plain: String(src.content_plain ?? '').trim(),
-            };
-
-            fs.writeFileSync('/tmp/input.json', JSON.stringify(out));
-            console.log('NORMALIZED:', JSON.stringify(out));
-          JS
-
-          cat /tmp/input.json
-
-      - name: Validate basics
-        run: |
-          set -euo pipefail
-          PTH="$(jq -r '.path' /tmp/input.json)"
-          if [ -z "$PTH" ] || [ "$PTH" = "null" ]; then
-            echo "::error::Missing required 'path' in payload."
-            exit 1
-          fi
-
-      - name: Fetch/encode content if needed -> CONTENT_B64
-        id: enc
-        run: |
-          set -euo pipefail
-          CONTENT_B64="$(jq -r '.content_b64' /tmp/input.json)"
-          CONTENT_PLAIN="$(jq -r '.content_plain' /tmp/input.json)"
-          RAW_URL="$(jq -r '.raw_url' /tmp/input.json)"
-
-          if [ -n "$CONTENT_B64" ] && [ "$CONTENT_B64" != "null" ]; then
-            :
-          elif [ -n "$CONTENT_PLAIN" ] && [ "$CONTENT_PLAIN" != "null" ]; then
-            CONTENT_B64="$(printf "%s" "$CONTENT_PLAIN" | base64 -w 0)"
-          elif [ -n "$RAW_URL" ] && [ "$RAW_URL" != "null" ]; then
-            curl -fsSL "$RAW_URL" -o /tmp/raw.bin
-            CONTENT_B64="$(base64 -w 0 /tmp/raw.bin)"
+          # 2) next.json (opcjonalnie, ale preferowane)
+          NX=".wtp/next.json"
+          if [ -f "$NX" ]; then
+            jq -c . "$NX" > /tmp/next.json
           else
-            echo "::error::No content provided (need content_b64 OR content_plain OR raw_url)."
-            exit 1
+            echo "{}" > /tmp/next.json
           fi
 
-          echo "CONTENT_B64=${CONTENT_B64}" >> "$GITHUB_OUTPUT"
+          # 3) ostatni snapshot (opcjonalny)
+          SNAP=".wtp/state/ro/public/latest/snapshot.json"
+          if [ -f "$SNAP" ]; then
+            jq -c . "$SNAP" > /tmp/snapshot.json
+          else
+            echo "{}" > /tmp/snapshot.json
+          fi
 
-      - name: Dispatch -> 00_ai_upsert_file (ai-upsert-file)
-        env:
-          GH_PAT: ${{ secrets.WTP_GITHUB_PAT }}
-          OWNER:  ${{ github.repository_owner }}
-          REPO:   ${{ github.event.repository.name }}
+          # 4) scal: incoming nadpisuje next.json (jeśli przekazano pola), snapshot do kontekstu
+          jq -n \
+            --slurpfile a /tmp/next.json \
+            --slurpfile b /tmp/incoming.json \
+            --slurpfile s /tmp/snapshot.json '
+              def norm(x):
+                {
+                  path:        (x.path // ""),
+                  message:     (x.message // ""),
+                  branch:      (x.branch // "main"),
+                  content_b64: (x.content_b64 // ""),
+                  content_plain:(x.content_plain // ""),
+                  raw_url:     (x.raw_url // ""),
+                  verify:      (x.verify // {}),
+                  auto:        (x.auto // {})
+                };
+              (norm($a[0]) + norm($b[0])) as $m
+              | {meta:$m, snapshot:$s[0]}
+            ' > /tmp/input.json
+
+          echo "---- INPUT (meta) ----"
+          jq .meta /tmp/input.json
+          echo "---- SNAP present ----"
+          jq 'keys|length' /tmp/input.json >/dev/null
+
+      - name: Build AI prompt (/tmp/prompt.md)
         run: |
           set -euo pipefail
-          test -n "${GH_PAT:-}" || { echo "::error::Missing WTP_GITHUB_PAT"; exit 1; }
+          cat > /tmp/prompt.md <<'PROMPT'
+You are an autonomous repo patcher for a WordPress project (MU-plugins + theme).
+Goal: produce ONE JSON object with a patch to upsert a file in the repository.
 
-          PATH_T="$(jq -r '.path'    /tmp/input.json)"
-          MESSAGE="$(jq -r '.message' /tmp/input.json)"
-          BRANCH="$(jq -r '.branch'  /tmp/input.json)"
-          SHA256="$(jq -r '.sha256'  /tmp/input.json)"
-          CONTENT_B64="${{ steps.enc.outputs.CONTENT_B64 }}"
+### Required OUTPUT (JSON only, no text around):
+{
+  "path": "relative/path/in/repo",
+  "message": "commit message",
+  "branch": "main",
+  "content_plain": "FILE CONTENT (use \\n for newlines)"
+}
 
-          jq -n --arg path "$PATH_T" --arg message "$MESSAGE" --arg branch "$BRANCH" \
-                --arg content_b64 "$CONTENT_B64" --arg sha256 "$SHA256" '
-            {
-              event_type:"ai-upsert-file",
-              client_payload:{
-                path:$path, message:$message, branch:$branch,
-                content_b64:$content_b64,
-                sha256:$sha256
-              }
-            }' > /tmp/dispatch.json
+Rules:
+- Output **only** valid JSON (no markdown, no prose).
+- Prefer `content_plain` (no base64). No trailing spaces at line ends.
+- Keep code minimal and safe. If not sure, create a harmless test file.
+- If `meta.path` is present, respect it. Otherwise propose a sensible path.
+- If theme patch: path under `themes/wtp-core-theme/…`
+- If MU patch: path under `mu-plugins/…`
+- Keep commit message short and descriptive.
 
-          echo "::group::Dispatch body to 00"
-          cat /tmp/dispatch.json
-          echo "::endgroup::"
+### Context
+PROMPT
+          echo '```json'              >> /tmp/prompt.md
+          jq . /tmp/input.json        >> /tmp/prompt.md
+          echo '```'                  >> /tmp/prompt.md
+          echo "Prompt bytes: $(wc -c </tmp/prompt.md)"
 
-          curl -sS -i -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: token ${GH_PAT}" \
-            https://api.github.com/repos/${OWNER}/${REPO}/dispatches \
-            -d @/tmp/dispatch.json \
-            | sed -n '1,20p'
-          echo "Dispatched ai-upsert-file → 00_ai_upsert_file"
+      - name: Call OpenAI → /tmp/ai.json
+        run: |
+          set -euo pipefail
+          test -n "${OPENAI_API_KEY}" || { echo "::error::Missing secret WTP_OPENAI_API_KEY"; exit 1; }
+
+          # minimal chat.completions call; model możesz zmienić na swój
+          curl -sS https://api.openai.com/v1/chat/completions \
+            -H "Authorization: Bearer ${OPENAI_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d @- > /tmp/ai_raw.json <<'REQ'
+          {
+            "model": "gpt-4o-mini",
+            "temperature": 0.2,
+            "messages": [
+              {"role":"system","content":"You are a careful DevOps/WordPress patch planner. Respond with JSON only."},
+              {"role":"user","content": null}
+            ],
+            "response_format": {"type":"json_object"}
+          }
+REQ
+          # wstrzyknij prompt (musimy podmienić null → treść z pliku)
+          python3 - <<'PY'
+import json,sys
+raw=open("/tmp/ai_raw.json","rb").
