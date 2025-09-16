@@ -641,62 +641,52 @@ jobs:
           RAW="_ci_logs/${{ github.run_id }}/snapshot"
           OUT="${RAW}/ARCHITECTURE.md"
 
-          MU="$(cat "${RAW}/analysis/mu_analysis.json" 2>/dev/null || echo "{}")"
-          PL="$(cat "${RAW}/analysis/plugins_analysis.json" 2>/dev/null || echo "{}")"
-          TH="$(cat "${RAW}/analysis/theme_analysis.json" 2>/dev/null || echo "{}")"
-
-          jq -n \
-            --arg mu "$MU" --arg pl "$PL" --arg th "$TH" \
-            '
-              def list_arr(a; title): if (a|length)>0 then ("- " + title + ":\n" + (a | map("- "+.) | join("\n"))) else "" end;
-
-              def dump_mod(m):
-                ("* Actions: " + ((m.actions // [])|length|tostring)) + "\n" +
-                ("* Filters: " + ((m.filters // [])|length|tostring)) + "\n" +
-                ("* Shortcodes: " + ((m.shortcodes // [])|length|tostring)) + "\n" +
-                ("* REST: " + ((m.rest // [])|length|tostring)) + "\n" +
-                ("* CPT: " + ((m.cpt // [])|length|tostring)) + "\n" +
-                ("* Tax: " + ((m.tax // [])|length|tostring)) + "\n" +
-                ("* Enqueues: " + ((m.enqueues // [])|length|tostring)) + "\n" +
-                ("* Options: " + ((m.options // [])|length|tostring)) + "\n" +
-                ("* Transients: " + ((m.transients // [])|length|tostring)) + "\n" +
-                ("* Crons: " + ((m.crons // [])|length|tostring)) + "\n" +
-                ("* Defines: " + ((m.defines // [])|length|tostring)) + "\n" +
-                ("* Files scanned: " + ((m.files // 0)|tostring))
-              ' > /dev/null
+          MU_JSON="$(cat "${RAW}/analysis/mu_analysis.json" 2>/dev/null || echo "{}")"
+          PL_JSON="$(cat "${RAW}/analysis/plugins_analysis.json" 2>/dev/null || echo "{}")"
+          TH_JSON="$(cat "${RAW}/analysis/theme_analysis.json" 2>/dev/null || echo "{}")"
 
           {
             echo "# Architecture overview"
             echo
-            echo "## MU-plugins"
+            echo "## MU-plugins (overview)"
             echo
-            jq -r '
-              ( $mu | fromjson ) as $M
-              | if ($M|type) == "object" then
-                  ($M | to_entries[] | "### " + .key + "\n" + ( .value | ( "```\n" + ( . | @json ) + "\n```\n" )))
-                else "No data"
-                end
-            ' --arg mu "$MU" -n
+            jq -r 'to_entries
+                   | sort_by(.key)
+                   | ( "Count: " + (length|tostring) ) as $c
+                   | $c, ""
+                   | ., ( to_entries[]? | "### \(.key)\n- files: \(.value.files // 0)\n- actions: \((.value.actions // [])|length)\n- filters: \((.value.filters // [])|length)\n- shortcodes: \((.value.shortcodes // [])|length)\n- rest: \((.value.rest // [])|length)\n- cpt: \((.value.cpt // [])|length)\n- tax: \((.value.tax // [])|length)\n- enqueues: \((.value.enqueues // [])|length)\n- options: \((.value.options // [])|length)\n- transients: \((.value.transients // [])|length)\n- crons: \((.value.crons // [])|length)\n- defines: \((.value.defines // [])|length)\n- off: \((.value.off // false)|tostring)\n" )' \
+              <<< "${MU_JSON}"
             echo
-            echo "## Plugins (by slug)"
+            echo "## Plugins (overview)"
             echo
-            jq -r '
-              ( $pl | fromjson ) as $P
-              | if ($P|type) == "object" then
-                  ($P | to_entries[] | "### " + .key + "\n" + ( .value | ( "```\n" + ( . | @json ) + "\n```\n" )))
-                else "No data"
-                end
-            ' --arg pl "$PL" -n
+            jq -r 'to_entries
+                   | sort_by(.key)
+                   | ( "Count: " + (length|tostring) ) as $c
+                   | $c, ""
+                   | ., ( to_entries[]? | "### \(.key)\n- files: \(.value.files // 0)\n- actions: \((.value.actions // [])|length)\n- filters: \((.value.filters // [])|length)\n- shortcodes: \((.value.shortcodes // [])|length)\n- rest: \((.value.rest // [])|length)\n- cpt: \((.value.cpt // [])|length)\n- tax: \((.value.tax // [])|length)\n- enqueues: \((.value.enqueues // [])|length)\n- options: \((.value.options // [])|length)\n- transients: \((.value.transients // [])|length)\n- crons: \((.value.crons // [])|length)\n- defines: \((.value.defines // [])|length)\n" )' \
+              <<< "${PL_JSON}"
             echo
-            echo "## Active Theme"
+            echo "## Active Theme (overview)"
             echo
-            jq -r '
-              ( $th | fromjson ) as $T
-              | if ($T|type) == "object" then
-                  "```\n" + ( $T | @json ) + "\n```"
-                else "No data"
-                end
-            ' --arg th "$TH" -n
+            jq -r '"- files: \((.files // 0)|tostring)\n- actions: \((.actions // [])|length)\n- filters: \((.filters // [])|length)\n- shortcodes: \((.shortcodes // [])|length)\n- rest: \((.rest // [])|length)\n- cpt: \((.cpt // [])|length)\n- tax: \((.tax // [])|length)\n- enqueues: \((.enqueues // [])|length)\n- options(keys): \((.options // [])|length)\n- templates: \((.templates // [])|length)\n"' \
+              <<< "${TH_JSON}"
+            echo
+            echo "## Raw JSON (for deep dive)"
+            echo
+            echo "### MU"
+            echo '```json'
+            jq -c . <<< "${MU_JSON}"
+            echo '```'
+            echo
+            echo "### Plugins"
+            echo '```json'
+            jq -c . <<< "${PL_JSON}"
+            echo '```'
+            echo
+            echo "### Theme"
+            echo '```json'
+            jq -c . <<< "${TH_JSON}"
+            echo '```'
           } > "${OUT}"
 
           echo "::notice::ARCHITECTURE.md generated ($(wc -c < "${OUT}") bytes)"
