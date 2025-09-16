@@ -1,0 +1,61 @@
+name: 06_verifier
+
+on:
+  workflow_run:
+    workflows: ["03_snapshot (WordPress → SSOT, pełny stan)"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verifier
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load next + snapshot
+        id: load
+        run: |
+          set -euo pipefail
+          if [ ! -f ".wtp/next.json" ]; then
+            echo "skip=1" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          if [ ! -f ".wtp/state/ro/public/latest/snapshot.json" ]; then
+            echo "skip=1" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          VERIFY_PATH="$(jq -r '.verify.file_exists // empty' .wtp/next.json)"
+          if [ -z "$VERIFY_PATH" ]; then
+            echo "skip=1" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if jq -r tostring .wtp/state/ro/public/latest/snapshot.json | grep -Fq "$VERIFY_PATH"; then
+            echo "found=1" >> $GITHUB_OUTPUT
+          else
+            echo "found=0" >> $GITHUB_OUTPUT
+          fi
+          echo "verify_path=$VERIFY_PATH" >> $GITHUB_OUTPUT
+
+      - name: Report
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.load.outputs.skip }}" = "1" ]; then
+            echo "::notice::Verifier: skipped (no next.json or no snapshot or no rule)."
+            exit 0
+          fi
+
+          if [ "${{ steps.load.outputs.found }}" = "1" ]; then
+            echo "::notice::Verifier: OK – found '${{ steps.load.outputs.verify_path }}' in snapshot."
+          else
+            echo "::warning::Verifier: NOT FOUND – '${{ steps.load.outputs.verify_path }}' not present in snapshot."
+          fi
