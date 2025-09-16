@@ -1,0 +1,16 @@
+ * Plugin Name: WTP RO Exporter (Open)
+ * Description: Publiczne endpointy REST do odczytu snapshotu oraz najnowszych logów (wp-debug/php_errors/mu-loader) z bezpiecznej lokalizacji.
+ * Version:     1.2.0
+ * Plugin Name: WTP Patch – MU Log Probe
+ * Description: Minimalny MU-plugin dorzucany łatką; zapisuje wpis do /home/u493676300/debug/patch-test.log
+ * Version: 0.1.0
+ * Plugin Name: WTP Dev Bridge — GitHub Export + Patcher (all-in-one)
+ * Description: Eksport motywu i wtyczek do GitHub (z chunkowaniem) + patch motywu z theme-bundle.json (RAW). Bez kolizji stałych.
+ * Version: 4.0.0
+ * Plugin Name: WTP Deploy Guard
+ * Description: Twarde blokady edycji z panelu + publiczny endpoint health do CI/CD.
+ * Version: 1.0.0
+ * Plugin Name: WTP Canonical Redirects
+ * Description: 301 z /?p=ID na kanoniczny permalink; usuwa śmieciowe parametry.
+ * Plugin Name: WTP Canonical + Robots
+ * Description: Ustala <link rel="canonical"> i dodaje noindex dla feed/search/404. Działa jako MU-plugin.
