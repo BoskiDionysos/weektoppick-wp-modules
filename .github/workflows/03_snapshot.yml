@@ -1,4 +1,4 @@
-name: 03_snapshot (WordPress → SSOT, pełny stan, offline assembly)
+name: 03_snapshot (WordPress → SSOT, full state + code analysis, offline assembly)
 
 on:
   workflow_run:
@@ -49,10 +49,190 @@ jobs:
           echo "::add-mask::$USER"
           mkdir -p "_ci_logs/${{ github.run_id }}/snapshot"
 
-      - name: 3) Create + upload remote RAW snapshot script (no jq on server)
+      - name: 3) Create + upload remote RAW snapshot script (incl. analyzer)
         shell: bash
         run: |
           set -euo pipefail
+
+          cat > /tmp/wtp_analyze.php <<'ANALYZER'
+          <?php
+          // Simple static analyzer: scans PHP files for hooks, routes, CPT/Tax, shortcodes, enqueues, options/transients, crons, defines
+          // Usage: php wtp_analyze.php <basePath> <type:mu|plugins|theme> <outJson>
+          if ($argc < 4) { fwrite(STDERR, "usage: php analyze <base> <type> <out>\n"); exit(1); }
+          $base = rtrim($argv[1], "/");
+          $type = $argv[2];
+          $out  = $argv[3];
+
+          function scanPhpFiles($dir) {
+            $files = [];
+            if (!is_dir($dir)) return $files;
+            $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS));
+            foreach ($it as $fi) {
+              if ($fi->isFile()) {
+                $ext = strtolower(pathinfo($fi->getFilename(), PATHINFO_EXTENSION));
+                if ($ext === 'php' || $ext === 'phps' || $ext === 'phtml') {
+                  $files[] = $fi->getPathname();
+                }
+              }
+            }
+            return $files;
+          }
+
+          function analyzeFiles($files) {
+            $res = [
+              'actions'    => [], // [ ['hook','cb','priority'] ]
+              'filters'    => [],
+              'shortcodes' => [],
+              'rest'       => [],
+              'cpt'        => [],
+              'tax'        => [],
+              'enqueues'   => [], // [ ['type','handle'] ]
+              'options'    => [], // option names
+              'transients' => [],
+              'crons'      => [], // [ ['event','schedule'] ]
+              'defines'    => [], // defined constants
+              'files'      => 0,
+            ];
+            $seen = [
+              'actions'=>[], 'filters'=>[], 'shortcodes'=>[], 'rest'=>[],
+              'cpt'=>[], 'tax'=>[], 'enq'=>[], 'opt'=>[], 'trans'=>[], 'cron'=>[], 'def'=>[]
+            ];
+            foreach ($files as $f) {
+              $code = @file_get_contents($f);
+              if ($code === false) continue;
+
+              // add_action / add_filter
+              if (preg_match_all('/\badd_action\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*([^)]+)\)/i', $code, $m, PREG_SET_ORDER)) {
+                foreach ($m as $mm) {
+                  $hook=$mm[1]; $cb=trim($mm[2]);
+                  $entry = ['hook'=>$hook,'cb'=>$cb];
+                  $k = $hook.'|'.$cb;
+                  if (!isset($seen['actions'][$k])) { $res['actions'][]=$entry; $seen['actions'][$k]=1; }
+                }
+              }
+              if (preg_match_all('/\badd_filter\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*([^)]+)\)/i', $code, $m, PREG_SET_ORDER)) {
+                foreach ($m as $mm) {
+                  $hook=$mm[1]; $cb=trim($mm[2]);
+                  $entry = ['hook'=>$hook,'cb'=>$cb];
+                  $k = $hook.'|'.$cb;
+                  if (!isset($seen['filters'][$k])) { $res['filters'][]=$entry; $seen['filters'][$k]=1; }
+                }
+              }
+
+              // add_shortcode
+              if (preg_match_all('/\badd_shortcode\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,/i', $code, $m)) {
+                foreach ($m[1] as $sc) {
+                  if (!isset($seen['shortcodes'][$sc])) { $res['shortcodes'][] = $sc; $seen['shortcodes'][$sc]=1; }
+                }
+              }
+
+              // register_rest_route
+              if (preg_match_all('/\bregister_rest_route\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*[\'"]([^\'"]+)[\'"]/i', $code, $m, PREG_SET_ORDER)) {
+                foreach ($m as $mm) {
+                  $ns=$mm[1]; $route=$mm[2];
+                  $key="$ns$route";
+                  if (!isset($seen['rest'][$key])) { $res['rest'][] = ['namespace'=>$ns,'route'=>$route]; $seen['rest'][$key]=1; }
+                }
+              }
+
+              // register_post_type / register_taxonomy
+              if (preg_match_all('/\bregister_post_type\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,/i', $code, $m)) {
+                foreach ($m[1] as $pt) { if (!isset($seen['cpt'][$pt])) { $res['cpt'][]=$pt; $seen['cpt'][$pt]=1; } }
+              }
+              if (preg_match_all('/\bregister_taxonomy\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,/i', $code, $m)) {
+                foreach ($m[1] as $tx) { if (!isset($seen['tax'][$tx])) { $res['tax'][]=$tx; $seen['tax'][$tx]=1; } }
+              }
+
+              // enqueues
+              if (preg_match_all('/\bwp_enqueue_script\s*\(\s*[\'"]([^\'"]+)[\'"]/', $code, $m)) {
+                foreach ($m[1] as $h) { $k='script|'.$h; if (!isset($seen['enq'][$k])) { $res['enqueues'][]=['type'=>'script','handle'=>$h]; $seen['enq'][$k]=1; } }
+              }
+              if (preg_match_all('/\bwp_enqueue_style\s*\(\s*[\'"]([^\'"]+)[\'"]/', $code, $m)) {
+                foreach ($m[1] as $h) { $k='style|'.$h; if (!isset($seen['enq'][$k])) { $res['enqueues'][]=['type'=>'style','handle'=>$h]; $seen['enq'][$k]=1; } }
+              }
+
+              // options / transients
+              if (preg_match_all('/\b(get_option|update_option|add_option|delete_option)\s*\(\s*[\'"]([^\'"]+)[\'"]/', $code, $m, PREG_SET_ORDER)) {
+                foreach ($m as $mm) { $o=$mm[2]; if (!isset($seen['opt'][$o])) { $res['options'][]=$o; $seen['opt'][$o]=1; } }
+              }
+              if (preg_match_all('/\b(set_transient|get_transient|delete_transient)\s*\(\s*[\'"]([^\'"]+)[\'"]/', $code, $m, PREG_SET_ORDER)) {
+                foreach ($m as $mm) { $t=$mm[2]; if (!isset($seen['trans'][$t])) { $res['transients'][]=$t; $seen['trans'][$t]=1; } }
+              }
+
+              // crons
+              if (preg_match_all('/\bwp_schedule_event\s*\(\s*[^,]+,\s*[\'"]([^\'"]+)[\'"]\s*,\s*[\'"]?([^,\'")]+)/i', $code, $m, PREG_SET_ORDER)) {
+                foreach ($m as $mm) {
+                  $sched=$mm[1]; $event=$mm[2];
+                  $key="$event|$sched"; if (!isset($seen['cron'][$key])) { $res['crons'][]=['event'=>$event,'schedule'=>$sched]; $seen['cron'][$key]=1; }
+                }
+              }
+
+              // defines
+              if (preg_match_all('/\bdefine\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,/i', $code, $m)) {
+                foreach ($m[1] as $d) { if (!isset($seen['def'][$d])) { $res['defines'][]=$d; $seen['def'][$d]=1; } }
+              }
+            }
+            $res['files'] = count($files);
+            return $res;
+          }
+
+          function analyzeRoots($base, $type) {
+            $out = [];
+            if ($type === 'mu') {
+              if (is_dir($base)) {
+                // items can be dirs or single files
+                $items = array_values(array_filter(scandir($base), function($e){ return $e !== '.' && $e !== '..'; }));
+                sort($items, SORT_NATURAL);
+                foreach ($items as $item) {
+                  $path = $base . '/' . $item;
+                  $files = is_dir($path) ? scanPhpFiles($path) : (str_ends_with(strtolower($item), '.php') ? [$path] : []);
+                  $res = analyzeFiles($files);
+                  $res['present'] = file_exists($path) ? true : false;
+                  if (str_ends_with(strtolower($item), '.off')) $res['off'] = true;
+                  $out[$item] = $res;
+                }
+              }
+            } elseif ($type === 'plugins') {
+              if (is_dir($base)) {
+                $slugs = array_values(array_filter(scandir($base), function($e){ return $e !== '.' && $e !== '..'; }));
+                sort($slugs, SORT_NATURAL);
+                foreach ($slugs as $slug) {
+                  $p = $base . '/' . $slug;
+                  if (!is_dir($p)) continue;
+                  $res = analyzeFiles(scanPhpFiles($p));
+                  $res['present'] = true;
+                  $out[$slug] = $res;
+                }
+              }
+            } elseif ($type === 'theme') {
+              if (is_dir($base)) {
+                $res = analyzeFiles(scanPhpFiles($base));
+                $res['present'] = true;
+                // collect template-like files (simple heuristic)
+                $tpls = [];
+                $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($base, FilesystemIterator::SKIP_DOTS));
+                foreach ($it as $fi) {
+                  if ($fi->isFile()) {
+                    $fn=strtolower($fi->getFilename());
+                    if (preg_match('/\.(php|phtml)$/',$fn)) {
+                      if (preg_match('/(front\-page|home|single|page|archive|category|tag|author|search|404|index)\.php$/',$fn)) {
+                        $tpls[] = str_replace($base.'/', '', $fi->getPathname());
+                      }
+                    }
+                  }
+                }
+                sort($tpls, SORT_NATURAL);
+                $res['templates'] = $tpls;
+                $out = $res;
+              }
+            }
+            return $out;
+          }
+
+          $data = analyzeRoots($base, $type);
+          file_put_contents($out, json_encode($data, JSON_UNESCAPED_SLASHES));
+          ANALYZER
+
           cat > /tmp/wtp_snapshot_raw.sh <<'SNAPRAW'
           #!/usr/bin/env bash
           set -euo pipefail
@@ -269,11 +449,24 @@ jobs:
           # ---------- K) Active plugins list ----------
           wp plugin list --status=active --field=name --format=json > "${RAWDIR}/plugins_active.json" 2>>"${ERR_FILE}" || echo "[]" > "${RAWDIR}/plugins_active.json"
 
+          # ---------- L) Code analysis (PHP) ----------
+          mkdir -p "${RAWDIR}/analysis"
+          php /tmp/wtp_analyze.php "${TARGET}/wp-content/mu-plugins" "mu"      "${RAWDIR}/analysis/mu_analysis.json"      2>>"${ERR_FILE}" || echo "{}"  > "${RAWDIR}/analysis/mu_analysis.json"
+          php /tmp/wtp_analyze.php "${TARGET}/wp-content/plugins"    "plugins" "${RAWDIR}/analysis/plugins_analysis.json" 2>>"${ERR_FILE}" || echo "{}"  > "${RAWDIR}/analysis/plugins_analysis.json"
+          ACTIVE_DIR=""
+          if [[ -n "${ACTIVE_THEME}" && -d "${TARGET}/wp-content/themes/${ACTIVE_THEME}" ]]; then
+            ACTIVE_DIR="${TARGET}/wp-content/themes/${ACTIVE_THEME}"
+            php /tmp/wtp_analyze.php "${ACTIVE_DIR}" "theme" "${RAWDIR}/analysis/theme_analysis.json" 2>>"${ERR_FILE}" || echo "{}" > "${RAWDIR}/analysis/theme_analysis.json"
+          else
+            echo "{}" > "${RAWDIR}/analysis/theme_analysis.json"
+          fi
+
           exit 0
           SNAPRAW
 
           chmod +x /tmp/wtp_snapshot_raw.sh
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes /tmp/wtp_snapshot_raw.sh "${USER}@${HOST}:/tmp/wtp_snapshot_raw.sh"
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes /tmp/wtp_analyze.php     "${USER}@${HOST}:/tmp/wtp_analyze.php"
 
       - name: 4) Run remote RAW snapshot script
         shell: bash
@@ -319,6 +512,10 @@ jobs:
           THEME_MODS="$(read_json "${RAW}/theme_mods.json" '{}')"
           OPTIONS_CHARITY="$(read_json "${RAW}/options_charity.json" '{}')"
 
+          MU_ANALYSIS="$(read_json "${RAW}/analysis/mu_analysis.json" '{}')"
+          PLUGINS_ANALYSIS="$(read_json "${RAW}/analysis/plugins_analysis.json" '{}')"
+          THEME_ANALYSIS="$(read_json "${RAW}/analysis/theme_analysis.json" '{}')"
+
           LANG_SUM="$(safe_cat "${RAW}/languages/summary.tsv")"
           LANG_FILES="$(printf '%s' "$LANG_SUM" | awk -F'\t' 'NR==1{print $1}')"
           LANG_SHA="$(printf  '%s' "$LANG_SUM" | awk -F'\t' 'NR==1{print $2}')"
@@ -360,6 +557,9 @@ jobs:
             --arg plug_tsv "$PLUG_TSV" \
             --arg mu_tsv   "$MU_TSV" \
             --arg errs_raw "$ERRS_RAW" \
+            --arg mu_analysis_json       "$MU_ANALYSIS" \
+            --arg plugins_analysis_json  "$PLUGINS_ANALYSIS" \
+            --arg theme_analysis_json    "$THEME_ANALYSIS" \
             '
               def tsv_to_map(tsv):
                 ( tsv | split("\n")
@@ -422,20 +622,93 @@ jobs:
                   charity: ($options_charity_json|fromjson)
                 },
 
+                architecture: {
+                  mu_plugins:  ($mu_analysis_json|fromjson),
+                  plugins:     ($plugins_analysis_json|fromjson),
+                  theme:       ($theme_analysis_json|fromjson)
+                },
+
                 wtp: { ssot_path: $ssot_path, ssot_sha1: $ssot_sha1, ssot_b64: $ssot_b64 }
               }
             ' > "${SNAP}"
 
           echo "::notice::Built snapshot.json ($(wc -c < "${SNAP}") bytes)"
 
-      - name: 7) Upload artifact (snapshot logs + raw)
+      - name: 7) Generate ARCHITECTURE.md (human-friendly)
+        shell: bash
+        run: |
+          set -euo pipefail
+          RAW="_ci_logs/${{ github.run_id }}/snapshot"
+          OUT="${RAW}/ARCHITECTURE.md"
+
+          MU="$(cat "${RAW}/analysis/mu_analysis.json" 2>/dev/null || echo "{}")"
+          PL="$(cat "${RAW}/analysis/plugins_analysis.json" 2>/dev/null || echo "{}")"
+          TH="$(cat "${RAW}/analysis/theme_analysis.json" 2>/dev/null || echo "{}")"
+
+          jq -n \
+            --arg mu "$MU" --arg pl "$PL" --arg th "$TH" \
+            '
+              def list_arr(a; title): if (a|length)>0 then ("- " + title + ":\n" + (a | map("- "+.) | join("\n"))) else "" end;
+
+              def dump_mod(m):
+                ("* Actions: " + ((m.actions // [])|length|tostring)) + "\n" +
+                ("* Filters: " + ((m.filters // [])|length|tostring)) + "\n" +
+                ("* Shortcodes: " + ((m.shortcodes // [])|length|tostring)) + "\n" +
+                ("* REST: " + ((m.rest // [])|length|tostring)) + "\n" +
+                ("* CPT: " + ((m.cpt // [])|length|tostring)) + "\n" +
+                ("* Tax: " + ((m.tax // [])|length|tostring)) + "\n" +
+                ("* Enqueues: " + ((m.enqueues // [])|length|tostring)) + "\n" +
+                ("* Options: " + ((m.options // [])|length|tostring)) + "\n" +
+                ("* Transients: " + ((m.transients // [])|length|tostring)) + "\n" +
+                ("* Crons: " + ((m.crons // [])|length|tostring)) + "\n" +
+                ("* Defines: " + ((m.defines // [])|length|tostring)) + "\n" +
+                ("* Files scanned: " + ((m.files // 0)|tostring))
+              ' > /dev/null
+
+          {
+            echo "# Architecture overview"
+            echo
+            echo "## MU-plugins"
+            echo
+            jq -r '
+              ( $mu | fromjson ) as $M
+              | if ($M|type) == "object" then
+                  ($M | to_entries[] | "### " + .key + "\n" + ( .value | ( "```\n" + ( . | @json ) + "\n```\n" )))
+                else "No data"
+                end
+            ' --arg mu "$MU" -n
+            echo
+            echo "## Plugins (by slug)"
+            echo
+            jq -r '
+              ( $pl | fromjson ) as $P
+              | if ($P|type) == "object" then
+                  ($P | to_entries[] | "### " + .key + "\n" + ( .value | ( "```\n" + ( . | @json ) + "\n```\n" )))
+                else "No data"
+                end
+            ' --arg pl "$PL" -n
+            echo
+            echo "## Active Theme"
+            echo
+            jq -r '
+              ( $th | fromjson ) as $T
+              | if ($T|type) == "object" then
+                  "```\n" + ( $T | @json ) + "\n```"
+                else "No data"
+                end
+            ' --arg th "$TH" -n
+          } > "${OUT}"
+
+          echo "::notice::ARCHITECTURE.md generated ($(wc -c < "${OUT}") bytes)"
+
+      - name: 8) Upload artifact (snapshot logs + raw + report)
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-logs-${{ github.run_id }}
           path: _ci_logs/${{ github.run_id }}/snapshot/**
           retention-days: 14
 
-      - name: 8) Publish snapshot + RO mirror to repo (raw-readable)
+      - name: 9) Publish snapshot + RO mirror to repo (raw-readable)
         shell: bash
         run: |
           set -euo pipefail
@@ -462,14 +735,16 @@ jobs:
           if git diff --staged --quiet; then
             echo "::notice::Nothing to commit."
           else
-            git commit -m "Publish snapshot run ${{ github.run_id }} (+RO mirror, languages+categories+mods+charity)"
+            git commit -m "Publish snapshot run ${{ github.run_id }} (+RO mirror, full analysis: hooks/rest/cpt/tax/enqueues/options/transients/crons/defines)"
             git push
           fi
 
           echo "::notice::RO latest: /.wtp/state/ro/public/latest/snapshot.json"
           echo "::notice::RO run:   /.wtp/state/ro/public/${{ github.run_id }}/snapshot.json"
+          echo "::notice::RO latest ARCH: /.wtp/state/ro/public/latest/ARCHITECTURE.md"
 
-      - name: 9) Report summary
+      - name: 10) Report summary (always)
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
