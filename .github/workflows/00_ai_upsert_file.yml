@@ -1,0 +1,194 @@
+name: 00_ai_upsert_file (agent bootstrap: create/update file + optional pipeline trigger)
+
+on:
+  workflow_dispatch:
+    inputs:
+      path:
+        description: 'Ścieżka docelowa w repo (np. mu-plugins/00-mu-safe-loader.php)'
+        required: true
+        type: string
+      message:
+        description: 'Commit message'
+        required: true
+        type: string
+      content_plain:
+        description: 'Treść pliku (PLAIN). Zostaw puste jeśli podajesz content_b64'
+        required: false
+        type: string
+      content_b64:
+        description: 'Treść pliku (Base64). Zostaw puste jeśli podajesz content_plain'
+        required: false
+        type: string
+      sha256:
+        description: 'Opcjonalny SHA-256 zdekodowanej treści (weryfikacja)'
+        required: false
+        type: string
+      branch:
+        description: 'Docelowy branch'
+        required: false
+        default: 'main'
+        type: string
+      trigger_pipeline:
+        description: 'Wymuś uruchomienie 01→02→03 jeśli ścieżka nie pasuje do filtrów 01 (mu/plugins/themes/wp-content/.wtp)'
+        required: false
+        default: true
+        type: boolean
+
+  repository_dispatch:
+    types: [ai-upsert-file]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ai-upsert-file
+  cancel-in-progress: true
+
+jobs:
+  upsert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Upsert file (UI or repository_dispatch)
+        uses: actions/github-script@v7
+        with:
+          # Jeśli masz PAT z uprawnieniami `repo` + `workflow`, wstaw go w sekrety jako WTP_GITHUB_PAT.
+          # Jeśli nie — zadziała GITHUB_TOKEN (wystarczy do edycji plików poza .github/workflows/).
+          github-token: ${{ secrets.WTP_GITHUB_PAT != '' && secrets.WTP_GITHUB_PAT || github.token }}
+          script: |
+            const crypto = require('crypto');
+            const ev = context.eventName;
+
+            // ---- parse inputs ----
+            let path = '', message = '', branch = 'main', content_b64 = '', content_plain = '', sha256 = '', trigger = true;
+            if (ev === 'workflow_dispatch') {
+              const inp = context.payload?.inputs || {};
+              path          = (inp.path || '').trim();
+              message       = (inp.message || '').trim();
+              branch        = (inp.branch || 'main').trim();
+              content_b64   = (inp.content_b64 || '').trim();
+              content_plain = (inp.content_plain || '').trim();
+              sha256        = (inp.sha256 || '').trim().toLowerCase();
+              trigger       = String(inp.trigger_pipeline ?? 'true') === 'true';
+            } else if (ev === 'repository_dispatch') {
+              const p = context.payload?.client_payload || {};
+              path          = (p.path || '').trim();
+              message       = (p.message || '').trim();
+              branch        = (p.branch || 'main').trim();
+              content_b64   = (p.content_b64 || '').trim();
+              content_plain = (p.content_plain || '').trim();
+              sha256        = (p.sha256 || '').trim().toLowerCase();
+              trigger       = Boolean(p.trigger_pipeline ?? true);
+            } else {
+              core.setFailed(`Unsupported event: ${ev}`); return;
+            }
+
+            core.info(`event=${ev}`);
+            core.info(`path="${path}", branch="${branch}", trigger_pipeline=${trigger}`);
+            core.info(`has_plain=${content_plain !== ''}, has_b64=${content_b64 !== ''}`);
+
+            if (!path)    return core.setFailed('Input "path" is required.');
+            if (!message) return core.setFailed('Input "message" is required.');
+            if (path.startsWith('/')) return core.setFailed('Path musi być repo-relative (bez wiodącego "/").');
+
+            const both = (content_plain !== '' && content_b64 !== '');
+            const none = (content_plain === '' && content_b64 === '');
+            if (both || none) return core.setFailed('Podaj dokładnie jedno: content_plain ALBO content_b64.');
+
+            // ---- content decode + optional SHA-256 check ----
+            let buf;
+            if (content_b64) {
+              try { buf = Buffer.from(content_b64, 'base64'); if (buf.toString('base64') !== content_b64) throw 0; }
+              catch { return core.setFailed('content_b64 nie jest prawidłowym Base64.'); }
+            } else {
+              buf = Buffer.from(content_plain, 'utf8');
+              content_b64 = buf.toString('base64');
+            }
+
+            if (sha256) {
+              const calc = crypto.createHash('sha256').update(buf).digest('hex');
+              core.info(`sha256(user)=${sha256}`);
+              core.info(`sha256(calc)=${calc}`);
+              if (calc !== sha256) return core.setFailed('SHA-256 mismatch treści.');
+            }
+
+            const { owner, repo } = context.repo;
+
+            // ---- read existing sha (if exists) ----
+            let sha;
+            try {
+              const { data } = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
+                owner, repo, path, ref: branch,
+              });
+              sha = data?.sha || undefined;
+              core.info(`Existing sha=${sha || '(new file)'}`);
+            } catch (e) {
+              if (e.status !== 404) return core.setFailed(`getContent failed: ${e.message}`);
+              core.info('File does not exist (creating).');
+            }
+
+            // ---- PUT file (create/update) ----
+            let commitSha = '';
+            try {
+              const res = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+                owner, repo, path, message, branch, content: content_b64, sha
+              });
+              commitSha = res.data.commit?.sha || '';
+              await core.summary
+                .addHeading('AI Upsert File (00)')
+                .addTable([
+                  [{data:'Field',header:true},{data:'Value',header:true}],
+                  ['path', path],
+                  ['branch', branch],
+                  ['commit', commitSha],
+                  ['verified_sha256', sha256 ? 'yes' : 'no']
+                ])
+                .write();
+              core.info(`OK: commit ${commitSha}`);
+            } catch (e) {
+              return core.setFailed(`PUT failed: ${e.message}`);
+            }
+
+            // ---- Decide whether push triggers 01_deploy ----
+            // 01_deploy has push paths filters:
+            //   mu-plugins/**, plugins/**, themes/**, wp-content/**, .wtp/**, .github/workflows/01_deploy.yml
+            const willTrigger01 = /^(mu-plugins|plugins|themes|wp-content|\.wtp|\.github\/workflows\/01_deploy\.yml)\b/.test(path);
+
+            if (willTrigger01) {
+              core.info('Path matches deploy filters — push uruchomi 01_deploy automatycznie.');
+              return;
+            }
+            if (!trigger) {
+              core.info('Path NIE pasuje do filtrów 01_deploy i trigger_pipeline=false — kończę bez dodatkowego commita.');
+              return;
+            }
+
+            // ---- Optional: lightweight trigger commit in .wtp/** to start 01 ----
+            // We will update/create ".wtp/ci/pipeline-trigger.txt" with ISO timestamp.
+            const trigPath = '.wtp/ci/pipeline-trigger.txt';
+            let trigSha;
+            let trigContent = '';
+            try {
+              const { data } = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
+                owner, repo, path: trigPath, ref: branch
+              });
+              trigSha = data?.sha || undefined;
+              const buff = Buffer.from(data.content || '', 'base64');
+              trigContent = buff.toString('utf8');
+            } catch (e) {
+              if (e.status !== 404) return core.setFailed(`get trigger file failed: ${e.message}`);
+              core.info('Trigger file nie istnieje — utworzę nowy.');
+            }
+
+            const line = `trigger-from-00 ${new Date().toISOString()} via ${commitSha}\n`;
+            const trigBuf = Buffer.from(trigContent + line, 'utf8');
+            const trigB64 = trigBuf.toString('base64');
+
+            try {
+              const res2 = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+                owner, repo, path: trigPath, message: '[00] pipeline trigger', branch, content: trigB64, sha: trigSha
+              });
+              core.info(`Trigger commit: ${res2.data.commit?.sha || ''}`);
+            } catch (e) {
+              return core.setFailed(`PUT trigger failed: ${e.message}`);
+            }
