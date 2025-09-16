@@ -58,8 +58,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Zakładamy, że skrypt jest w repo:
+          # scripts/wtp_snapshot.sh
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes \
-            scripts/wtp_snapshot.sh "${USER}@${HOST}:/tmp/wtp_snapshot.sh"
+            "scripts/wtp_snapshot.sh" "${USER}@${HOST}:/tmp/wtp_snapshot.sh"
+          sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
+            "${USER}@${HOST}" "chmod +x /tmp/wtp_snapshot.sh"
 
       - name: 5) Run remote snapshot script
         shell: bash
@@ -81,13 +85,35 @@ jobs:
           # dla pewności: wymuś istnienie kluczowych plików
           [[ -f "_ci_logs/${{ github.run_id }}/snapshot/snapshot.json" ]] || echo '{}' > "_ci_logs/${{ github.run_id }}/snapshot/snapshot.json"
 
-      - name: 7) Upload artifact (backup)
+      - name: 7) Sanitize filenames for artifact (replace illegal chars)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="_ci_logs/${{ github.run_id }}/snapshot"
+          [ -d "$ROOT" ] || exit 0
+          while IFS= read -r -d '' p; do
+            new="$p"
+            new="${new//:/-}"
+            new="${new//\"/-}"
+            new="${new//</-}"
+            new="${new//>/-}"
+            new="${new//|/-}"
+            new="${new//\*/-}"
+            new="${new//\?/-}"
+            if [ "$new" != "$p" ]; then
+              mkdir -p "$(dirname "$new")"
+              mv "$p" "$new"
+            fi
+          done < <(find "$ROOT" -depth \( -name '*:*' -o -name '*"*' -o -name '*<*' -o -name '*>*' -o -name '*|*' -o -name '*\**' -o -name '*\?*' \) -print0)
+
+      - name: 8) Upload artifact (backup)
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-logs-${{ github.run_id }}
           path: _ci_logs/${{ github.run_id }}/snapshot/**
+          retention-days: 14
 
-      - name: 8) Validate snapshot.json
+      - name: 9) Validate snapshot.json
         shell: bash
         run: |
           set -euo pipefail
@@ -99,7 +125,7 @@ jobs:
             echo "::error::No snapshot.json generated"; exit 1
           fi
 
-      - name: 9) Publish snapshot + RO mirror to repo (no artifacts needed)
+      - name: 10) Publish snapshot + RO mirror to repo (no artifacts needed)
         shell: bash
         run: |
           set -euo pipefail
@@ -137,7 +163,7 @@ jobs:
           echo "::notice::RO latest: /.wtp/state/ro/public/latest/snapshot.json"
           echo "::notice::RO run:   /.wtp/state/ro/public/${{ github.run_id }}/snapshot.json"
 
-      - name: 10) Report summary
+      - name: 11) Report summary
         shell: bash
         run: |
           set -euo pipefail
