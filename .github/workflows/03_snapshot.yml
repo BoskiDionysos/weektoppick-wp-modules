@@ -634,8 +634,7 @@ jobs:
 
           echo "::notice::Built snapshot.json ($(wc -c < "${SNAP}") bytes)"
 
-            - name: 7) Generate ARCHITECTURE.md (human-friendly)
-        shell: bash
+      - name: 7) Generate ARCHITECTURE.md (human-friendly)
         run: |
           set -euo pipefail
           RAW="_ci_logs/${{ github.run_id }}/snapshot"
