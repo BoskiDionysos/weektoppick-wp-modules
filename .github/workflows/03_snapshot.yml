@@ -96,7 +96,6 @@ jobs:
           ACTIVE_THEME="$(wp theme list --status=active --field=name 2>/dev/null | head -n1 || true)"
           printf "%s\n" "${ACTIVE_THEME}" > "${RAWDIR}/theme_active_slug.txt" || true
 
-          # Trees for ALL themes (to capture OFF themes as well)
           THEMES_DIR="${TARGET}/wp-content/themes"
           mkdir -p "${RAWDIR}/themes"
           if [[ -d "${THEMES_DIR}" ]]; then
@@ -125,7 +124,6 @@ jobs:
           wp plugin list --format=json > "${RAWDIR}/plugins.json" 2>>"${ERR_FILE}" || note_err "wp plugin list json failed."
           wp plugin list --format=csv  > "${RAWDIR}/plugins.csv"  2>>"${ERR_FILE}" || note_err "wp plugin list csv failed."
 
-          # Trees for ALL plugin directories (captures OFF too)
           PLUG_DIR="${TARGET}/wp-content/plugins"
           mkdir -p "${RAWDIR}/plugins"
           : > "${RAWDIR}/plugins_dirs.txt"
@@ -151,7 +149,8 @@ jobs:
             : > "${RAWDIR}/plugins_trees.tsv"
           fi
 
-          # ---------- D) MU-plugins (dirs + lone files, incl. *.off) ----------
+          # ---------- D) MU-plugins (incl. *.off) ----------
+          wp plugin list --status=must-use --format=json > "${RAWDIR}/mu_plugins.json" 2>>"${ERR_FILE}" || echo "[]" > "${RAWDIR}/mu_plugins.json"
           MU_DIR="${TARGET}/wp-content/mu-plugins"
           mkdir -p "${RAWDIR}/mu-plugins"
           if [[ -d "${MU_DIR}" ]]; then
@@ -160,25 +159,19 @@ jobs:
             find "${MU_DIR}" -type f -print0 2>/dev/null | while IFS= read -r -d '' f; do
               sha1sum "${f}" >> "${RAWDIR}/mu_plugins_hashes.txt" 2>>"${ERR_FILE}" || true
             done
-            # per-item trees:
             : > "${RAWDIR}/mu_plugins_items.txt"
-            # subdirs as items
             find "${MU_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort >> "${RAWDIR}/mu_plugins_items.txt" || true
-            # lone files (php, php.off, any) as items -> name by basename
             find "${MU_DIR}" -maxdepth 1 -type f -printf '%f\n' | sort >> "${RAWDIR}/mu_plugins_items.txt" || true
-
             : > "${RAWDIR}/mu_plugins_trees.tsv"
             while read -r item; do
               [[ -z "${item}" ]] && continue
-              is_dir=0
-              [[ -d "${MU_DIR}/${item}" ]] && is_dir=1
+              is_dir=0; [[ -d "${MU_DIR}/${item}" ]] && is_dir=1
               mout="${RAWDIR}/mu-plugins/${item}"
               mkdir -p "${mout}"
               if [[ ${is_dir} -eq 1 ]]; then
                 ( cd "${MU_DIR}/${item}" && find . -type f -printf '%P\n' | sort ) > "${mout}/tree.txt" 2>>"${ERR_FILE}" || true
                 ( cd "${MU_DIR}/${item}" && find . -type f -print0 | sort -z | xargs -0 sha1sum ) > "${mout}/hashes.sha1" 2>>"${ERR_FILE}" || true
               else
-                # single file item -> tree = just that file
                 echo "${item}" > "${mout}/tree.txt"
                 sha1sum "${MU_DIR}/${item}" > "${mout}/hashes.sha1" 2>>"${ERR_FILE}" || true
               fi
@@ -190,7 +183,6 @@ jobs:
               printf "%s\t%s\t%s\n" "${item}" "${fcnt}" "${gsha}" >> "${RAWDIR}/mu_plugins_trees.tsv"
             done < "${RAWDIR}/mu_plugins_items.txt"
 
-            # Headers (root .php; best-effort)
             : > "${RAWDIR}/mu_plugins_headers.txt"
             find "${MU_DIR}" -maxdepth 1 -type f -name "*.php*" -print0 2>/dev/null \
               | while IFS= read -r -d '' fphp; do
@@ -220,7 +212,54 @@ jobs:
             note_err "SSOT file .wtp/ssot.yml not found."
           fi
 
-          # ---------- G) Server info ----------
+          # ---------- G) Languages ----------
+          wp language core list --format=json > "${RAWDIR}/languages_core.json" 2>>"${ERR_FILE}" || echo "[]" > "${RAWDIR}/languages_core.json"
+          LANG_DIR="${TARGET}/wp-content/languages"
+          mkdir -p "${RAWDIR}/languages"
+          if [[ -d "${LANG_DIR}" ]]; then
+            ( cd "${LANG_DIR}" && find . -type f -printf '%P\n' | sort ) > "${RAWDIR}/languages/tree.txt" 2>>"${ERR_FILE}" || true
+            ( cd "${LANG_DIR}" && find . -type f -print0 | sort -z | xargs -0 sha1sum ) > "${RAWDIR}/languages/hashes.sha1" 2>>"${ERR_FILE}" || true
+            fcnt=$(wc -l < "${RAWDIR}/languages/tree.txt" 2>/dev/null || echo 0)
+            gsha=""
+            if [[ -s "${RAWDIR}/languages/hashes.sha1" ]]; then
+              gsha="$(awk '{print $1}' "${RAWDIR}/languages/hashes.sha1" | tr -d '\r' | sort | sha1sum | awk '{print $1}')"
+            fi
+            printf "%s\t%s\n" "${fcnt}" "${gsha}" > "${RAWDIR}/languages/summary.tsv"
+          else
+            : > "${RAWDIR}/languages/tree.txt"; : > "${RAWDIR}/languages/hashes.sha1"; printf "0\t\n" > "${RAWDIR}/languages/summary.tsv"
+          fi
+
+          # ---------- H) Taxonomies (categories) ----------
+          wp taxonomy list --format=json > "${RAWDIR}/taxonomies.json" 2>>"${ERR_FILE}" || echo "[]" > "${RAWDIR}/taxonomies.json"
+          wp term list category --fields=term_id,slug,name,parent,count,term_taxonomy_id,taxonomy --format=json > "${RAWDIR}/taxonomy_category.json" 2>>"${ERR_FILE}" || echo "[]" > "${RAWDIR}/taxonomy_category.json"
+
+          # ---------- I) Theme mods + Charity options ----------
+          if [[ -n "${ACTIVE_THEME}" ]]; then
+            wp option get "theme_mods_${ACTIVE_THEME}" --format=json > "${RAWDIR}/theme_mods.json" 2>>"${ERR_FILE}" || echo "{}" > "${RAWDIR}/theme_mods.json"
+          else
+            echo "{}" > "${RAWDIR}/theme_mods.json"
+          fi
+
+          # names containing 'charity'
+          wp option list --search=charity --fields=option_name --format=json > "${RAWDIR}/options_charity_names.json" 2>>"${ERR_FILE}" || echo "[]" > "${RAWDIR}/options_charity_names.json"
+          php -r '
+            $raw=getenv("RAWDIR"); $target=getenv("TARGET");
+            $names=json_decode(@file_get_contents("$raw/options_charity_names.json"),true);
+            $out=[];
+            if (is_array($names)){
+              foreach($names as $n){
+                $name = is_array($n) && isset($n["option_name"]) ? $n["option_name"] : (is_string($n)?$n:"");
+                if(!$name) continue;
+                $cmd="php ./wp option get ".escapeshellarg($name)." --path=\"".$target."\" 2>/dev/null";
+                $val=shell_exec($cmd);
+                if($val===null) $val="";
+                $out[$name]=trim($val);
+              }
+            }
+            file_put_contents("$raw/options_charity.json", json_encode($out, JSON_UNESCAPED_SLASHES));
+          ' 2>>"${ERR_FILE}" || echo "{}" > "${RAWDIR}/options_charity.json"
+
+          # ---------- J) Server info ----------
           {
             echo "user: $(whoami 2>/dev/null || true)"
             echo "uname: $(uname -a 2>/dev/null || true)"
@@ -228,10 +267,9 @@ jobs:
             echo "cwd: $(pwd 2>/dev/null || true)"
           } > "${RAWDIR}/server_info.txt" || note_err "write server_info failed."
 
-          # ---------- H) Summary ----------
-          wp plugin list --status=active --field=name --format=json > "${RAWDIR}/plugins_active.json" 2>>"${ERR_FILE}" || note_err "wp plugins active list failed."
+          # ---------- K) Active plugins list ----------
+          wp plugin list --status=active --field=name --format=json > "${RAWDIR}/plugins_active.json" 2>>"${ERR_FILE}" || echo "[]" > "${RAWDIR}/plugins_active.json"
 
-          # done
           exit 0
           SNAPRAW
 
@@ -244,7 +282,7 @@ jobs:
           set -euo pipefail
           sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
             "${USER}@${HOST}" \
-            "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' bash /tmp/wtp_snapshot_raw.sh && rm -f /tmp/wtp_snapshot_raw.sh"
+            "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' RAWDIR='${TARGET}/.wtp/state/ci_logs/snapshot' bash /tmp/wtp_snapshot_raw.sh && rm -f /tmp/wtp_snapshot_raw.sh"
 
       - name: 5) Pull RAW logs back (no glob errors)
         shell: bash
@@ -268,55 +306,12 @@ jobs:
             [[ -n "${k:-}" ]] && SITE["$k"]="$v"
           done < "${RAW}/site_info.env"
 
-          # helper: mk JSON safely
-          jq -n \
-            --arg run_id "${{ github.run_id }}" \
-            --arg timestamp "$(date -Is)" \
-            --arg url "${SITE[url]:-}" \
-            --arg home "${SITE[home]:-}" \
-            --arg wp_version "${SITE[wp_version]:-}" \
-            --arg table_prefix "${SITE[table_prefix]:-}" \
-            --arg language "${SITE[language]:-}" \
-            --arg timezone "${SITE[timezone]:-}" \
-            --arg php_version "${SITE[php_version]:-}" \
-            --argfile themes_all    "${RAW}/themes.json" \
-            --arg active_theme "$(cat "${RAW}/theme_active_slug.txt" 2>/dev/null || echo "")" \
-            --argfile plugins_std   "${RAW}/plugins.json" \
-            --argfile plugins_active "${RAW}/plugins_active.json" \
-            --argfile admins        "${RAW}/admins.json" \
-            --arg ssot_path ".wtp/ssot.yml" \
-            --arg ssot_sha1 "$(cat "${RAW}/ssot.sha1" 2>/dev/null || echo "")" \
-            --arg ssot_b64  "$(cat "${RAW}/ssot.b64"  2>/dev/null || echo "")" \
-            --arg server_user  "$(grep -E '^user:'     "${RAW}/server_info.txt" 2>/dev/null | sed 's/^user:\s*//')" \
-            --arg server_uname "$(grep -E '^uname:'    "${RAW}/server_info.txt" 2>/dev/null | sed 's/^uname:\s*//')" \
-            --arg server_dt    "$(grep -E '^datetime:' "${RAW}/server_info.txt" 2>/dev/null | sed 's/^datetime:\s*//')" \
-            --arg server_cwd   "$(grep -E '^cwd:'      "${RAW}/server_info.txt" 2>/dev/null | sed 's/^cwd:\s*//')" \
-            --argfile mu_list "${RAW}/mu_plugins_trees.tsv" \
-            'def tsv2map($p):
-               ( $p|tostring | if . == "" then "" else . end ) as $s
-               | if $s == "" then {}
-                 else
-                   ( $s | split("\n")
-                     | map(select(length>0))
-                     | map( split("\t") )
-                     | reduce .[] as $r ({}; . + { ($r[0]) : {files: ( ($r[1]//"0")|tonumber ), sha1: ($r[2]//"") } } )
-                   )
-                 end;
-             def file_or_empty($path; $empty):
-               if ( $path|type == "string" ) then $empty else $empty end;
+          # small helpers
+          safe_cat() { [ -f "$1" ] && cat "$1" || echo ""; }
 
-             # plugins trees (TSV -> map)
-             ' > /dev/null
-
-          # plugins trees map
-          PLUG_TSV="$(cat "${RAW}/plugins_trees.tsv" 2>/dev/null || echo "")"
-          MU_TSV="$(cat "${RAW}/mu_plugins_trees.tsv" 2>/dev/null || echo "")"
-          PLUG_MAP="$(printf '%s' "${PLUG_TSV}" | awk '1')"
-          MU_MAP="$(printf '%s' "${MU_TSV}" | awk '1')"
-
-          # Build JSON (two-step: write small temp files to load via --slurpfile-like)
-          printf '%s' "${PLUG_TSV}" > "${RAW}/__plugins_trees.tsv"
-          printf '%s' "${MU_TSV}"   > "${RAW}/__mu_plugins_trees.tsv"
+          LANG_SUM="$(safe_cat "${RAW}/languages/summary.tsv")"
+          LANG_FILES="$(printf '%s' "$LANG_SUM" | awk -F'\t' 'NR==1{print $1}' )"
+          LANG_SHA="$(printf  '%s' "$LANG_SUM" | awk -F'\t' 'NR==1{print $2}' )"
 
           jq -n \
             --argjson run_id ${{ github.run_id }} \
@@ -328,21 +323,28 @@ jobs:
             --arg language "${SITE[language]:-}" \
             --arg timezone "${SITE[timezone]:-}" \
             --arg php_version "${SITE[php_version]:-}" \
-            --argfile themes_all "${RAW}/themes.json" \
-            --arg active_theme "$(cat "${RAW}/theme_active_slug.txt" 2>/dev/null || echo "")" \
-            --argfile plugins_std "${RAW}/plugins.json" \
-            --argfile plugins_active "${RAW}/plugins_active.json" \
-            --argfile admins "${RAW}/admins.json" \
+            --argfile themes_all          "${RAW}/themes.json" \
+            --arg active_theme "$(safe_cat "${RAW}/theme_active_slug.txt")" \
+            --argfile plugins_std         "${RAW}/plugins.json" \
+            --argfile mu_plugins          "${RAW}/mu_plugins.json" \
+            --argfile plugins_active      "${RAW}/plugins_active.json" \
+            --argfile admins              "${RAW}/admins.json" \
             --arg server_user  "$(grep -E '^user:'     "${RAW}/server_info.txt" 2>/dev/null | sed 's/^user:\s*//')" \
             --arg server_uname "$(grep -E '^uname:'    "${RAW}/server_info.txt" 2>/dev/null | sed 's/^uname:\s*//')" \
             --arg server_dt    "$(grep -E '^datetime:' "${RAW}/server_info.txt" 2>/dev/null | sed 's/^datetime:\s*//')" \
             --arg server_cwd   "$(grep -E '^cwd:'      "${RAW}/server_info.txt" 2>/dev/null | sed 's/^cwd:\s*//')" \
             --arg ssot_path ".wtp/ssot.yml" \
-            --arg ssot_sha1 "$(cat "${RAW}/ssot.sha1" 2>/dev/null || echo "")" \
-            --arg ssot_b64  "$(cat "${RAW}/ssot.b64"  2>/dev/null || echo "")" \
-            --rawfile plug_tsv "${RAW}/__plugins_trees.tsv" \
-            --rawfile mu_tsv   "${RAW}/__mu_plugins_trees.tsv" \
-            --rawfile errs_raw "${RAW}/errors.txt" \
+            --arg ssot_sha1 "$(safe_cat "${RAW}/ssot.sha1")" \
+            --arg ssot_b64  "$(safe_cat "${RAW}/ssot.b64")" \
+            --argfile languages_core      "${RAW}/languages_core.json" \
+            --arg lang_files "${LANG_FILES:-0}" \
+            --arg lang_sha   "${LANG_SHA:-}" \
+            --argfile taxonomy_category   "${RAW}/taxonomy_category.json" \
+            --argfile theme_mods          "${RAW}/theme_mods.json" \
+            --argfile options_charity     "${RAW}/options_charity.json" \
+            --rawfile plug_tsv            "${RAW}/plugins_trees.tsv" \
+            --rawfile mu_tsv              "${RAW}/mu_plugins_trees.tsv" \
+            --rawfile errs_raw            "${RAW}/errors.txt" \
             '
               def tsv_to_map($tsv):
                 ( $tsv | split("\n")
@@ -362,30 +364,49 @@ jobs:
                   timezone: $timezone, php_version: $php_version
                 },
                 server: { user: $server_user, uname: $server_uname, datetime: $server_dt, cwd: $server_cwd },
+
                 theme: {
                   active: (if ($active_theme|length)>0 then {stylesheet:$active_theme} else null end),
-                  all: $themes_all
+                  all: $themes_all,
+                  mods: $theme_mods
                 },
+
                 plugins: {
                   standard: $plugins_std,
-                  must_use: ( if ($mu_tsv|length)>0
-                              then ( ($mu_tsv|split("\n")|map(select(length>0)|split("\t")|.[0])) )
-                              else [] end ),
+                  must_use: $mu_plugins,
                   trees: (tsv_to_map($plug_tsv)),
                   mu_trees: (tsv_to_map($mu_tsv))
                 },
+
+                languages: {
+                  core: $languages_core,
+                  wp_content: { files: (($lang_files|tonumber) // 0), sha1: $lang_sha }
+                },
+
+                content: {
+                  taxonomies: {
+                    category: $taxonomy_category
+                  }
+                },
+
                 admins: $admins,
+
                 summary: {
                   plugins_active: $plugins_active,
                   counts: {
                     themes_total: ($themes_all|length),
                     plugins_total: ($plugins_std|length),
                     plugins_active: ($plugins_active|length),
-                    plugins_mu: ((tsv_to_map($mu_tsv)|keys)|length),
+                    plugins_mu: ($mu_plugins|length),
                     admins: ($admins|length)
                   },
                   errors: (lines($errs_raw))
                 },
+
+                options: {
+                  charity: $options_charity
+                },
+
                 wtp: { ssot_path: $ssot_path, ssot_sha1: $ssot_sha1, ssot_b64: $ssot_b64 }
               }
             ' > "${SNAP}"
@@ -426,7 +447,7 @@ jobs:
           if git diff --staged --quiet; then
             echo "::notice::Nothing to commit."
           else
-            git commit -m "Publish snapshot run ${{ github.run_id }} (+RO mirror, offline assembly)"
+            git commit -m "Publish snapshot run ${{ github.run_id }} (+RO mirror, languages+categories+mods+charity)"
             git push
           fi
 
