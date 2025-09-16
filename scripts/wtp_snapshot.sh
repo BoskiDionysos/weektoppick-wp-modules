@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # WTP – Snapshot full state (core, themes, plugins, MU, users, server, SSOT)
-# Idempotent, tolerant to missing bits; produces logs + snapshot.json
 set -euo pipefail
 
 # ----------- ENV + guards -----------
@@ -13,29 +12,20 @@ mkdir -p "${LOGDIR}"
 ERR_FILE="${LOGDIR}/errors.txt"
 : > "${ERR_FILE}"
 
-note_err() {
-  # Loguj i nie przerywaj wykonania
-  echo "$1" | tee -a "${ERR_FILE}" 1>&2 || true
-}
+note_err() { echo "$1" | tee -a "${ERR_FILE}" 1>&2 || true; }
 
 # wrapper na WP-CLI
-run_wp() {
-  php ./wp "$@" --path="${TARGET}"
-}
+run_wp() { php ./wp "$@" --path="${TARGET}"; }
 
 # Bezpieczny grep table_prefix
 read_table_prefix() {
   local prefix
   prefix="$(grep -E "^\s*\\\$table_prefix\s*=" "${TARGET}/wp-config.php" 2>/dev/null \
     | sed -E "s/.*['\"]([^'\"]+)['\"].*/\1/" | head -n1 || true)"
-  if [[ -z "${prefix}" ]]; then
-    echo "wp_"
-  else
-    echo "${prefix}"
-  fi
+  if [[ -z "${prefix}" ]]; then echo "wp_"; else echo "${prefix}"; fi
 }
 
-# JSON helpers (wymagamy jq, ale mamy fallback minimal)
+# JSON helpers
 have_jq=1
 if ! command -v jq >/dev/null 2>&1; then
   have_jq=0
@@ -67,21 +57,15 @@ if [[ ${have_jq} -eq 1 ]]; then
     --arg timezone "${TZ_STR}" \
     --arg php_version "${PHP_VERSION}" \
     '{
-      url: $url,
-      home: $home,
-      wp_version: $wp_version,
-      table_prefix: $table_prefix,
-      language: $language,
-      timezone: $timezone,
-      php_version: $php_version
+      url: $url, home: $home, wp_version: $wp_version, table_prefix: $table_prefix,
+      language: $language, timezone: $timezone, php_version: $php_version
     }' > "${LOGDIR}/site_info.json" || note_err "Failed to build site_info.json."
 else
-  cat > "${LOGDIR}/site_info.json" <<EOF
-{"url":"${SITE_URL}","home":"${SITE_HOME}","wp_version":"${WP_VER}","table_prefix":"${TABLE_PREFIX}","language":"${WPLANG}","timezone":"${TZ_STR}","php_version":"${PHP_VERSION}"}
-EOF
+  printf '{"url":"%s","home":"%s","wp_version":"%s","table_prefix":"%s","language":"%s","timezone":"%s","php_version":"%s"}\n' \
+    "${SITE_URL}" "${SITE_HOME}" "${WP_VER}" "${TABLE_PREFIX}" "${WPLANG}" "${TZ_STR}" "${PHP_VERSION}" > "${LOGDIR}/site_info.json"
 fi
 
-# ----------- G) Server info (wcześniej, bo używamy w snapshot) -----------
+# ----------- G) Server info -----------
 SERVER_USER="$(whoami 2>/dev/null || true)"
 SERVER_UNAME="$(uname -a 2>/dev/null || true)"
 SERVER_DT="$(date -Is 2>/dev/null || true)"
@@ -97,26 +81,20 @@ SERVER_CWD="$(cd "${TARGET}" && pwd 2>/dev/null || true)"
 run_wp theme list --status=active --format=json > "${LOGDIR}/theme_active.json" 2>>"${ERR_FILE}" || note_err "wp theme list --status=active failed."
 run_wp theme list --format=json > "${LOGDIR}/themes.json" 2>>"${ERR_FILE}" || note_err "wp theme list --format=json failed."
 
-# Ustal aktywny motyw (slug) i path
 ACTIVE_THEME_SLUG=""
-if [[ -s "${LOGDIR}/theme_active.json" ]]; then
-  # theme list --status=active zwraca array; bierzemy pierwszy element
+if [[ -s "${LOGDIR}/theme_active.json" && ${have_jq} -eq 1 ]]; then
   ACTIVE_THEME_SLUG="$(jq -r '.[0].stylesheet // empty' "${LOGDIR}/theme_active.json" 2>/dev/null || true)"
 fi
-# Fallback: z opcji 'stylesheet'
 if [[ -z "${ACTIVE_THEME_SLUG}" ]]; then
   ACTIVE_THEME_SLUG="$(run_wp option get stylesheet 2>/dev/null || true)"
 fi
 
-THEME_DIR=""
 if [[ -n "${ACTIVE_THEME_SLUG}" ]]; then
   THEME_DIR="${TARGET}/wp-content/themes/${ACTIVE_THEME_SLUG}"
   if [[ -d "${THEME_DIR}" ]]; then
-    # drzewo motywu i sha1
     THEME_OUT_DIR="${LOGDIR}/theme"
     mkdir -p "${THEME_OUT_DIR}"
-    find "${THEME_DIR}" -type f -printf '%P\n' | sort > "${THEME_OUT_DIR}/tree.txt" 2>>"${ERR_FILE}" || note_err "theme tree failed."
-    # globalna suma po posortowanych sha1
+    ( cd "${THEME_DIR}" && find . -type f -printf '%P\n' | sort ) > "${THEME_OUT_DIR}/tree.txt" 2>>"${ERR_FILE}" || true
     ( cd "${THEME_DIR}" && find . -type f -print0 | sort -z | xargs -0 sha1sum ) > "${THEME_OUT_DIR}/hashes.sha1" 2>>"${ERR_FILE}" || true
     if [[ -s "${THEME_OUT_DIR}/hashes.sha1" ]]; then
       awk '{print $1}' "${THEME_OUT_DIR}/hashes.sha1" | tr -d '\r' | sort | sha1sum | awk '{print $1}' > "${THEME_OUT_DIR}/hash_all.txt" 2>>"${ERR_FILE}" || true
@@ -124,7 +102,7 @@ if [[ -n "${ACTIVE_THEME_SLUG}" ]]; then
       : > "${THEME_OUT_DIR}/hash_all.txt"
     fi
   else
-    note_err "active theme directory not found: ${THEME_DIR}"
+    note_err "active theme directory not found: ${THEME_DIR:-<empty>}"
   fi
 else
   note_err "active theme slug not found (db may be empty)."
@@ -140,13 +118,16 @@ MU_DIR="${TARGET}/wp-content/mu-plugins"
 mkdir -p "${LOGDIR}/mu-plugins"
 if [[ -d "${MU_DIR}" ]]; then
   ls -la "${MU_DIR}" > "${LOGDIR}/mu-plugins/_ls.txt" 2>>"${ERR_FILE}" || note_err "ls mu-plugins failed."
-  # globalny hash i listing plików MU
   ( cd "${MU_DIR}" && find . -type f -print0 | sort -z | xargs -0 sha1sum ) > "${LOGDIR}/mu-plugins/_hashes.txt" 2>>"${ERR_FILE}" || true
-  # nagłówki z plików php (Plugin Name)
-  while IFS= read -r -d '' fphp; do
-    { echo "=== ${fphp} ==="; head -n 60 "${fphp}" | grep -E "^\s*(\*|//)?\s*Plugin Name:" -m1 || true; echo; } \
-      >> "${LOGDIR}/mu-plugins/headers.txt" 2>>"${ERR_FILE}" || true
-  done < <(find "${MU_DIR}" -maxdepth 1 -type f -name "*.php" -print0 2>/dev/null || true)
+  # Nagłówki z *.php – bez process substitution
+  find "${MU_DIR}" -maxdepth 1 -type f -name "*.php" -print0 2>/dev/null \
+    | while IFS= read -r -d '' fphp; do
+        {
+          echo "=== ${fphp} ==="
+          head -n 60 "${fphp}" | grep -E "^\s*(\*|//)?\s*Plugin Name:" -m1 || true
+          echo
+        } >> "${LOGDIR}/mu-plugins/headers.txt"
+      done
 else
   echo "mu-plugins directory not found." > "${LOGDIR}/mu-plugins/_ls.txt"
   : > "${LOGDIR}/mu-plugins/_hashes.txt"
@@ -160,13 +141,11 @@ run_wp user list --role=administrator --field=user_login --format=json > "${LOGD
 # ----------- F) WTP / SSOT -----------
 SSOT_PATH_REL=".wtp/ssot.yml"
 SSOT_PATH="${TARGET}/${SSOT_PATH_REL}"
-SSOT_SHA1=""
-SSOT_B64=""
+SSOT_SHA1=""; SSOT_B64=""
 if [[ -f "${SSOT_PATH}" ]]; then
   cp "${SSOT_PATH}" "${LOGDIR}/ssot.yml" 2>>"${ERR_FILE}" || note_err "Copy ssot.yml failed."
   SSOT_SHA1="$(sha1sum "${SSOT_PATH}" | awk '{print $1}' 2>/dev/null || true)"
   echo "${SSOT_SHA1}" > "${LOGDIR}/ssot.sha1" || note_err "Write ssot.sha1 failed."
-  # base64 kompatybilnie dla różnych base64 (GNU/BusyBox)
   SSOT_B64="$( (base64 -w0 "${SSOT_PATH}" 2>/dev/null || base64 "${SSOT_PATH}") | tr -d '\n' || true)"
 else
   note_err "SSOT file ${SSOT_PATH_REL} not found."
@@ -174,7 +153,7 @@ fi
 
 # ----------- H) Summary + counts -----------
 run_wp plugin list --status=active --field=name --format=json > "${LOGDIR}/plugins_active.json" 2>>"${ERR_FILE}" || note_err "wp plugin list --status=active --field=name failed."
-if [[ -s "${LOGDIR}/plugins_active.json" ]]; then
+if [[ -s "${LOGDIR}/plugins_active.json" && ${have_jq} -eq 1 ]]; then
   jq -r '.[]' "${LOGDIR}/plugins_active.json" > "${LOGDIR}/plugins_active.txt" 2>>"${ERR_FILE}" || note_err "Build plugins_active.txt failed."
 else
   : > "${LOGDIR}/plugins_active.txt"
@@ -195,31 +174,34 @@ if [[ ${have_jq} -eq 1 ]]; then
         '{themes_total:$themes_total, plugins_total:$plugins_total, plugins_active:$plugins_active, plugins_mu:$plugins_mu, admins:$admins}' \
         > "${LOGDIR}/counts.json" || note_err "Build counts.json failed."
 else
-  echo "{\"themes_total\":${THEMES_TOTAL},\"plugins_total\":${PLUGINS_TOTAL},\"plugins_active\":${PLUGINS_ACTIVE_CNT},\"plugins_mu\":${PLUGINS_MU_CNT},\"admins\":${ADMINS_CNT}}" > "${LOGDIR}/counts.json"
+  printf '{"themes_total":%s,"plugins_total":%s,"plugins_active":%s,"plugins_mu":%s,"admins":%s}\n' \
+    "${THEMES_TOTAL}" "${PLUGINS_TOTAL}" "${PLUGINS_ACTIVE_CNT}" "${PLUGINS_MU_CNT}" "${ADMINS_CNT}" > "${LOGDIR}/counts.json"
 fi
 
 # ----------- NEW: Trees + hashes for EACH plugin (standard) -----------
 PLUG_DIR="${TARGET}/wp-content/plugins"
 OUT_PLUG_DIR="${LOGDIR}/plugins"
 mkdir -p "${OUT_PLUG_DIR}"
+echo "{}" > "${LOGDIR}/plugins_trees.json"
+echo -e "slug\tfiles\tsha1" > "${LOGDIR}/plugins_trees.tsv"
 
-# map (slug -> {files, sha1}) jako JSON
-if [[ ${have_jq} -eq 1 ]]; then
-  echo "{}" > "${LOGDIR}/plugins_trees.json"
-else
-  echo "{}" > "${LOGDIR}/plugins_trees.json"
+# Zbierz listę slugów:
+SLUGS_FILE="$(mktemp)"
+if [[ -s "${LOGDIR}/plugins.json" && ${have_jq} -eq 1 ]]; then
+  jq -r '.[]?.name // empty' "${LOGDIR}/plugins.json" > "${SLUGS_FILE}" 2>/dev/null || true
 fi
-: > "${LOGDIR}/plugins_trees.tsv"
+# fallback bez jq: directory names w plugins/
+if [[ ! -s "${SLUGS_FILE}" && -d "${PLUG_DIR}" ]]; then
+  find "${PLUG_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > "${SLUGS_FILE}" || true
+fi
 
-# Zbierz listę slugów z plugins.json
-if [[ -s "${LOGDIR}/plugins.json" && -d "${PLUG_DIR}" ]]; then
+if [[ -s "${SLUGS_FILE}" && -d "${PLUG_DIR}" ]]; then
   while IFS= read -r slug; do
     [[ -z "${slug}" ]] && continue
     pdir="${PLUG_DIR}/${slug}"
     dest="${OUT_PLUG_DIR}/${slug}"
     if [[ -d "${pdir}" ]]; then
       mkdir -p "${dest}"
-      # tree + hashes
       ( cd "${pdir}" && find . -type f -printf '%P\n' | sort ) > "${dest}/tree.txt" 2>>"${ERR_FILE}" || true
       ( cd "${pdir}" && find . -type f -print0 | sort -z | xargs -0 sha1sum ) > "${dest}/hashes.sha1" 2>>"${ERR_FILE}" || true
       files_count=$(wc -l < "${dest}/tree.txt" 2>/dev/null || echo 0)
@@ -229,25 +211,19 @@ if [[ -s "${LOGDIR}/plugins.json" && -d "${PLUG_DIR}" ]]; then
       fi
       printf "%s\t%s\t%s\n" "${slug}" "${files_count}" "${sha_all}" >> "${LOGDIR}/plugins_trees.tsv"
       if [[ ${have_jq} -eq 1 ]]; then
-        # plugins_trees.json update
-        tmp="$(mktemp)"
+        tmp_json="$(mktemp)"
         jq --arg s "${slug}" --argjson f ${files_count:-0} --arg sha "${sha_all}" \
-           '. + {($s): {files:$f, sha1:$sha}}' "${LOGDIR}/plugins_trees.json" > "${tmp}" \
-           && mv "${tmp}" "${LOGDIR}/plugins_trees.json" || note_err "jq update plugins_trees.json failed for ${slug}"
+           '. + {($s): {files:$f, sha1:$sha}}' "${LOGDIR}/plugins_trees.json" > "${tmp_json}" \
+           && mv "${tmp_json}" "${LOGDIR}/plugins_trees.json" || note_err "jq update plugins_trees.json failed for ${slug}"
       fi
     else
       note_err "plugin dir missing: ${slug}"
     fi
-  done < <(jq -r '.[]?.name // empty' "${LOGDIR}/plugins.json" 2>/dev/null || true)
+  done < "${SLUGS_FILE}"
 else
-  note_err "plugins.json empty or plugins dir missing; skipping per-plugin trees."
+  note_err "No plugin slugs resolved; skipping per-plugin trees."
 fi
-
-# Nie traktuj pustego TSV jako fail
-if [[ ! -s "${LOGDIR}/plugins_trees.tsv" ]]; then
-  echo -e "slug\tfiles\tsha1" > "${LOGDIR}/plugins_trees.tsv"
-  note_err "plugins_trees.tsv is empty (no plugin file trees captured)."
-fi
+rm -f "${SLUGS_FILE}"
 
 # ----------- Build snapshot.json -----------
 TS_NOW="$(date -Is)"
@@ -263,7 +239,10 @@ TS_NOW="$(date -Is)"
 [[ -f "${LOGDIR}/counts.json" ]] || echo '{}' > "${LOGDIR}/counts.json"
 [[ -f "${LOGDIR}/plugins_trees.json" ]] || echo '{}' > "${LOGDIR}/plugins_trees.json"
 
-THEME_ACTIVE_JSON="$(jq 'if type=="array" and length>0 then .[0] else null end' "${LOGDIR}/theme_active.json" 2>/dev/null || echo 'null')"
+THEME_ACTIVE_JSON="null"
+if [[ -s "${LOGDIR}/theme_active.json" && ${have_jq} -eq 1 ]]; then
+  THEME_ACTIVE_JSON="$(jq 'if type=="array" and length>0 then .[0] else null end' "${LOGDIR}/theme_active.json" 2>/dev/null || echo 'null')"
+fi
 
 if [[ ${have_jq} -eq 1 ]]; then
   jq -n \
@@ -289,50 +268,31 @@ if [[ ${have_jq} -eq 1 ]]; then
       run_id: $run_id,
       timestamp: $timestamp,
       site: $site,
-      server: {
-        user: $server_user,
-        uname: $server_uname,
-        datetime: $server_datetime,
-        cwd: $server_cwd
-      },
-      theme: {
-        active: (try ($theme_active | fromjson) catch null),
-        all: $themes_all
-      },
-      plugins: {
-        standard: $plugins_std,
-        must_use: $plugins_mu,
-        trees: $trees
-      },
+      server: { user: $server_user, uname: $server_uname, datetime: $server_datetime, cwd: $server_cwd },
+      theme: { active: (try ($theme_active | fromjson) catch null), all: $themes_all },
+      plugins: { standard: $plugins_std, must_use: $plugins_mu, trees: $trees },
       admins: $admins,
-      summary: {
-        plugins_active: $plugs_active,
-        counts: $counts,
-        errors: ( if (input_filename|tostring) then [] else [] end ) # placeholder (nadpisz poniżej)
-      },
-      wtp: {
-        ssot_path: $ssot_path,
-        ssot_sha1: $ssot_sha1,
-        ssot_b64: $ssot_b64
-      }
+      summary: { plugins_active: $plugs_active, counts: $counts, errors: [] },
+      wtp: { ssot_path: $ssot_path, ssot_sha1: $ssot_sha1, ssot_b64: $ssot_b64 }
     }' > "${LOGDIR}/snapshot.json" || note_err "Build snapshot.json failed."
 
-  # Wczytaj errors.txt -> summary.errors
+  # Dołącz errors.txt → summary.errors (bez process substitution)
   if [[ -s "${ERR_FILE}" ]]; then
     ERR_JSON="$(jq -Rs 'split("\n") | map(select(length>0))' "${ERR_FILE}" 2>/dev/null || echo '[]')"
   else
     ERR_JSON="[]"
   fi
-  # wstrzyknij errors
   tmp_snap="$(mktemp)"
-  jq --argjson errs "${ERR_JSON}" '.summary.errors = $errs' "${LOGDIR}/snapshot.json" > "${tmp_snap}" && mv "${tmp_snap}" "${LOGDIR}/snapshot.json" || true
+  jq --argjson errs "${ERR_JSON}" '.summary.errors = $errs' "${LOGDIR}/snapshot.json" > "${tmp_snap}" \
+    && mv "${tmp_snap}" "${LOGDIR}/snapshot.json" || true
 
 else
-  # Minimal fallback bez jq – pojedyncza linia JSON (wystarczy, by 03 nie padł)
-  cat > "${LOGDIR}/snapshot.json" <<EOF
-{"run_id": ${RUN_ID}, "timestamp": "${TS_NOW}", "site": $(cat "${LOGDIR}/site_info.json"), "server": {"user":"${SERVER_USER}","uname":"${SERVER_UNAME}","datetime":"${SERVER_DT}","cwd":"${SERVER_CWD}"}, "theme": {"active": null, "all": []}, "plugins": {"standard": [], "must_use": [], "trees": {}}, "admins": [], "summary": {"plugins_active": [], "counts": {"themes_total": 0, "plugins_total": 0, "plugins_active": 0, "plugins_mu": 0, "admins": 0}, "errors": ["jq missing – produced minimal snapshot"]}, "wtp": {"ssot_path": ".wtp/ssot.yml", "ssot_sha1": "${SSOT_SHA1}", "ssot_b64": "${SSOT_B64}"}}
-EOF
+  # Minimal fallback bez jq
+  printf '{"run_id":%s,"timestamp":"%s","site":%s,"server":{"user":"%s","uname":"%s","datetime":"%s","cwd":"%s"},"theme":{"active":null,"all":[]},"plugins":{"standard":[],"must_use":[],"trees":{}},"admins":[],"summary":{"plugins_active":[],"counts":{"themes_total":0,"plugins_total":0,"plugins_active":0,"plugins_mu":0,"admins":0},"errors":["jq missing – produced minimal snapshot"]},"wtp":{"ssot_path":".wtp/ssot.yml","ssot_sha1":"%s","ssot_b64":"%s"}}\n' \
+    "${RUN_ID}" "${TS_NOW}" "$(cat "${LOGDIR}/site_info.json")" \
+    "${SERVER_USER}" "${SERVER_UNAME}" "${SERVER_DT}" "${SERVER_CWD}" \
+    "${SSOT_SHA1}" "${SSOT_B64}" > "${LOGDIR}/snapshot.json"
 fi
 
-# Koniec – sukces niezależnie od niekrytycznych błędów
+# Koniec – zawsze exit 0 (błędy opisane w errors.txt i w summary.errors)
 exit 0
