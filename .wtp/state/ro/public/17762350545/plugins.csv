@@ -1,0 +1,14 @@
+name,status,update,version,update_version,auto_update
+classic-editor,active,none,1.6.7,,off
+cookie-law-info,active,none,3.3.5,,off
+litespeed-cache,active,none,7.5.0.1,,off
+pretty-link,active,none,3.6.17,,off
+seo-by-rank-math,active,none,1.0.253,,off
+wordfence,active,none,8.1.0,,off
+00-mu-safe-loader,must-use,,,,off
+wtp-canonical,must-use,,,,off
+wtp-canonical-redirects,must-use,,,,off
+wtp-deploy-guard,must-use,,1.0.0,,off
+wtp-dev-bridge,must-use,,4.0.0,,off
+wtp-patch-safe-loader-log,must-use,,0.1.0,,off
+wtp-ro-exporter,must-use,,1.2.0,,off
