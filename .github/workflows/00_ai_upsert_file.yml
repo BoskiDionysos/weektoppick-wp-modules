@@ -1,111 +1,93 @@
-name: 00_ai_upsert_file
+name: 00_orchestrator (agent loop: next.json → commit → (01→02→03))
 
 on:
-  workflow_dispatch:
-    inputs:
-      path:
-        description: 'Ścieżka w repo (np. mu-plugins/00-mu-safe-loader.php lub .github/workflows/ci.yml)'
-        required: true
-        type: string
-      message:
-        description: 'Commit message'
-        required: true
-        type: string
-      content_plain:
-        description: 'Treść pliku (PLAIN). Zostaw puste, jeśli używasz content_b64'
-        required: false
-        type: string
-      content_b64:
-        description: 'Treść pliku (Base64). Zostaw puste, jeśli używasz content_plain'
-        required: false
-        type: string
-      sha256:
-        description: 'Opcjonalny SHA-256 zdekodowanej treści (weryfikacja integralności)'
-        required: false
-        type: string
-      branch:
-        description: 'Docelowy branch'
-        required: false
-        default: 'main'
-        type: string
-
+  schedule:
+    - cron: "*/10 * * * *"   # co 10 minut
+  workflow_dispatch: {}
   repository_dispatch:
-    types: [ai-upsert-file]
+    types: [agent-orchestrate]
 
 permissions:
-  contents: write
+  contents: write   # commit plików
+  actions: write    # dispatch innych workflowów
 
 concurrency:
-  group: ai-upsert-file
+  group: agent-orchestrator
   cancel-in-progress: true
 
 jobs:
-  upsert:
+  orchestrate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Upsert file (supports dispatch & repository_dispatch)
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Orchestrate next.json
         uses: actions/github-script@v7
         with:
-          # PAT ze scope `repo,workflow` (sekret: WTP_GITHUB_PAT). Jeśli brak, użyje GITHUB_TOKEN
-          # (wystarczy do plików poza .github/workflows/).
           github-token: ${{ secrets.WTP_GITHUB_PAT || github.token }}
           script: |
             const crypto = require('crypto');
-            const ev = context.eventName;
+            const core   = require('@actions/core');
 
-            // ---- Wejścia z dwóch trybów ----
-            let path = '', message = '', branch = 'main', content_b64 = '', content_plain = '', sha256 = '';
+            const { owner, repo } = context.repo;
+            const branch = 'main';
+            const NEXT_PATH = '.wtp/agent/next.json';
+            const HISTORY_DIR = '.wtp/agent/history';
 
-            if (ev === 'workflow_dispatch') {
-              const inp = context.payload?.inputs || {};
-              path          = (inp.path || '').trim();
-              message       = (inp.message || '').trim();
-              branch        = (inp.branch || 'main').trim();
-              content_b64   = (inp.content_b64 || '').trim();
-              content_plain = (inp.content_plain || '').trim();
-              sha256        = (inp.sha256 || '').trim().toLowerCase();
-            } else if (ev === 'repository_dispatch') {
-              const p = context.payload?.client_payload || {};
-              path          = (p.path || '').trim();
-              message       = (p.message || '').trim();
-              branch        = (p.branch || 'main').trim();
-              content_b64   = (p.content_b64 || '').trim();
-              content_plain = (p.content_plain || '').trim();
-              sha256        = (p.sha256 || '').trim().toLowerCase();
-            } else {
-              core.setFailed(`Unsupported event: ${ev}`);
+            async function getFile(path) {
+              try {
+                const { data } = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
+                  owner, repo, path, ref: branch,
+                });
+                return data;
+              } catch (e) {
+                if (e.status === 404) return null;
+                throw e;
+              }
+            }
+
+            async function putFile(path, content_b64, message, sha) {
+              const { data } = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
+                owner, repo, path, message, branch, content: content_b64, sha
+              });
+              return data;
+            }
+
+            async function deleteFile(path, message, sha) {
+              await github.request('DELETE /repos/{owner}/{repo}/contents/{path}', {
+                owner, repo, path, message, branch, sha
+              });
+            }
+
+            // 1) Pobierz plan .wtp/agent/next.json
+            const nextFile = await getFile(NEXT_PATH);
+            if (!nextFile) {
+              core.notice('Brak .wtp/agent/next.json → nic do zrobienia.');
+              return;
+            }
+            const nextJson = JSON.parse(Buffer.from(nextFile.content, 'base64').toString('utf8'));
+
+            // Oczekiwane pola
+            let { path, message, content_plain, content_b64, sha256, dispatch, touch_paths } = nextJson;
+            path = (path || '').trim();
+            message = (message || '').trim();
+            dispatch = Boolean(dispatch);
+            touch_paths = Array.isArray(touch_paths) ? touch_paths : [];
+
+            if (!path || !message || (!content_plain && !content_b64) || (content_plain && content_b64)) {
+              core.setFailed('next.json ma niepełne/konfliktowe pola (wymagane: path, message, dokładnie jedno z content_plain/content_b64).');
               return;
             }
 
-            core.info(`event=${ev}`);
-            core.info(`path="${path}", branch="${branch}"`);
-            core.info(`has_plain=${content_plain !== ''}, has_b64=${content_b64 !== ''}`);
-
-            // ---- Walidacja wejść ----
-            if (!path)    { core.setFailed('Input "path" is required.'); return; }
-            if (!message) { core.setFailed('Input "message" is required.'); return; }
-
-            if (path.startsWith('/')) {
-              core.setFailed('Path musi być repo-relative (bez wiodącego "/").');
-              return;
-            }
-
-            const both = (content_plain !== '' && content_b64 !== '');
-            const none = (content_plain === '' && content_b64 === '');
-            if (both || none) {
-              core.setFailed('Podaj dokładnie jedno: content_plain ALBO content_b64.');
-              return;
-            }
-
-            // ---- Bufor treści + SHA ----
             let buf;
             if (content_b64) {
               try {
                 buf = Buffer.from(content_b64, 'base64');
                 if (buf.toString('base64') !== content_b64) throw new Error('base64 re-encode mismatch');
               } catch {
-                core.setFailed('content_b64 nie jest prawidłowym Base64.');
+                core.setFailed('content_b64 w next.json nie jest prawidłowym Base64.');
                 return;
               }
             } else {
@@ -115,54 +97,81 @@ jobs:
 
             if (sha256) {
               const calc = crypto.createHash('sha256').update(buf).digest('hex');
-              core.info(`sha256(user)=${sha256}`);
-              core.info(`sha256(calc)=${calc}`);
-              if (calc !== sha256) {
-                core.setFailed('SHA-256 mismatch treści.');
+              if (calc.toLowerCase() !== String(sha256).toLowerCase()) {
+                core.setFailed(`SHA-256 mismatch treści (expected ${sha256}, got ${calc}).`);
                 return;
               }
             }
 
-            const { owner, repo } = context.repo;
+            // 2) Sprawdź, czy docelowy plik istnieje (SHA do update)
+            let existingSha;
+            const existing = await getFile(path);
+            if (existing) existingSha = existing.sha;
 
-            // ---- Odczyt istniejącego SHA (jeśli plik już jest) ----
-            let sha;
+            // 3) Commit docelowego pliku
+            const putRes = await putFile(path, content_b64, message, existingSha);
+            const commitSha = putRes?.commit?.sha || '(unknown)';
+            core.info(`Committed ${path} @ ${commitSha}`);
+
+            // 4) Zarchiwizuj next.json do history i usuń bieżący
+            // utwórz katalog history (jeśli trzeba) – zrobimy to małym „touch” pliku .keep
+            const keepPath = `${HISTORY_DIR}/.keep`;
             try {
-              const { data } = await github.request('GET /repos/{owner}/{repo}/contents/{path}', {
-                owner, repo, path, ref: branch,
-              });
-              sha = data?.sha;
-              core.info(`Existing file found, sha=${sha}`);
+              const keepFile = await getFile(keepPath);
+              if (!keepFile) {
+                await putFile(keepPath, Buffer.from('').toString('base64'), 'chore(agent): ensure history dir', undefined);
+              }
             } catch (e) {
-              if (e.status === 404) {
-                core.info('Plik nie istnieje – utworzę nowy.');
-              } else {
-                core.setFailed(`GET contents failed: ${e.message}`);
-                return;
+              core.warning(`Nie udało się utworzyć ${HISTORY_DIR}/.keep: ${e.message}`);
+            }
+
+            const stamp = new Date().toISOString().replace(/[:]/g,'').replace(/\..+$/,'');
+            const archivedName = `${HISTORY_DIR}/next-${stamp}-${context.runId}.json`;
+            await putFile(archivedName, nextFile.content, 'chore(agent): archive consumed next.json', undefined);
+            await deleteFile(NEXT_PATH, 'chore(agent): consume next.json', nextFile.sha);
+
+            // 5) (Opcjonalnie) dotknij dodatkowych ścieżek, by wymusić 01_deploy przez "paths"
+            // Uwaga: jeśli commit dotyka themes/plugins/mu-plugins/wp-content/** to i tak odpali się 01.
+            for (const extraPath of touch_paths) {
+              const p = String(extraPath || '').trim();
+              if (!p) continue;
+              const content = Buffer.from(`// touch by orchestrator ${new Date().toISOString()}\n`).toString('base64');
+              let extraSha;
+              const ex = await getFile(p);
+              if (ex) extraSha = ex.sha;
+              await putFile(p, content, `chore(agent): touch ${p} to trigger pipelines`, extraSha);
+              core.info(`Touched ${p}`);
+            }
+
+            // 6) (Opcjonalnie) explicite odpal 01→02→03
+            if (dispatch) {
+              const tokenKind = process.env['WTP_GITHUB_PAT'] ? 'WTP_GITHUB_PAT' : 'GITHUB_TOKEN';
+              core.info(`Dispatching 01→02→03 via ${tokenKind}...`);
+              const workflows = [
+                '01_deploy.yml',
+                '02_wpcli.yml',
+                '03_snapshot.yml',
+              ];
+              for (const wf of workflows) {
+                try {
+                  await github.request('POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches', {
+                    owner, repo, workflow_id: wf, ref: branch,
+                    inputs: {}
+                  });
+                  core.info(`Dispatched ${wf}`);
+                } catch (e) {
+                  core.warning(`Dispatch ${wf} failed: ${e.message} (może wystarczy sam push)`);
+                }
               }
             }
 
-            // ---- Commit (PUT contents) ----
-            try {
-              const res = await github.request('PUT /repos/{owner}/{repo}/contents/{path}', {
-                owner, repo, path,
-                message,
-                branch,
-                content: content_b64,
-                sha, // jeśli brak – GitHub utworzy nowy plik
-              });
-              const commitSha = res.data?.commit?.sha || '(unknown)';
-              await core.summary
-                .addHeading('AI Upsert File')
-                .addTable([
-                  [{data:'Field',header:true},{data:'Value',header:true}],
-                  ['path', path],
-                  ['branch', branch],
-                  ['commit', commitSha],
-                  ['verified_sha256', sha256 ? 'yes' : 'no'],
-                ])
-                .write();
-              core.info(`OK, committed ${commitSha}`);
-            } catch (e) {
-              core.setFailed(`PUT failed: ${e.message}`);
-            }
+            await core.summary
+              .addHeading('00 Orchestrator – executed')
+              .addTable([
+                [{data:'Field',header:true},{data:'Value',header:true}],
+                ['plan', NEXT_PATH],
+                ['committed', path],
+                ['commit', commitSha],
+                ['dispatch_01_02_03', String(dispatch)],
+              ])
+              .write();
