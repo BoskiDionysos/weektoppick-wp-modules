@@ -634,7 +634,7 @@ jobs:
 
           echo "::notice::Built snapshot.json ($(wc -c < "${SNAP}") bytes)"
 
-      - name: 7) Generate ARCHITECTURE.md (human-friendly)
+            - name: 7) Generate ARCHITECTURE.md (human-friendly)
         shell: bash
         run: |
           set -euo pipefail
@@ -645,31 +645,74 @@ jobs:
           PL_JSON="$(cat "${RAW}/analysis/plugins_analysis.json" 2>/dev/null || echo "{}")"
           TH_JSON="$(cat "${RAW}/analysis/theme_analysis.json" 2>/dev/null || echo "{}")"
 
+          MU_COUNT="$(jq 'length'        <<< "${MU_JSON}" 2>/dev/null || echo 0)"
+          PL_COUNT="$(jq 'length'        <<< "${PL_JSON}" 2>/dev/null || echo 0)"
+          TH_FILES="$(jq '.files // 0'   <<< "${TH_JSON}" 2>/dev/null || echo 0)"
+
           {
             echo "# Architecture overview"
             echo
+
             echo "## MU-plugins (overview)"
+            echo "Count: ${MU_COUNT}"
             echo
-            jq -r 'to_entries
-                   | sort_by(.key)
-                   | ( "Count: " + (length|tostring) ) as $c
-                   | $c, ""
-                   | ., ( to_entries[]? | "### \(.key)\n- files: \(.value.files // 0)\n- actions: \((.value.actions // [])|length)\n- filters: \((.value.filters // [])|length)\n- shortcodes: \((.value.shortcodes // [])|length)\n- rest: \((.value.rest // [])|length)\n- cpt: \((.value.cpt // [])|length)\n- tax: \((.value.tax // [])|length)\n- enqueues: \((.value.enqueues // [])|length)\n- options: \((.value.options // [])|length)\n- transients: \((.value.transients // [])|length)\n- crons: \((.value.crons // [])|length)\n- defines: \((.value.defines // [])|length)\n- off: \((.value.off // false)|tostring)\n" )' \
-              <<< "${MU_JSON}"
+            jq -r '
+              to_entries
+              | sort_by(.key)
+              | .[]
+              | "### \(.key)\n"
+                + "- files: \(.value.files // 0)\n"
+                + "- actions: \((.value.actions // [])|length)\n"
+                + "- filters: \((.value.filters // [])|length)\n"
+                + "- shortcodes: \((.value.shortcodes // [])|length)\n"
+                + "- rest: \((.value.rest // [])|length)\n"
+                + "- cpt: \((.value.cpt // [])|length)\n"
+                + "- tax: \((.value.tax // [])|length)\n"
+                + "- enqueues: \((.value.enqueues // [])|length)\n"
+                + "- options: \((.value.options // [])|length)\n"
+                + "- transients: \((.value.transients // [])|length)\n"
+                + "- crons: \((.value.crons // [])|length)\n"
+                + "- defines: \((.value.defines // [])|length)\n"
+                + "- off: \((.value.off // false)|tostring)\n"
+            ' <<< "${MU_JSON}"
+
             echo
             echo "## Plugins (overview)"
+            echo "Count: ${PL_COUNT}"
             echo
-            jq -r 'to_entries
-                   | sort_by(.key)
-                   | ( "Count: " + (length|tostring) ) as $c
-                   | $c, ""
-                   | ., ( to_entries[]? | "### \(.key)\n- files: \(.value.files // 0)\n- actions: \((.value.actions // [])|length)\n- filters: \((.value.filters // [])|length)\n- shortcodes: \((.value.shortcodes // [])|length)\n- rest: \((.value.rest // [])|length)\n- cpt: \((.value.cpt // [])|length)\n- tax: \((.value.tax // [])|length)\n- enqueues: \((.value.enqueues // [])|length)\n- options: \((.value.options // [])|length)\n- transients: \((.value.transients // [])|length)\n- crons: \((.value.crons // [])|length)\n- defines: \((.value.defines // [])|length)\n" )' \
-              <<< "${PL_JSON}"
+            jq -r '
+              to_entries
+              | sort_by(.key)
+              | .[]
+              | "### \(.key)\n"
+                + "- files: \(.value.files // 0)\n"
+                + "- actions: \((.value.actions // [])|length)\n"
+                + "- filters: \((.value.filters // [])|length)\n"
+                + "- shortcodes: \((.value.shortcodes // [])|length)\n"
+                + "- rest: \((.value.rest // [])|length)\n"
+                + "- cpt: \((.value.cpt // [])|length)\n"
+                + "- tax: \((.value.tax // [])|length)\n"
+                + "- enqueues: \((.value.enqueues // [])|length)\n"
+                + "- options: \((.value.options // [])|length)\n"
+                + "- transients: \((.value.transients // [])|length)\n"
+                + "- crons: \((.value.crons // [])|length)\n"
+                + "- defines: \((.value.defines // [])|length)\n"
+            ' <<< "${PL_JSON}"
+
             echo
             echo "## Active Theme (overview)"
-            echo
-            jq -r '"- files: \((.files // 0)|tostring)\n- actions: \((.actions // [])|length)\n- filters: \((.filters // [])|length)\n- shortcodes: \((.shortcodes // [])|length)\n- rest: \((.rest // [])|length)\n- cpt: \((.cpt // [])|length)\n- tax: \((.tax // [])|length)\n- enqueues: \((.enqueues // [])|length)\n- options(keys): \((.options // [])|length)\n- templates: \((.templates // [])|length)\n"' \
-              <<< "${TH_JSON}"
+            echo "- files: ${TH_FILES}"
+            jq -r '
+              "* actions: \((.actions // [])|length)\n"
+              + "* filters: \((.filters // [])|length)\n"
+              + "* shortcodes: \((.shortcodes // [])|length)\n"
+              + "* rest: \((.rest // [])|length)\n"
+              + "* cpt: \((.cpt // [])|length)\n"
+              + "* tax: \((.tax // [])|length)\n"
+              + "* enqueues: \((.enqueues // [])|length)\n"
+              + "* templates: \((.templates // [])|length)\n"
+            ' <<< "${TH_JSON}"
+
             echo
             echo "## Raw JSON (for deep dive)"
             echo
