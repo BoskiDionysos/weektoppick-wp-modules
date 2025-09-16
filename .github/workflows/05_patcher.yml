@@ -3,6 +3,7 @@ name: 05_patcher
 on:
   repository_dispatch:
     types: [ai-patcher]
+  workflow_dispatch: {}   # awaryjnie, żebyś mógł kliknąć ręcznie
 
 permissions:
   contents: read
