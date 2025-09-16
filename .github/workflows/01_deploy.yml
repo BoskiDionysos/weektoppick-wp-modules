@@ -9,12 +9,8 @@ on:
       - 'plugins/**'
       - 'themes/**'
       - 'wp-content/**'
-      - '.wtp/**'
+      - 'scripts/**'
       - '.github/workflows/01_deploy.yml'
-    paths-ignore:
-      - '.wtp/next.json'
-      - '.wtp/state/**'
-      - '.wtp/snapshots/**'
 
 permissions:
   contents: read
@@ -27,7 +23,6 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     env:
       HOST:   ${{ secrets.DEPLOY_HOST }}
       PORT:   ${{ secrets.DEPLOY_PORT }}
@@ -44,7 +39,6 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y rsync sshpass curl
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          # build known_hosts (wymuszamy StrictHostKeyChecking)
           ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
@@ -60,30 +54,10 @@ jobs:
               ls -la | head -n 20
             '"
 
-      - name: Prepare remote dirs + backup themes (safe timestamp)
-        run: |
-          set -euo pipefail
-          mkdir -p "_ci_logs/${{ github.run_id }}/deploy"
-
-          SAFE_TS="$(date -u +'%Y%m%dT%H%M%SZ')"
-          echo "SAFE_TS=${SAFE_TS}" > "_ci_logs/${{ github.run_id }}/deploy/safe_ts.env"
-
-          sshpass -p "$PASS" ssh -p "$PORT" \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST" "bash -lc '
-              mkdir -p \"$TARGET/wp-content/mu-plugins\" \"$TARGET/wp-content/plugins\" \"$TARGET/wp-content/themes\" \"$TARGET/.wtp/backups\"
-            '"
-
-          sshpass -p "$PASS" ssh -p "$PORT" \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST" "bash -lc '
-              TS=\"${SAFE_TS}\"
-              tar -czf \"$TARGET/.wtp/backups/themes-\$TS-${{ github.run_id }}.tar.gz\" -C \"$TARGET/wp-content\" themes || true
-            '"
-
       - name: Build rsync exclude (protected-plugins.txt)
         run: |
           set -euo pipefail
+          mkdir -p _ci_logs/${{ github.run_id }}/deploy
           EXCL="_ci_logs/${{ github.run_id }}/deploy/rsync-exclude.txt"
           : > "$EXCL"
           if [ -f ".wtp/protected-plugins.txt" ]; then
