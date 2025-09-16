@@ -37,17 +37,61 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
+          # 1) Sekrety muszą być obecne
           for v in HOST PORT USER PASS TARGET; do
-            [ -n "${!v:-}" ] || { echo "::error::Missing $v"; exit 1; }
+            if [ -z "${!v:-}" ]; then
+              echo "::error::Missing required secret/env: $v"
+              exit 1
+            fi
           done
+
+          # 2) Narzędzia
           sudo apt-get update -y
           sudo apt-get install -y curl sshpass jq
+
+          # 3) SSH dir + known_hosts
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          ssh-keyscan -p "${PORT}" "${HOST}" >> ~/.ssh/known_hosts
+
+          echo "::group::Network sanity"
+          echo "HOST=$HOST  PORT=$PORT"
+          # DNS
+          getent hosts "$HOST" || { echo "::warning::DNS resolve failed for $HOST"; true; }
+          # TCP probe (5s timeout)
+          (timeout 5 bash -c "cat < /dev/null > /dev/tcp/$HOST/$PORT") \
+            && echo "TCP $HOST:$PORT reachable" \
+            || { echo "::error::TCP $HOST:$PORT not reachable"; exit 1; }
+          echo "::endgroup::"
+
+          # 4) ssh-keyscan (STRICT) — jeśli nie złapie, kończymy z jasnym błędem
+          if ! ssh-keyscan -T 10 -p "$PORT" "$HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+            echo "::error::ssh-keyscan failed for $HOST:$PORT (host unreachable or SSH blocked)"
+            exit 1
+          fi
           chmod 644 ~/.ssh/known_hosts
+
+          # 5) Maski (logi będą czytelne, ale bez wrażliwych danych)
           echo "::add-mask::$HOST"
           echo "::add-mask::$USER"
-          mkdir -p "_ci_logs/${{ github.run_id }}/snapshot"
+
+      - name: 2a) Sanity SSH (whoami, pwd, wp-config)
+        shell: bash {0}
+        run: |
+          set -euo pipefail
+          echo "::group::SSH sanity"
+          sshpass -p "${PASS}" ssh -p "${PORT}" \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "${USER}@${HOST}" "bash -lc '
+              echo user: \$(whoami)
+              echo host: \$(hostname)
+              cd \"${TARGET}\" || { echo \"ERR: cannot cd TARGET=${TARGET}\"; exit 3; }
+              pwd
+              test -f wp-config.php && echo OK:wp-config || { echo ERR:no-wp-config; exit 4; }
+              ls -la | head -n 20
+            '"
+          echo "::endgroup::"
 
       - name: 3) Create + upload remote RAW snapshot script (incl. analyzer)
         shell: bash
