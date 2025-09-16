@@ -58,20 +58,25 @@ jobs:
               ls -la | head -n 20
             '"
 
-      - name: Prepare remote dirs + backup themes
+      - name: Prepare remote dirs + backup themes (safe timestamp)
         run: |
           set -euo pipefail
+          # SAFE timestamp (no colons) for filenames
+          SAFE_TS="$(date -u +'%Y%m%dT%H%M%SZ')"
+          echo "SAFE_TS=${SAFE_TS}" > _ci_logs/${{ github.run_id }}/deploy/safe_ts.env
+
           # 1) Upewnij się, że katalogi docelowe istnieją
           sshpass -p "$PASS" ssh -p "$PORT" \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             "$USER@$HOST" "bash -lc '
               mkdir -p \"$TARGET/wp-content/mu-plugins\" \"$TARGET/wp-content/plugins\" \"$TARGET/wp-content/themes\" \"$TARGET/.wtp/backups\"
             '"
-          # 2) Backup themes (punkt przywracania)
+
+          # 2) Backup themes (punkt przywracania) — używamy SAFE_TS
           sshpass -p "$PASS" ssh -p "$PORT" \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             "$USER@$HOST" "bash -lc '
-              TS=\$(date +%Y%m%d-%H%M%S)
+              TS=\"${SAFE_TS}\"
               tar -czf \"$TARGET/.wtp/backups/themes-\$TS-${{ github.run_id }}.tar.gz\" -C \"$TARGET/wp-content\" themes || true
             '"
 
@@ -158,6 +163,19 @@ jobs:
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             "$USER@$HOST" "ls -1 '${TARGET}/wp-content/themes' || true" \
             | tee "_ci_logs/${{ github.run_id }}/deploy/remote_themes_after.txt"
+
+      - name: Sanitize filenames for artifact (no colons)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="_ci_logs/${{ github.run_id }}"
+          # Zamień ":" na "-" we wszystkich plikach i katalogach w logach
+          # (najpierw pliki, potem katalogi — find -depth zapewnia, że najpierw zmieniamy głęboko zagnieżdżone pliki)
+          find "$ROOT" -depth -name '*:*' -print0 | while IFS= read -r -d '' p; do
+            new="$(echo "$p" | tr ':' '-')"
+            mkdir -p "$(dirname "$new")"
+            mv "$p" "$new"
+          done || true
 
       - name: Upload artifact (deploy logs)
         uses: actions/upload-artifact@v4
