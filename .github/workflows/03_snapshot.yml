@@ -41,7 +41,7 @@ jobs:
             [ -n "${!v:-}" ] || { echo "::error::Missing $v"; exit 1; }
           done
           sudo apt-get update -y
-          sudo apt-get install -y curl sshpass jq
+          sudo apt-get install -y curl sshpass
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           ssh-keyscan -p "${PORT}" "${HOST}" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
@@ -54,16 +54,278 @@ jobs:
           set -euo pipefail
           mkdir -p "_ci_logs/${{ github.run_id }}/snapshot"
 
-      - name: 4) Upload snapshot script
+      - name: 4) Create + upload remote snapshot script
         shell: bash
         run: |
           set -euo pipefail
-          # Zakładamy, że skrypt jest w repo:
-          # scripts/wtp_snapshot.sh
-          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes \
-            "scripts/wtp_snapshot.sh" "${USER}@${HOST}:/tmp/wtp_snapshot.sh"
-          sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
-            "${USER}@${HOST}" "chmod +x /tmp/wtp_snapshot.sh"
+          cat > /tmp/wtp_snapshot.sh <<'SNAPEOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          : "${TARGET:?TARGET required}"
+          : "${RUN_ID:?RUN_ID required}"
+
+          LOGDIR="${TARGET}/.wtp/state/ci_logs/snapshot"
+          mkdir -p "${LOGDIR}"
+
+          ERR_FILE="${LOGDIR}/errors.txt"
+          : > "${ERR_FILE}"
+
+          note_err(){ echo "$1" | tee -a "${ERR_FILE}" 1>&2 || true; }
+
+          cd "${TARGET}" || { note_err "Cannot cd TARGET"; exit 1; }
+
+          # Helper: WP-CLI wrapper (wymóg: wprost php ./wp --path="$TARGET")
+          wp_cli(){ php ./wp "$@" --path="${TARGET}"; }
+
+          # ---------- A) Site/Core ----------
+          SITE_URL="$(wp_cli option get siteurl 2>/dev/null || true)"
+          SITE_HOME="$(wp_cli option get home 2>/dev/null || true)"
+          WP_VER="$(wp_cli core version 2>/dev/null || true)"
+          PHP_VERSION="$(php -r 'echo PHP_VERSION;' 2>/dev/null || true)"
+          php -v > "${LOGDIR}/php_info.txt" 2>&1 || note_err "php -v failed."
+
+          # table_prefix z wp-config.php
+          TABLE_PREFIX="$(grep -E "^\s*\\\$table_prefix\s*=" "wp-config.php" 2>/dev/null \
+            | sed -E "s/.*['\"]([^'\"]+)['\"].*/\1/" | head -n1 || echo "wp_")"
+
+          WPLANG="$(wp_cli option get WPLANG 2>/dev/null || true)"
+          TZ_STR="$(wp_cli option get timezone_string 2>/dev/null || true)"
+          if [[ -z "${TZ_STR}" || "${TZ_STR}" == "false" ]]; then
+            TZ_STR="$(wp_cli option get gmt_offset 2>/dev/null || true)"
+          fi
+
+          # Zapisz pomocniczy site_info.json (PHP – brak jq)
+          php -r '
+            $out=[
+              "url"=>getenv("SITE_URL")?: "",
+              "home"=>getenv("SITE_HOME")?: "",
+              "wp_version"=>getenv("WP_VER")?: "",
+              "table_prefix"=>getenv("TABLE_PREFIX")?: "wp_",
+              "language"=>getenv("WPLANG")?: "",
+              "timezone"=>getenv("TZ_STR")?: "",
+              "php_version"=>getenv("PHP_VERSION")?: ""
+            ];
+            file_put_contents(getenv("LOGDIR")."/site_info.json", json_encode($out, JSON_UNESCAPED_SLASHES));
+          ' 2>/dev/null || note_err "Failed to build site_info.json."
+          export SITE_URL SITE_HOME WP_VER TABLE_PREFIX WPLANG TZ_STR PHP_VERSION LOGDIR
+
+          # ---------- B) Themes ----------
+          # Pełna lista
+          wp_cli theme list --format=json > "${LOGDIR}/themes.json" 2>>"${ERR_FILE}" || note_err "wp theme list failed."
+          # Aktywny motyw (slug) – niezależnie od zamieszania w bazie
+          ACTIVE_THEME="$(wp_cli theme list --status=active --field=name 2>/dev/null | head -n1 || true)"
+          printf "%s\n" "${ACTIVE_THEME}" > "${LOGDIR}/theme_active_slug.txt" || true
+
+          # Drzewo plików aktywnego motywu (+hash zagregowany)
+          THEME_DIR="${TARGET}/wp-content/themes/${ACTIVE_THEME}"
+          if [[ -n "${ACTIVE_THEME}" && -d "${THEME_DIR}" ]]; then
+            find "${THEME_DIR}" -type f | sed "s#^${TARGET}/##" | sort > "${LOGDIR}/theme_tree.txt" || true
+            # globalny hash: sha1 ze zsumowanych sha1 poszczególnych plików
+            if [[ -s "${LOGDIR}/theme_tree.txt" ]]; then
+              awk -v ROOT="${TARGET}/" '{print ROOT $0}' "${LOGDIR}/theme_tree.txt" | xargs -r sha1sum | sort > "${LOGDIR}/theme_hashes.sha1" || true
+              sha1sum "${LOGDIR}/theme_hashes.sha1" | awk "{print \$1}" > "${LOGDIR}/theme_tree.sha1" || true
+            else
+              : > "${LOGDIR}/theme_hashes.sha1"
+              echo "" > "${LOGDIR}/theme_tree.sha1"
+            fi
+          else
+            note_err "active theme directory not found"
+            : > "${LOGDIR}/theme_tree.txt"
+            : > "${LOGDIR}/theme_hashes.sha1"
+            echo "" > "${LOGDIR}/theme_tree.sha1"
+          fi
+
+          # ---------- C) Plugins (standard) ----------
+          wp_cli plugin list --format=json > "${LOGDIR}/plugins.json" 2>>"${ERR_FILE}" || note_err "wp plugin list json failed."
+          wp_cli plugin list --format=csv  > "${LOGDIR}/plugins.csv"  2>>"${ERR_FILE}" || note_err "wp plugin list csv failed."
+
+          # Drzewa plików wszystkich zwykłych wtyczek + sumy
+          PLUG_DIR="${TARGET}/wp-content/plugins"
+          : > "${LOGDIR}/plugins_trees.tsv"
+          if [[ -d "${PLUG_DIR}" ]]; then
+            # Lista slugów z WP-CLI (działa nawet jeśli część nie ma katalogów)
+            wp_cli plugin list --field=name 2>/dev/null | while read -r slug; do
+              pdir="${PLUG_DIR}/${slug}"
+              if [[ -d "${pdir}" ]]; then
+                # listuj RELATIVE
+                find "${pdir}" -type f | sed "s#^${TARGET}/##" | sort > "${LOGDIR}/plugin_${slug}_tree.txt" || true
+                if [[ -s "${LOGDIR}/plugin_${slug}_tree.txt" ]]; then
+                  awk -v ROOT="${TARGET}/" '{print ROOT $0}' "${LOGDIR}/plugin_${slug}_tree.txt" | xargs -r sha1sum | sort > "${LOGDIR}/plugin_${slug}_hashes.sha1" || true
+                  files_count="$(wc -l < "${LOGDIR}/plugin_${slug}_hashes.sha1" || echo 0)"
+                  global_sha="$(sha1sum "${LOGDIR}/plugin_${slug}_hashes.sha1" | awk "{print \$1}" || echo "")"
+                else
+                  : > "${LOGDIR}/plugin_${slug}_hashes.sha1"
+                  files_count=0
+                  global_sha=""
+                fi
+                printf "%s\t%s\t%s\n" "${slug}" "${files_count}" "${global_sha}" >> "${LOGDIR}/plugins_trees.tsv"
+              else
+                # brak katalogu – też zanotuj
+                printf "%s\t0\t\n" "${slug}" >> "${LOGDIR}/plugins_trees.tsv"
+              fi
+            done
+          else
+            note_err "plugins directory not found"
+          fi
+
+          # ---------- D) MU-plugins ----------
+          wp_cli plugin list --status=must-use --format=json > "${LOGDIR}/mu_plugins.json" 2>>"${ERR_FILE}" || note_err "wp mu list failed."
+          MU_DIR="${TARGET}/wp-content/mu-plugins"
+          if [[ -d "${MU_DIR}" ]]; then
+            ls -la "${MU_DIR}" > "${LOGDIR}/mu_plugins_ls.txt" 2>>"${ERR_FILE}" || note_err "mu ls failed."
+            : > "${LOGDIR}/mu_plugins_hashes.txt"
+            find "${MU_DIR}" -type f -print0 2>/dev/null | while IFS= read -r -d '' f; do
+              sha1sum "${f}" >> "${LOGDIR}/mu_plugins_hashes.txt" 2>>"${ERR_FILE}" || true
+            done
+            : > "${LOGDIR}/mu_plugins_headers.txt"
+            find "${MU_DIR}" -maxdepth 1 -type f -name "*.php" -print0 2>/dev/null | while IFS= read -r -d '' fphp; do
+              head -n 60 "${fphp}" | grep -E "^\s*\*\s*(Plugin Name|Description|Version):" >> "${LOGDIR}/mu_plugins_headers.txt" 2>>"${ERR_FILE}" || true
+            done
+          else
+            echo "mu-plugins missing" > "${LOGDIR}/mu_plugins_ls.txt"
+            : > "${LOGDIR}/mu_plugins_hashes.txt"
+            : > "${LOGDIR}/mu_plugins_headers.txt"
+          fi
+
+          # ---------- E) Users (admini) ----------
+          wp_cli user list --role=administrator --field=user_email --format=json > "${LOGDIR}/admins.json" 2>>"${ERR_FILE}" || note_err "wp users admin failed."
+
+          # ---------- F) WTP / SSOT ----------
+          SSOT_PATH_REL=".wtp/ssot.yml"
+          SSOT_PATH="${TARGET}/${SSOT_PATH_REL}"
+          SSOT_SHA1=""; SSOT_B64=""
+          if [[ -f "${SSOT_PATH}" ]]; then
+            cp "${SSOT_PATH}" "${LOGDIR}/ssot.yml" 2>>"${ERR_FILE}" || note_err "copy ssot failed."
+            SSOT_SHA1="$(sha1sum "${SSOT_PATH}" | awk '{print $1}' 2>/dev/null || true)"
+            echo "${SSOT_SHA1}" > "${LOGDIR}/ssot.sha1" || true
+            SSOT_B64="$(base64 -w0 "${SSOT_PATH}" 2>/dev/null || base64 "${SSOT_PATH}" | tr -d '\n' || true)"
+          else
+            note_err "SSOT file .wtp/ssot.yml not found."
+            : > "${LOGDIR}/ssot.yml" || true
+            : > "${LOGDIR}/ssot.sha1" || true
+          fi
+
+          # ---------- G) Server info ----------
+          SERVER_USER="$(whoami 2>/dev/null || true)"
+          SERVER_UNAME="$(uname -a 2>/dev/null || true)"
+          SERVER_DT="$(date -Is 2>/dev/null || true)"
+          SERVER_CWD="$(pwd 2>/dev/null || true)"
+          {
+            echo "user: ${SERVER_USER}"
+            echo "uname: ${SERVER_UNAME}"
+            echo "datetime: ${SERVER_DT}"
+            echo "cwd: ${SERVER_CWD}"
+          } > "${LOGDIR}/server_info.txt" || note_err "write server_info failed."
+
+          # ---------- H) Podsumowanie ----------
+          wp_cli plugin list --status=active --field=name --format=json > "${LOGDIR}/plugins_active.json" 2>>"${ERR_FILE}" || note_err "wp plugins active list failed."
+          if [[ -s "${LOGDIR}/plugins_active.json" ]]; then
+            php -r '$a=json_decode(file_get_contents(getenv("LOGDIR")."/plugins_active.json"),true)?:[]; foreach($a as $s) echo $s.PHP_EOL;' > "${LOGDIR}/plugins_active.txt" 2>>"${ERR_FILE}" || true
+          else
+            : > "${LOGDIR}/plugins_active.txt"
+          fi
+
+          # Liczniki
+          php -r '
+            function jlen($p){ if(!file_exists($p)) return 0; $d=json_decode(file_get_contents($p),true); return is_array($d)?count($d):0; }
+            $log=getenv("LOGDIR");
+            $counts=[
+              "themes_total"=>jlen("$log/themes.json"),
+              "plugins_total"=>jlen("$log/plugins.json"),
+              "plugins_active"=>jlen("$log/plugins_active.json"),
+              "plugins_mu"=>jlen("$log/mu_plugins.json"),
+              "admins"=>jlen("$log/admins.json"),
+            ];
+            file_put_contents("$log/counts.json", json_encode($counts));
+          ' 2>/dev/null || note_err "counts.json build failed."
+
+          # Errors as JSON
+          if [[ -s "${ERR_FILE}" ]]; then
+            # zamień każdy wiersz na element tablicy
+            php -r '
+              $f=getenv("ERR_FILE");
+              $lines=array_values(array_filter(array_map("trim", file($f))));
+              file_put_contents(getenv("LOGDIR")."/errors.json", json_encode($lines));
+            ' 2>/dev/null || echo "[]" > "${LOGDIR}/errors.json"
+          else
+            echo "[]" > "${LOGDIR}/errors.json"
+          fi
+
+          # ---------- Build snapshot.json (PHP, bez jq) ----------
+          php -r '
+            $run_id = (int)getenv("RUN_ID");
+            $ts = date(DATE_ISO8601);
+            $log = getenv("LOGDIR");
+            $site = @json_decode(@file_get_contents("$log/site_info.json"),true) ?: [];
+            $themes_all = @json_decode(@file_get_contents("$log/themes.json"),true) ?: [];
+            $plugins_std = @json_decode(@file_get_contents("$log/plugins.json"),true) ?: [];
+            $plugins_mu  = @json_decode(@file_get_contents("$log/mu_plugins.json"),true) ?: [];
+            $admins = @json_decode(@file_get_contents("$log/admins.json"),true) ?: [];
+            $plugs_active = @json_decode(@file_get_contents("$log/plugins_active.json"),true) ?: [];
+            $counts = @json_decode(@file_get_contents("$log/counts.json"),true) ?: [];
+            $errors = @json_decode(@file_get_contents("$log/errors.json"),true) ?: [];
+            $active_theme = trim(@file_get_contents("$log/theme_active_slug.txt"));
+            $server = [
+              "user" => trim(@file_get_contents("$log/server_info.txt")) ? explode("\n", file_get_contents("$log/server_info.txt"))[0] : "",
+            ];
+            // serwer info dokładnie jak spec
+            $server_detail = ["user"=>"","uname"=>"","datetime"=>"","cwd"=>""];
+            foreach (["user","uname","datetime","cwd"] as $k){
+              $m = [];
+              if (preg_match("/^$k:\s*(.*)$/m", @file_get_contents("$log/server_info.txt"), $m)) $server_detail[$k]=$m[1];
+            }
+
+            // plugin trees – z TSV
+            $trees = [];
+            $tsv = "$log/plugins_trees.tsv";
+            if (file_exists($tsv)){
+              foreach (file($tsv) as $line){
+                $parts = explode("\t", trim($line));
+                if (count($parts)>=3){
+                  $trees[$parts[0]] = ["files"=>(int)$parts[1], "sha1"=>$parts[2]];
+                }
+              }
+            }
+
+            // ssot meta
+            $ssot_path = ".wtp/ssot.yml";
+            $ssot_sha1 = trim(@file_get_contents("$log/ssot.sha1"));
+            $ssot_b64  = trim(@file_get_contents("$log/ssot.yml"))!=="" ? base64_encode(file_get_contents("$log/ssot.yml")) : (getenv("SSOT_B64")?: "");
+
+            $out = [
+              "run_id"=>$run_id,
+              "timestamp"=>$ts,
+              "site"=>$site,
+              "server"=>$server_detail,
+              "theme"=>[
+                "active"=>$active_theme !== "" ? ["stylesheet"=>$active_theme] : null,
+                "all"=>$themes_all
+              ],
+              "plugins"=>[
+                "standard"=>$plugins_std,
+                "must_use"=>$plugins_mu,
+                "trees"=>$trees
+              ],
+              "admins"=>$admins,
+              "summary"=>[
+                "plugins_active"=>$plugs_active,
+                "counts"=>$counts,
+                "errors"=>$errors
+              ],
+              "wtp"=>[
+                "ssot_path"=>$ssot_path,
+                "ssot_sha1"=>$ssot_sha1,
+                "ssot_b64"=>$ssot_b64
+              ]
+            ];
+            file_put_contents("$log/snapshot.json", json_encode($out, JSON_UNESCAPED_SLASHES));
+          ' 2>/dev/null || note_err "snapshot.json build failed."
+
+          SNAPEOF
+
+          chmod +x /tmp/wtp_snapshot.sh
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes /tmp/wtp_snapshot.sh "${USER}@${HOST}:/tmp/wtp_snapshot.sh"
 
       - name: 5) Run remote snapshot script
         shell: bash
@@ -71,68 +333,46 @@ jobs:
           set -euo pipefail
           sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
             "${USER}@${HOST}" \
-            "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' bash /tmp/wtp_snapshot.sh"
-          sshpass -p "${PASS}" ssh -p "${PORT}" -o StrictHostKeyChecking=yes \
-            "${USER}@${HOST}" "rm -f /tmp/wtp_snapshot.sh"
+            "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' bash /tmp/wtp_snapshot.sh && rm -f /tmp/wtp_snapshot.sh"
 
       - name: 6) Pull logs back
         shell: bash
         run: |
           set -euo pipefail
+          # kopiuj katalog (bez globu) → brak błędu przy pustym
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=yes -r \
             "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/snapshot" \
-            "_ci_logs/${{ github.run_id }}/"
-          # dla pewności: wymuś istnienie kluczowych plików
+            "_ci_logs/${{ github.run_id }}/" || true
           [[ -f "_ci_logs/${{ github.run_id }}/snapshot/snapshot.json" ]] || echo '{}' > "_ci_logs/${{ github.run_id }}/snapshot/snapshot.json"
+          ls -la "_ci_logs/${{ github.run_id }}/snapshot" || true
 
-      - name: 7) Sanitize filenames for artifact (replace illegal chars)
-        shell: bash
-        run: |
-          set -euo pipefail
-          ROOT="_ci_logs/${{ github.run_id }}/snapshot"
-          [ -d "$ROOT" ] || exit 0
-          while IFS= read -r -d '' p; do
-            new="$p"
-            new="${new//:/-}"
-            new="${new//\"/-}"
-            new="${new//</-}"
-            new="${new//>/-}"
-            new="${new//|/-}"
-            new="${new//\*/-}"
-            new="${new//\?/-}"
-            if [ "$new" != "$p" ]; then
-              mkdir -p "$(dirname "$new")"
-              mv "$p" "$new"
-            fi
-          done < <(find "$ROOT" -depth \( -name '*:*' -o -name '*"*' -o -name '*<*' -o -name '*>*' -o -name '*|*' -o -name '*\**' -o -name '*\?*' \) -print0)
-
-      - name: 8) Upload artifact (backup)
+      - name: 7) Upload artifact (snapshot logs)
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-logs-${{ github.run_id }}
           path: _ci_logs/${{ github.run_id }}/snapshot/**
           retention-days: 14
 
-      - name: 9) Validate snapshot.json
+      - name: 8) Validate snapshot.json
         shell: bash
         run: |
           set -euo pipefail
           SNAP="_ci_logs/${{ github.run_id }}/snapshot/snapshot.json"
           if [[ -s "$SNAP" ]]; then
             echo "::notice::Snapshot JSON created ($(wc -c < "$SNAP") bytes)"
-            jq empty "$SNAP" || echo "::warning::JSON may be malformed"
+            # szybka walidacja przez jq jeżeli jest – ale NIE wymagamy
+            if command -v jq >/dev/null 2>&1; then jq empty "$SNAP" || echo "::warning::JSON may be malformed"; fi
           else
             echo "::error::No snapshot.json generated"; exit 1
           fi
 
-      - name: 10) Publish snapshot + RO mirror to repo (no artifacts needed)
+      - name: 9) Publish snapshot + RO mirror to repo (readable from raw)
         shell: bash
         run: |
           set -euo pipefail
           SRC_DIR="_ci_logs/${{ github.run_id }}/snapshot"
           SNAP_FILE="${SRC_DIR}/snapshot.json"
 
-          # Katalogi docelowe w repo
           SNAP_DIR=".wtp/snapshots"
           RO_DIR=".wtp/state/ro/public/${{ github.run_id }}"
           RO_LATEST=".wtp/state/ro/public/latest"
@@ -140,37 +380,34 @@ jobs:
           mkdir -p "${SNAP_DIR}" "${RO_DIR}"
           cp -a "${SRC_DIR}/." "${RO_DIR}/"
 
-          # Najważniejsze 2 aliasy
           cp "${SNAP_FILE}" "${SNAP_DIR}/snapshot-${{ github.run_id }}.json"
           cp "${SNAP_FILE}" "${SNAP_DIR}/snapshot-latest.json"
 
-          # Utrzymaj czytelny alias 'latest' dla RO
           rm -rf "${RO_LATEST}"
           mkdir -p "$(dirname "${RO_LATEST}")"
           cp -a "${RO_DIR}" "${RO_LATEST}"
 
-          # Commit
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "${SNAP_DIR}/snapshot-${{ github.run_id }}.json" "${SNAP_DIR}/snapshot-latest.json" "${RO_DIR}" "${RO_LATEST}"
           if git diff --staged --quiet; then
             echo "::notice::Nothing to commit."
           else
-            git commit -m "Publish snapshot run ${{ github.run_id }} (+RO mirror)"
+            git commit -m "Publish snapshot run ${{ github.run_id }} (+ RO mirror)"
             git push
           fi
 
           echo "::notice::RO latest: /.wtp/state/ro/public/latest/snapshot.json"
           echo "::notice::RO run:   /.wtp/state/ro/public/${{ github.run_id }}/snapshot.json"
 
-      - name: 11) Report summary
+      - name: 10) Report summary
         shell: bash
         run: |
           set -euo pipefail
           ERR="_ci_logs/${{ github.run_id }}/snapshot/errors.txt"
           if [[ -s "$ERR" ]]; then
             echo "::group::Snapshot errors"
-            cat "$ERR"
+            cat "$ERR" || true
             echo "::endgroup::"
             while IFS= read -r line; do
               [[ -n "$line" ]] && echo "::warning::$line"
