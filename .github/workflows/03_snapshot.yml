@@ -240,7 +240,6 @@ jobs:
             echo "{}" > "${RAWDIR}/theme_mods.json"
           fi
 
-          # names containing 'charity'
           wp option list --search=charity --fields=option_name --format=json > "${RAWDIR}/options_charity_names.json" 2>>"${ERR_FILE}" || echo "[]" > "${RAWDIR}/options_charity_names.json"
           php -r '
             $raw=getenv("RAWDIR"); $target=getenv("TARGET");
@@ -293,12 +292,15 @@ jobs:
             "_ci_logs/${{ github.run_id }}/" || true
           ls -la "_ci_logs/${{ github.run_id }}/snapshot" || true
 
-      - name: 6) Assemble snapshot.json LOCALLY (runner, with jq)
+      - name: 6) Assemble snapshot.json LOCALLY (runner, jq via --arg + fromjson)
         shell: bash
         run: |
           set -euo pipefail
           RAW="_ci_logs/${{ github.run_id }}/snapshot"
           SNAP="${RAW}/snapshot.json"
+
+          safe_cat() { [ -f "$1" ] && cat "$1" || echo ""; }
+          read_json() { local f="$1" def="$2"; if [ -s "$f" ]; then cat "$f"; else echo "$def"; fi; }
 
           # site
           declare -A SITE=()
@@ -306,15 +308,28 @@ jobs:
             [[ -n "${k:-}" ]] && SITE["$k"]="$v"
           done < "${RAW}/site_info.env"
 
-          # small helpers
-          safe_cat() { [ -f "$1" ] && cat "$1" || echo ""; }
+          # load JSONs as strings
+          THEMES_ALL="$(read_json "${RAW}/themes.json" '[]')"
+          PLUGINS_STD="$(read_json "${RAW}/plugins.json" '[]')"
+          MU_PLUGINS="$(read_json "${RAW}/mu_plugins.json" '[]')"
+          PLUGINS_ACTIVE="$(read_json "${RAW}/plugins_active.json" '[]')"
+          ADMINS="$(read_json "${RAW}/admins.json" '[]')"
+          LANG_CORE="$(read_json "${RAW}/languages_core.json" '[]')"
+          TAX_CAT="$(read_json "${RAW}/taxonomy_category.json" '[]')"
+          THEME_MODS="$(read_json "${RAW}/theme_mods.json" '{}')"
+          OPTIONS_CHARITY="$(read_json "${RAW}/options_charity.json" '{}')"
 
           LANG_SUM="$(safe_cat "${RAW}/languages/summary.tsv")"
-          LANG_FILES="$(printf '%s' "$LANG_SUM" | awk -F'\t' 'NR==1{print $1}' )"
-          LANG_SHA="$(printf  '%s' "$LANG_SUM" | awk -F'\t' 'NR==1{print $2}' )"
+          LANG_FILES="$(printf '%s' "$LANG_SUM" | awk -F'\t' 'NR==1{print $1}')"
+          LANG_SHA="$(printf  '%s' "$LANG_SUM" | awk -F'\t' 'NR==1{print $2}')"
+
+          PLUG_TSV="$(safe_cat "${RAW}/plugins_trees.tsv")"
+          MU_TSV="$(safe_cat "${RAW}/mu_plugins_trees.tsv")"
+          ERRS_RAW="$(safe_cat "${RAW}/errors.txt")"
+          ACTIVE_THEME="$(safe_cat "${RAW}/theme_active_slug.txt")"
 
           jq -n \
-            --argjson run_id ${{ github.run_id }} \
+            --arg run_id "${{ github.run_id }}" \
             --arg timestamp "$(date -Is)" \
             --arg url "${SITE[url]:-}" \
             --arg home "${SITE[home]:-}" \
@@ -323,12 +338,12 @@ jobs:
             --arg language "${SITE[language]:-}" \
             --arg timezone "${SITE[timezone]:-}" \
             --arg php_version "${SITE[php_version]:-}" \
-            --argfile themes_all          "${RAW}/themes.json" \
-            --arg active_theme "$(safe_cat "${RAW}/theme_active_slug.txt")" \
-            --argfile plugins_std         "${RAW}/plugins.json" \
-            --argfile mu_plugins          "${RAW}/mu_plugins.json" \
-            --argfile plugins_active      "${RAW}/plugins_active.json" \
-            --argfile admins              "${RAW}/admins.json" \
+            --arg themes_all_json      "$THEMES_ALL" \
+            --arg active_theme         "$ACTIVE_THEME" \
+            --arg plugins_std_json     "$PLUGINS_STD" \
+            --arg mu_plugins_json      "$MU_PLUGINS" \
+            --arg plugins_active_json  "$PLUGINS_ACTIVE" \
+            --arg admins_json          "$ADMINS" \
             --arg server_user  "$(grep -E '^user:'     "${RAW}/server_info.txt" 2>/dev/null | sed 's/^user:\s*//')" \
             --arg server_uname "$(grep -E '^uname:'    "${RAW}/server_info.txt" 2>/dev/null | sed 's/^uname:\s*//')" \
             --arg server_dt    "$(grep -E '^datetime:' "${RAW}/server_info.txt" 2>/dev/null | sed 's/^datetime:\s*//')" \
@@ -336,18 +351,18 @@ jobs:
             --arg ssot_path ".wtp/ssot.yml" \
             --arg ssot_sha1 "$(safe_cat "${RAW}/ssot.sha1")" \
             --arg ssot_b64  "$(safe_cat "${RAW}/ssot.b64")" \
-            --argfile languages_core      "${RAW}/languages_core.json" \
+            --arg languages_core_json  "$LANG_CORE" \
             --arg lang_files "${LANG_FILES:-0}" \
             --arg lang_sha   "${LANG_SHA:-}" \
-            --argfile taxonomy_category   "${RAW}/taxonomy_category.json" \
-            --argfile theme_mods          "${RAW}/theme_mods.json" \
-            --argfile options_charity     "${RAW}/options_charity.json" \
-            --rawfile plug_tsv            "${RAW}/plugins_trees.tsv" \
-            --rawfile mu_tsv              "${RAW}/mu_plugins_trees.tsv" \
-            --rawfile errs_raw            "${RAW}/errors.txt" \
+            --arg taxonomy_category_json "$TAX_CAT" \
+            --arg theme_mods_json      "$THEME_MODS" \
+            --arg options_charity_json "$OPTIONS_CHARITY" \
+            --arg plug_tsv "$PLUG_TSV" \
+            --arg mu_tsv   "$MU_TSV" \
+            --arg errs_raw "$ERRS_RAW" \
             '
-              def tsv_to_map($tsv):
-                ( $tsv | split("\n")
+              def tsv_to_map(tsv):
+                ( tsv | split("\n")
                   | map(select(length>0))
                   | map( split("\t") )
                   | reduce .[] as $r ({}; . + { ($r[0]) : {files: ( ($r[1]//"0")|tonumber ), sha1: ($r[2]//"") } } )
@@ -356,7 +371,7 @@ jobs:
               def lines($s): ($s | split("\n") | map(select(length>0)));
 
               {
-                run_id: $run_id,
+                run_id: ($run_id|tonumber),
                 timestamp: $timestamp,
                 site: {
                   url: $url, home: $home, wp_version: $wp_version,
@@ -367,44 +382,44 @@ jobs:
 
                 theme: {
                   active: (if ($active_theme|length)>0 then {stylesheet:$active_theme} else null end),
-                  all: $themes_all,
-                  mods: $theme_mods
+                  all: ($themes_all_json|fromjson),
+                  mods: ($theme_mods_json|fromjson)
                 },
 
                 plugins: {
-                  standard: $plugins_std,
-                  must_use: $mu_plugins,
+                  standard: ($plugins_std_json|fromjson),
+                  must_use: ($mu_plugins_json|fromjson),
                   trees: (tsv_to_map($plug_tsv)),
                   mu_trees: (tsv_to_map($mu_tsv))
                 },
 
                 languages: {
-                  core: $languages_core,
+                  core: ($languages_core_json|fromjson),
                   wp_content: { files: (($lang_files|tonumber) // 0), sha1: $lang_sha }
                 },
 
                 content: {
                   taxonomies: {
-                    category: $taxonomy_category
+                    category: ($taxonomy_category_json|fromjson)
                   }
                 },
 
-                admins: $admins,
+                admins: ($admins_json|fromjson),
 
                 summary: {
-                  plugins_active: $plugins_active,
+                  plugins_active: ($plugins_active_json|fromjson),
                   counts: {
-                    themes_total: ($themes_all|length),
-                    plugins_total: ($plugins_std|length),
-                    plugins_active: ($plugins_active|length),
-                    plugins_mu: ($mu_plugins|length),
-                    admins: ($admins|length)
+                    themes_total: (($themes_all_json|fromjson)|length),
+                    plugins_total: (($plugins_std_json|fromjson)|length),
+                    plugins_active: (($plugins_active_json|fromjson)|length),
+                    plugins_mu: (($mu_plugins_json|fromjson)|length),
+                    admins: (($admins_json|fromjson)|length)
                   },
                   errors: (lines($errs_raw))
                 },
 
                 options: {
-                  charity: $options_charity
+                  charity: ($options_charity_json|fromjson)
                 },
 
                 wtp: { ssot_path: $ssot_path, ssot_sha1: $ssot_sha1, ssot_b64: $ssot_b64 }
