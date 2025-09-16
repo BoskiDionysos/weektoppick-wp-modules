@@ -47,12 +47,12 @@ jobs:
       - name: Upsert file (supports dispatch & repository_dispatch)
         uses: actions/github-script@v7
         with:
-          # WYMAGANE: PAT ze scope `repo,workflow` w secrecie WTP_GITHUB_PAT
-          github-token: ${{ secrets.WTP_GITHUB_PAT }}
+          # PAT ze scope `repo,workflow` (sekret: WTP_GITHUB_PAT). Jeśli brak, użyje GITHUB_TOKEN
+          # (wystarczy do plików poza .github/workflows/).
+          github-token: ${{ secrets.WTP_GITHUB_PAT || github.token }}
           script: |
             const crypto = require('crypto');
-            const core   = require('@actions/core');
-            const ev     = context.eventName;
+            const ev = context.eventName;
 
             // ---- Wejścia z dwóch trybów ----
             let path = '', message = '', branch = 'main', content_b64 = '', content_plain = '', sha256 = '';
@@ -74,7 +74,8 @@ jobs:
               content_plain = (p.content_plain || '').trim();
               sha256        = (p.sha256 || '').trim().toLowerCase();
             } else {
-              core.setFailed(`Unsupported event: ${ev}`); process.exit(1);
+              core.setFailed(`Unsupported event: ${ev}`);
+              return;
             }
 
             core.info(`event=${ev}`);
@@ -82,20 +83,19 @@ jobs:
             core.info(`has_plain=${content_plain !== ''}, has_b64=${content_b64 !== ''}`);
 
             // ---- Walidacja wejść ----
-            if (!path)    core.setFailed('Input "path" is required.');
-            if (!message) core.setFailed('Input "message" is required.');
-            if (!path || !message) process.exit(1);
+            if (!path)    { core.setFailed('Input "path" is required.'); return; }
+            if (!message) { core.setFailed('Input "message" is required.'); return; }
 
             if (path.startsWith('/')) {
               core.setFailed('Path musi być repo-relative (bez wiodącego "/").');
-              process.exit(1);
+              return;
             }
 
             const both = (content_plain !== '' && content_b64 !== '');
             const none = (content_plain === '' && content_b64 === '');
             if (both || none) {
               core.setFailed('Podaj dokładnie jedno: content_plain ALBO content_b64.');
-              process.exit(1);
+              return;
             }
 
             // ---- Bufor treści + SHA ----
@@ -106,7 +106,7 @@ jobs:
                 if (buf.toString('base64') !== content_b64) throw new Error('base64 re-encode mismatch');
               } catch {
                 core.setFailed('content_b64 nie jest prawidłowym Base64.');
-                process.exit(1);
+                return;
               }
             } else {
               buf = Buffer.from(content_plain, 'utf8');
@@ -119,7 +119,7 @@ jobs:
               core.info(`sha256(calc)=${calc}`);
               if (calc !== sha256) {
                 core.setFailed('SHA-256 mismatch treści.');
-                process.exit(1);
+                return;
               }
             }
 
@@ -138,7 +138,7 @@ jobs:
                 core.info('Plik nie istnieje – utworzę nowy.');
               } else {
                 core.setFailed(`GET contents failed: ${e.message}`);
-                process.exit(1);
+                return;
               }
             }
 
@@ -165,5 +165,4 @@ jobs:
               core.info(`OK, committed ${commitSha}`);
             } catch (e) {
               core.setFailed(`PUT failed: ${e.message}`);
-              process.exit(1);
             }
