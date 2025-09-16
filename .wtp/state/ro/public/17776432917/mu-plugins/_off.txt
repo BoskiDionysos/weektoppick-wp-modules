@@ -1,0 +1,11 @@
+wtp-exporter-chunked.php.off
+wtp-log-mirror.php.off
+wtp-logs-export.php.off
+wtp-patcher-plugins.php.off
+wtp-patcher-theme.php.off
+wtp-plugins-manifest.php.off
+wtp-push-runner-cron.php.off
+wtp-seo.php.off
+wtp-tax-i18n-seo.php.off
+wtp-theme-seo-bridge.php.off
+wtp-translate.php.off

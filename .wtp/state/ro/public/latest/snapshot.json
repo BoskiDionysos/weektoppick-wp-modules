@@ -1,6 +1,6 @@
 {
-  "run_id": 17775331454,
-  "timestamp": "2025-09-16T18:28:27+00:00",
+  "run_id": 17776432917,
+  "timestamp": "2025-09-16T19:16:44+00:00",
   "site": {
     "url": "https://weektoppick.com",
     "home": "https://weektoppick.com",
@@ -13,7 +13,7 @@
   "server": {
     "user": "u493676300",
     "uname": "Linux de-fra-web2061.main-hosting.eu 5.14.0-570.28.1.el9_6.x86_64 #1 SMP PREEMPT_DYNAMIC Tue Jul 22 07:56:01 EDT 2025 x86_64 x86_64 x86_64 GNU/Linux",
-    "datetime": "2025-09-16T18:27:05+00:00",
+    "datetime": "2025-09-16T19:14:28+00:00",
     "cwd": "/home/u493676300/domains/weektoppick.com/public_html"
   },
   "theme": {
@@ -164,6 +164,14 @@
         "version": "1.2.0",
         "update_version": "",
         "auto_update": "off"
+      },
+      {
+        "name": "wtp-theme-guardian",
+        "status": "must-use",
+        "update": false,
+        "version": "0.1.0",
+        "update_version": "",
+        "auto_update": "off"
       }
     ],
     "must_use": [
@@ -228,6 +236,14 @@
         "status": "must-use",
         "update": false,
         "version": "1.2.0",
+        "update_version": "",
+        "auto_update": "off"
+      },
+      {
+        "name": "wtp-theme-guardian",
+        "status": "must-use",
+        "update": false,
+        "version": "0.1.0",
         "update_version": "",
         "auto_update": "off"
       }
@@ -326,6 +342,10 @@
       "wtp-tax-i18n-seo.php.off": {
         "files": 1,
         "sha1": "9656d2552cb9da4e7f39f40e7c1e3f1005b507f5"
+      },
+      "wtp-theme-guardian.php": {
+        "files": 1,
+        "sha1": "b992a9ab8b77027ac5d9256cf2d8eb33d6cc6564"
       },
       "wtp-theme-seo-bridge.php.off": {
         "files": 1,
@@ -1979,9 +1999,9 @@
     ],
     "counts": {
       "themes_total": 1,
-      "plugins_total": 14,
+      "plugins_total": 15,
       "plugins_active": 6,
-      "plugins_mu": 8,
+      "plugins_mu": 9,
       "admins": 1
     },
     "errors": []
@@ -2364,6 +2384,26 @@
         "files": 0,
         "present": true,
         "off": true
+      },
+      "wtp-theme-guardian.php": {
+        "actions": [
+          {
+            "hook": "init",
+            "cb": "function("
+          }
+        ],
+        "filters": [],
+        "shortcodes": [],
+        "rest": [],
+        "cpt": [],
+        "tax": [],
+        "enqueues": [],
+        "options": [],
+        "transients": [],
+        "crons": [],
+        "defines": [],
+        "files": 1,
+        "present": true
       },
       "wtp-theme-seo-bridge.php.off": {
         "actions": [],
