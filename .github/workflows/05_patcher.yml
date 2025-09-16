@@ -3,7 +3,15 @@ name: 05_patcher
 on:
   repository_dispatch:
     types: [ai-patcher]
-  workflow_dispatch: {}   # awaryjnie, żebyś mógł kliknąć ręcznie
+  workflow_dispatch:
+    inputs:
+      path:          { description: "Target path in repo", required: false, type: string }
+      message:       { description: "Commit message",      required: false, type: string, default: "Agent patch" }
+      branch:        { description: "Branch",              required: false, type: string, default: "main" }
+      content_plain: { description: "Content (plain)",     required: false, type: string }
+      content_b64:   { description: "Content (base64)",    required: false, type: string }
+      raw_url:       { description: "Fetch content from URL", required: false, type: string }
+      sha256:        { description: "Optional SHA-256",    required: false, type: string }
 
 permissions:
   contents: read
@@ -17,48 +25,78 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Normalize payload -> /tmp/payload.json
+      - name: Build normalized input -> /tmp/input.json
+        id: in
         run: |
           set -euo pipefail
-          printf '%s' '${{ toJson(github.event.client_payload) }}' > /tmp/input.json
-          node -e '
-            const fs = require("fs");
-            const p = JSON.parse(fs.readFileSync("/tmp/input.json","utf8"));
+
+          # Złap payload z repository_dispatch (może być "null") i z workflow_dispatch (inputs)
+          REP_PAY='${{ toJson(github.event.client_payload) }}'
+          WFI='${{ toJson(github.event.inputs) }}'
+
+          # Jeśli client_payload to "null", zamień na "{}"
+          printf '%s' "${REP_PAY}" | sed -e 's/^null$/{}/' > /tmp/rep.json
+          printf '%s' "${WFI}"      | sed -e 's/^null$/{}/' > /tmp/wfi.json
+
+          echo "::group::RAW payloads"
+          echo "repository_dispatch: $(cat /tmp/rep.json)"
+          echo "workflow_dispatch : $(cat /tmp/wfi.json)"
+          echo "::endgroup::"
+
+          node - <<'JS'
+            const fs = require('fs');
+            const rep = JSON.parse(fs.readFileSync('/tmp/rep.json', 'utf8') || '{}');
+            const wfi = JSON.parse(fs.readFileSync('/tmp/wfi.json', 'utf8') || '{}');
+
+            // Priorytet: repository_dispatch > workflow_dispatch inputs
+            const src = { ...wfi, ...rep };
+
             const out = {
-              path: String(p.path||"").trim(),
-              message: String(p.message||"Agent patch").trim(),
-              branch: String(p.branch||"main").trim(),
-              sha256: String(p.sha256||"").trim(),
-              raw_url: String(p.raw_url||"").trim(),
-              content_b64: String(p.content_b64||"").trim(),
-              content_plain: String(p.content_plain||"").trim()
+              path:          String(src.path ?? '').trim(),
+              message:       String(src.message ?? 'Agent patch').trim(),
+              branch:        String(src.branch ?? 'main').trim(),
+              sha256:        String(src.sha256 ?? '').trim(),
+              raw_url:       String(src.raw_url ?? '').trim(),
+              content_b64:   String(src.content_b64 ?? '').trim(),
+              content_plain: String(src.content_plain ?? '').trim(),
             };
-            if(!out.path){ console.error("missing path"); process.exit(1); }
-            fs.writeFileSync("/tmp/payload.json", JSON.stringify(out));
-          '
-          cat /tmp/payload.json
+
+            fs.writeFileSync('/tmp/input.json', JSON.stringify(out));
+            console.log('NORMALIZED:', JSON.stringify(out));
+          JS
+
+          cat /tmp/input.json
+
+      - name: Validate basics
+        run: |
+          set -euo pipefail
+          PTH="$(jq -r '.path' /tmp/input.json)"
+          if [ -z "$PTH" ] || [ "$PTH" = "null" ]; then
+            echo "::error::Missing required 'path' in payload."
+            exit 1
+          fi
 
       - name: Fetch/encode content if needed -> CONTENT_B64
         id: enc
         run: |
           set -euo pipefail
-          CONTENT_B64="$(jq -r '.content_b64' /tmp/payload.json)"
-          CONTENT_PLAIN="$(jq -r '.content_plain' /tmp/payload.json)"
-          RAW_URL="$(jq -r '.raw_url' /tmp/payload.json)"
+          CONTENT_B64="$(jq -r '.content_b64' /tmp/input.json)"
+          CONTENT_PLAIN="$(jq -r '.content_plain' /tmp/input.json)"
+          RAW_URL="$(jq -r '.raw_url' /tmp/input.json)"
 
-          if [ "$CONTENT_B64" != "null" ] && [ -n "$CONTENT_B64" ]; then
+          if [ -n "$CONTENT_B64" ] && [ "$CONTENT_B64" != "null" ]; then
             :
-          elif [ "$CONTENT_PLAIN" != "null" ] && [ -n "$CONTENT_PLAIN" ]; then
+          elif [ -n "$CONTENT_PLAIN" ] && [ "$CONTENT_PLAIN" != "null" ]; then
             CONTENT_B64="$(printf "%s" "$CONTENT_PLAIN" | base64 -w 0)"
-          elif [ "$RAW_URL" != "null" ] && [ -n "$RAW_URL" ]; then
+          elif [ -n "$RAW_URL" ] && [ "$RAW_URL" != "null" ]; then
             curl -fsSL "$RAW_URL" -o /tmp/raw.bin
             CONTENT_B64="$(base64 -w 0 /tmp/raw.bin)"
           else
-            echo "::error::No content provided (need content_b64 OR content_plain OR raw_url)"
+            echo "::error::No content provided (need content_b64 OR content_plain OR raw_url)."
             exit 1
           fi
 
-          echo "CONTENT_B64=${CONTENT_B64}" >> $GITHUB_OUTPUT
+          echo "CONTENT_B64=${CONTENT_B64}" >> "$GITHUB_OUTPUT"
 
       - name: Dispatch -> 00_ai_upsert_file (ai-upsert-file)
         env:
@@ -67,10 +105,12 @@ jobs:
           REPO:   ${{ github.event.repository.name }}
         run: |
           set -euo pipefail
-          PATH_T="$(jq -r '.path' /tmp/payload.json)"
-          MESSAGE="$(jq -r '.message' /tmp/payload.json)"
-          BRANCH="$(jq -r '.branch' /tmp/payload.json)"
-          SHA256="$(jq -r '.sha256' /tmp/payload.json)"
+          test -n "${GH_PAT:-}" || { echo "::error::Missing WTP_GITHUB_PAT"; exit 1; }
+
+          PATH_T="$(jq -r '.path'    /tmp/input.json)"
+          MESSAGE="$(jq -r '.message' /tmp/input.json)"
+          BRANCH="$(jq -r '.branch'  /tmp/input.json)"
+          SHA256="$(jq -r '.sha256'  /tmp/input.json)"
           CONTENT_B64="${{ steps.enc.outputs.CONTENT_B64 }}"
 
           jq -n --arg path "$PATH_T" --arg message "$MESSAGE" --arg branch "$BRANCH" \
@@ -84,12 +124,14 @@ jobs:
               }
             }' > /tmp/dispatch.json
 
+          echo "::group::Dispatch body to 00"
           cat /tmp/dispatch.json
+          echo "::endgroup::"
 
-          curl -sS -X POST \
+          curl -sS -i -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: token ${GH_PAT}" \
             https://api.github.com/repos/${OWNER}/${REPO}/dispatches \
-            -d @/tmp/dispatch.json
-
-          echo "Dispatched ai-upsert-file to 00_ai_upsert_file"
+            -d @/tmp/dispatch.json \
+            | sed -n '1,20p'
+          echo "Dispatched ai-upsert-file → 00_ai_upsert_file"
