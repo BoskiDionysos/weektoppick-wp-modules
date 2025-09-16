@@ -24,9 +24,8 @@ TZ_STR="$(run_wp option get timezone_string 2>/dev/null || true)"; [[ -z "${TZ_S
 PHP_VERSION="$(php -r 'echo PHP_VERSION;' 2>/dev/null || true)"
 php -v > "${LOGDIR}/php_info.txt" 2>&1 || note_err "php -v failed."
 
-# site_info.json – przez PHP (zero jq)
-env \
-  SITE_URL="${SITE_URL}" SITE_HOME="${SITE_HOME}" WP_VER="${WP_VER}" \
+# site_info.json – PHP (zero jq)
+env SITE_URL="${SITE_URL}" SITE_HOME="${SITE_HOME}" WP_VER="${WP_VER}" \
   TABLE_PREFIX="${TABLE_PREFIX}" WPLANG="${WPLANG}" TZ_STR="${TZ_STR}" PHP_VERSION="${PHP_VERSION}" \
   php -r 'echo json_encode([
     "url"=>getenv("SITE_URL"),
@@ -39,11 +38,51 @@ env \
   ], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT);' \
   > "${LOGDIR}/site_info.json" || note_err "Failed to build site_info.json."
 
-# ======================== B) THEMES ========================
+# ======================== B) THEMES (self-healing) ========================
 run_wp theme list --status=active --format=json > "${LOGDIR}/theme_active.json" 2>>"${ERR_FILE}" || echo '[]' > "${LOGDIR}/theme_active.json"
 run_wp theme list --format=json > "${LOGDIR}/themes.json" 2>>"${ERR_FILE}" || echo '[]' > "${LOGDIR}/themes.json"
 
 ACTIVE_THEME="$(php -r '$f=getenv("F"); if(!file_exists($f))exit; $a=json_decode(file_get_contents($f),true); if(is_array($a)&&isset($a[0]["stylesheet"])) echo $a[0]["stylesheet"];' F="${LOGDIR}/theme_active.json" 2>/dev/null || true)"
+
+ensure_theme_ready() {
+  local slug="$1"
+  # jeśli istnieje — OK
+  if [[ -n "$slug" && -d "$TARGET/wp-content/themes/$slug" ]]; then
+    echo "$slug"; return 0
+  fi
+  # preferuj nasz motyw jeśli jest
+  for CAND in "wtp-core-theme" "wtp" "wtp-theme"; do
+    if [[ -d "$TARGET/wp-content/themes/$CAND" ]]; then
+      run_wp theme activate "$CAND" >/dev/null 2>&1 || note_err "cannot activate theme $CAND"
+      echo "$CAND"; return 0
+    fi
+  done
+  # pierwszy sensowny z listy (nie twenty*)
+  local picked=""
+  picked="$(php -r '
+    $p=getenv("P"); $arr=file_exists($p)?(json_decode(file_get_contents($p), true)?:[]):[];
+    foreach($arr as $t){ $s=$t["stylesheet"]??""; if($s==="" )continue; if(preg_match("#^(twenty|twentytwenty)#i",$s)) continue; echo $s; exit; }
+  ' P="${LOGDIR}/themes.json" 2>/dev/null || true)"
+  if [[ -n "$picked" && -d "$TARGET/wp-content/themes/$picked" ]]; then
+    run_wp theme activate "$picked" >/dev/null 2>&1 || note_err "cannot activate theme $picked"
+    echo "$picked"; return 0
+  fi
+  # ostatecznie pierwszy z listy
+  picked="$(php -r '$p=getenv("P");$a=file_exists($p)?(json_decode(file_get_contents($p),true)?:[]):[]; if(isset($a[0]["stylesheet"])) echo $a[0]["stylesheet"];' P="${LOGDIR}/themes.json" 2>/dev/null || true)"
+  if [[ -n "$picked" && -d "$TARGET/wp-content/themes/$picked" ]]; then
+    run_wp theme activate "$picked" >/dev/null 2>&1 || note_err "cannot activate theme $picked"
+    echo "$picked"; return 0
+  fi
+  echo ""; return 1
+}
+
+if [[ -z "$ACTIVE_THEME" || ! -d "$TARGET/wp-content/themes/$ACTIVE_THEME" ]]; then
+  note_err "active theme directory not found (db: ${ACTIVE_THEME:-empty}); trying to self-heal…"
+  ACTIVE_THEME="$(ensure_theme_ready "$ACTIVE_THEME")"
+  run_wp theme list --status=active --format=json > "${LOGDIR}/theme_active.json" 2>>"${ERR_FILE}" || echo '[]' > "${LOGDIR}/theme_active.json"
+  run_wp theme list --format=json > "${LOGDIR}/themes.json" 2>>"${ERR_FILE}" || echo '[]' > "${LOGDIR}/themes.json"
+fi
+
 THEME_FILES=0; THEME_SHA1=""
 if [[ -n "$ACTIVE_THEME" && -d "$TARGET/wp-content/themes/$ACTIVE_THEME" ]]; then
   mkdir -p "${LOGDIR}/theme"
@@ -52,7 +91,7 @@ if [[ -n "$ACTIVE_THEME" && -d "$TARGET/wp-content/themes/$ACTIVE_THEME" ]]; the
   [[ -s "${LOGDIR}/theme/tree.txt" ]] && THEME_FILES=$(wc -l < "${LOGDIR}/theme/tree.txt" || echo 0)
   [[ -s "${LOGDIR}/theme/hashes.sha1" ]] && THEME_SHA1=$(sha1sum "${LOGDIR}/theme/hashes.sha1" | awk '{print $1}')
 else
-  note_err "active theme directory not found"
+  note_err "theme self-heal failed (no usable theme dir)."
 fi
 
 # ======================== C) PLUGINS (standard) ========================
@@ -61,7 +100,6 @@ run_wp plugin list --format=csv > "${LOGDIR}/plugins.csv" 2>>"${ERR_FILE}" || ec
 run_wp plugin list --status=active --field=name --format=json > "${LOGDIR}/plugins_active.json" 2>>"${ERR_FILE}" || echo '[]' > "${LOGDIR}/plugins_active.json"
 php -r '$p=getenv("P"); if(file_exists($p)){ $a=json_decode(file_get_contents($p),true)?:[]; foreach($a as $s) echo $s,PHP_EOL; }' P="${LOGDIR}/plugins_active.json" > "${LOGDIR}/plugins_active.txt" 2>/dev/null || true
 
-# fingerprinty pluginów
 mkdir -p "${LOGDIR}/plugins"
 php -r '$p=getenv("P"); if(!file_exists($p))exit; $arr=json_decode(file_get_contents($p),true)?:[]; foreach($arr as $r){ if(isset($r["name"])) echo $r["name"],PHP_EOL; }' P="${LOGDIR}/plugins.json" > "${LOGDIR}/plugins_slugs.txt" 2>/dev/null || true
 : > "${LOGDIR}/plugins_trees.tsv"   # slug \t files \t sha1
@@ -77,37 +115,43 @@ while IFS= read -r slug; do
     echo -e "${slug}\t${COUNT}\t${SHA}" >> "${LOGDIR}/plugins_trees.tsv"
   fi
 done < "${LOGDIR}/plugins_slugs.txt"
+if [[ ! -s "${LOGDIR}/plugins_trees.tsv" ]]; then
+  note_err "plugins_trees.tsv is empty (no plugin file trees captured)."
+fi
 
-# ======================== D) MU-plugins ========================
+# ======================== D) MU-plugins (on + OFF pełny audyt) ========================
 run_wp plugin list --status=must-use --format=json > "${LOGDIR}/mu_plugins.json" 2>>"${ERR_FILE}" || echo '[]' > "${LOGDIR}/mu_plugins.json"
+
 MU_DIR="${TARGET}/wp-content/mu-plugins"
-mkdir -p "${LOGDIR}/mu-plugins"
+mkdir -p "${LOGDIR}/mu-plugins" "${LOGDIR}/mu-plugins/off_headers"
 [[ -d "${MU_DIR}" ]] && ls -la "${MU_DIR}" > "${LOGDIR}/mu-plugins/_ls.txt" || echo "mu-plugins dir not found" > "${LOGDIR}/mu-plugins/_ls.txt"
 [[ -d "${MU_DIR}" ]] && find "${MU_DIR}" -type f -exec sha1sum {} \; | sort > "${LOGDIR}/mu-plugins/_hashes.txt" || : > "${LOGDIR}/mu-plugins/_hashes.txt"
 
-# nagłówki
+# ON: fingerprint po głównych plikach .php (szybkie porównanie)
+: > "${LOGDIR}/mu_trees.tsv"   # slug \t files \t sha1 (tu 1 plik)
 if [[ -d "${MU_DIR}" ]]; then
-  for f in "${MU_DIR}"/*.php; do
-    [[ -f "$f" ]] || continue
-    head -n 60 "$f" | grep -E "^\s*\*\s*Plugin Name:" -m1 > "${LOGDIR}/mu-plugins/$(basename "$f").header.txt" || true
-  done
-fi
-
-# mu fingerprint + off
-: > "${LOGDIR}/mu_trees.tsv"
-: > "${LOGDIR}/mu_off.txt"
-if [[ -d "${MU_DIR}" ]]; then
-  for off in "${MU_DIR}"/*.off; do
-    [[ -f "$off" ]] && echo "$(basename "$off")" >> "${LOGDIR}/mu_off.txt"
-  done
   for mu in "${MU_DIR}"/*.php; do
     [[ -f "$mu" ]] || continue
     slug="$(basename "$mu" .php)"
     SHA="$(sha1sum "$mu" | awk '{print $1}')"
     echo -e "${slug}\t1\t${SHA}" >> "${LOGDIR}/mu_trees.tsv"
   done
-else
-  note_err "wp-content/mu-plugins not found."
+fi
+
+# OFF: pełny audyt – lista, SHA1, nagłówki
+: > "${LOGDIR}/mu_off.txt"
+: > "${LOGDIR}/mu_off_fingerprints.tsv"  # file.off \t sha1
+if [[ -d "${MU_DIR}" ]]; then
+  shopt -s nullglob
+  for off in "${MU_DIR}"/*.off; do
+    [[ -f "$off" ]] || continue
+    base="$(basename "$off")"
+    echo "${base}" >> "${LOGDIR}/mu_off.txt"
+    sha1sum "$off" | awk '{print $1}' >> "${LOGDIR}/mu_off_fingerprints.tsv"
+    # nagłówek (Plugin Name) – jeśli to plik PHP z nagłówkiem (często .off to .php z innym rozszerzeniem)
+    head -n 80 "$off" | grep -E "^\s*\*\s*Plugin Name:" -m1 > "${LOGDIR}/mu-plugins/off_headers/${base}.header.txt" || true
+  done
+  shopt -u nullglob
 fi
 
 # ======================== E) Users ========================
@@ -151,40 +195,31 @@ php -r '
   echo json_encode($counts, JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT);
 ' > "${LOGDIR}/counts.json" 2>/dev/null || echo '{}' > "${LOGDIR}/counts.json"
 
-# ======================== I) WEB CAPTURE (HTML + opcjonalnie PNG) ========================
+# ======================== I) WEB CAPTURE (HTML; PNG opcjonalne) ========================
 SC_DIR="${LOGDIR}/screens"
 mkdir -p "${SC_DIR}"
-
-# Przygotuj listę URL (na start: siteurl, /wp-admin, /kontakt)
 URLS=()
 [[ -n "${SITE_URL}" ]] && URLS+=("${SITE_URL}")
 [[ -n "${SITE_URL}" ]] && URLS+=("${SITE_URL%/}/wp-admin")
 [[ -n "${SITE_URL}" ]] && URLS+=("${SITE_URL%/}/kontakt")
 
 HAS_WKHTML=0
-if command -v wkhtmltoimage >/dev/null 2>&1; then
-  HAS_WKHTML=1
-else
-  note_err "wkhtmltoimage not found – screenshots PNG skipped (HTML saved)."
-fi
+if command -v wkhtmltoimage >/dev/null 2>&1; then HAS_WKHTML=1; else note_err "wkhtmltoimage not found – PNG skipped (HTML saved)."; fi
 
 for U in "${URLS[@]}"; do
-  # Bezpieczna nazwa pliku: host_path
   SAFE="$(echo "${U}" | sed -E 's#^https?://##; s#[^a-zA-Z0-9._-]+#_#g')"
   OUT="${SC_DIR}/${SAFE}"
-  # Pobierz HTML + nagłówki + HTTP code
-  CODE="$(curl -sS -k -L -m 25 -A "WTP-CI/1.0" -D "${OUT}.headers" -o "${OUT}.html" -w "%{http_code}" "${U}" || echo "000")"
+  CODE="$(curl -sS -k -L -m 25 \
+    -A "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36" \
+    -D "${OUT}.headers" -o "${OUT}.html" -w "%{http_code}" "${U}" || echo "000")"
   echo -n "${CODE}" > "${OUT}.code"
-  # Zrób PNG jeśli mamy wkhtmltoimage
   if [[ "${HAS_WKHTML}" -eq 1 ]]; then
     wkhtmltoimage --width 1366 --quality 70 "${U}" "${OUT}.png" >/dev/null 2>&1 || note_err "PNG capture failed for ${U}"
   fi
 done
 
-# Zbuduj index JSON dla capture (PHP)
 php -r '
-  $d=getenv("SC_DIR");
-  $out=[];
+  $d=getenv("SC_DIR"); $out=[];
   if (is_dir($d)) {
     foreach (glob($d."/*.html") as $html) {
       $base=preg_replace("/\.html$/","",$html);
@@ -192,20 +227,44 @@ php -r '
       $hdr =@file_exists($base.".headers")?basename($base.".headers"):"";
       $png =@file_exists($base.".png")?basename($base.".png"):"";
       $url =preg_replace("#^.*?/screens/#","",$base);
-      $out[]=[
-        "safe_id"=>$url,
-        "code"=>$code,
-        "html"=>basename($html),
-        "headers"=>$hdr ?: null,
-        "png"=>$png ?: null
-      ];
+      $out[]=["safe_id"=>$url,"code"=>$code,"html"=>basename($html),"headers"=>$hdr?:null,"png"=>$png?:null];
     }
   }
   echo json_encode($out, JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT);
 ' > "${SC_DIR}/screens_index.json" 2>/dev/null || echo '[]' > "${SC_DIR}/screens_index.json"
 
-# ======================== J) Final snapshot (PHP) ========================
+# ======================== J) FINAL SNAPSHOT (PHP) ========================
 TS_NOW="$(date -Is)"
+
+# Zbierz MU OFF jako obiekty: file + sha1 + header (jeśli jest)
+php -r '
+  $dir=getenv("D");
+  $list_file="$dir/mu_off.txt";
+  $out=[];
+  if(file_exists($list_file)){
+    foreach(explode("\n",trim(file_get_contents($list_file))) as $f){
+      if($f==="") continue;
+      $sha = ""; $sha_list="$dir/mu_off_fingerprints.tsv";
+      if(file_exists($sha_list)){
+        foreach(explode("\n",trim(file_get_contents($sha_list))) as $row){
+          $row=trim($row); if($row==="") continue;
+          // fingerprint list: just sha per line (aligned to file order); fallback: blank
+        }
+      }
+      // Spróbuj wczytać konkretny sha z MU dir jeśli plik istnieje
+      $sha_try="";
+      $mu_dir=getenv("MU_DIR");
+      if($mu_dir && file_exists($mu_dir."/".$f)){
+        $sha_try=trim(shell_exec("sha1sum ".escapeshellarg($mu_dir."/".$f)." | awk '{print $1}'"));
+      }
+      $sha = $sha_try ?: "";
+      $hdr_path="$dir/mu-plugins/off_headers/".$f.".header.txt";
+      $hdr=null; if(file_exists($hdr_path)){ $hdr=trim(file_get_contents($hdr_path)); if($hdr==="") $hdr=null; }
+      $out[]=["file"=>$f,"sha1"=>$sha, "header"=>$hdr];
+    }
+  }
+  echo json_encode($out, JSON_UNESCAPED_SLASHES|JSON_PRETTY_PRINT);
+' D="${LOGDIR}" MU_DIR="${MU_DIR:-}" > "${LOGDIR}/mu_off_objects.json" 2>/dev/null || echo '[]' > "${LOGDIR}/mu_off_objects.json"
 
 env \
   LOGDIR="${LOGDIR}" RUN_ID="${RUN_ID}" TS_NOW="${TS_NOW}" \
@@ -218,13 +277,10 @@ env \
     $mkTrees=function($tsv){
       $m=[]; if(!file_exists($tsv)) return $m;
       $h=fopen($tsv,"r"); if(!$h) return $m;
-      while(($line=fgets($h))!==false){
-        $line=rtrim($line,"\r\n"); if($line==="") continue;
-        [$slug,$files,$sha]=array_pad(explode("\t",$line),3,"");
-        $m[$slug]=["files"=>(int)$files,"sha1"=>$sha];
-      } fclose($h); return $m;
+      while(($line=fgets($h))!==false){ $line=rtrim($line,"\r\n"); if($line==="") continue;
+        [$slug,$files,$sha]=array_pad(explode("\t",$line),3,""); $m[$slug]=["files"=>(int)$files,"sha1"=>$sha]; }
+      fclose($h); return $m;
     };
-    $mu_off=[]; $off="$L/mu_off.txt"; if(file_exists($off)){ foreach(explode("\n",trim(file_get_contents($off))) as $x){ if($x!=="") $mu_off[]=$x; } }
     $errors=[]; $ef="$L/errors.txt"; if(file_exists($ef)){ foreach(explode("\n",file_get_contents($ef)) as $e){ $e=trim($e); if($e!=="") $errors[]=$e; } }
     $capture=$read("$L/screens/screens_index.json",[]);
     $snap=[
@@ -245,7 +301,7 @@ env \
         "must_use"=>$read("$L/mu_plugins.json",[]),
         "trees"=>$mkTrees("$L/plugins_trees.tsv"),
         "mu_trees"=>$mkTrees("$L/mu_trees.tsv"),
-        "mu_off"=>$mu_off
+        "mu_off"=>$read("$L/mu_off_objects.json",[])
       ],
       "admins"=>$read("$L/admins.json",[]),
       "summary"=>[
@@ -264,7 +320,6 @@ env \
     ];
     echo json_encode($snap, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|JSON_PRETTY_PRINT);
   ' > "${LOGDIR}/snapshot.json" 2>/dev/null || {
-    # Minimalny awaryjny snapshot (gdyby PHP agregacja się wywaliła)
     cat > "${LOGDIR}/snapshot.json" <<EOF
 {
   "run_id": ${RUN_ID},
