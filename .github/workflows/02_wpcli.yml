@@ -46,6 +46,8 @@ jobs:
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
+          echo "::add-mask::$HOST"
+          echo "::add-mask::$USER"
 
       - name: Parse SSOT -> plugins.install
         run: |
@@ -114,7 +116,6 @@ jobs:
           cd "$TARGET"
           export WP_ALLOW_ROOT=1
           export WTP_CI=1
-          WP='php ./wp --skip-plugins --path="$TARGET"'
 
           mkdir -p .wtp/state/ci_logs
           : > .wtp/state/ci_logs/plugins_installed.txt
@@ -192,7 +193,6 @@ jobs:
           php ./wp plugin list --status=active --field=name --path="$TARGET" --skip-plugins > .wtp/state/ci_logs/plugins_active.txt || echo "active-dump-fail:active-field" >> .wtp/state/ci_logs/errors.txt
           SCRIPT
 
-
       - name: Process plugins (install/update/activate; WTP_CI=1)
         run: |
           set -euo pipefail
@@ -206,10 +206,33 @@ jobs:
       - name: Pull logs back
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" scp -P "$PORT" \
+          mkdir -p "_ci_logs/${{ github.run_id }}/wpcli"
+          # Użyj globu po STRONIE ZDALNEJ (bez cudzysłowów), z -r
+          sshpass -p "$PASS" scp -P "$PORT" -r \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST:$TARGET/.wtp/state/ci_logs/"* "_ci_logs/${{ github.run_id }}/wpcli/" || true
-          ls -la _ci_logs/${{ github.run_id }}/wpcli || true
+            ${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/* "_ci_logs/${{ github.run_id }}/wpcli/" || true
+          ls -la "_ci_logs/${{ github.run_id }}/wpcli" || true
+
+      - name: Sanitize filenames for artifact (replace illegal chars)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="_ci_logs/${{ github.run_id }}/wpcli"
+          [ -d "$ROOT" ] || exit 0
+          while IFS= read -r -d '' p; do
+            new="$p"
+            new="${new//:/-}"
+            new="${new//\"/-}"
+            new="${new//</-}"
+            new="${new//>/-}"
+            new="${new//|/-}"
+            new="${new//\*/-}"
+            new="${new//\?/-}"
+            if [ "$new" != "$p" ]; then
+              mkdir -p "$(dirname "$new")"
+              mv "$p" "$new"
+            fi
+          done < <(find "$ROOT" -depth \( -name '*:*' -o -name '*"*' -o -name '*<*' -o -name '*>*' -o -name '*|*' -o -name '*\**' -o -name '*\?*' \) -print0)
 
       - name: Upload artifact (wpcli logs)
         uses: actions/upload-artifact@v4
@@ -223,8 +246,10 @@ jobs:
           set -euo pipefail
           ERR="_ci_logs/${{ github.run_id }}/wpcli/errors.txt"
           if [ -f "$ERR" ] && [ -s "$ERR" ]; then
-            echo "::warning::Some plugins failed. See errors.txt below:"
-            tail -n +1 "$ERR" || true
+            echo "::group::WP-CLI errors"
+            cat "$ERR" || true
+            echo "::endgroup::"
+            echo "::warning::Some plugins failed. See errors.txt above."
           else
             echo "::notice::WP-CLI operations completed successfully"
           fi
