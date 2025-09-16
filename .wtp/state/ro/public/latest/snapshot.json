@@ -1,6 +1,6 @@
 {
-  "run_id": 17767758043,
-  "timestamp": "2025-09-16T13:43:35+00:00",
+  "run_id": 17771085850,
+  "timestamp": "2025-09-16T15:37:01+00:00",
   "site": {
     "url": "https://weektoppick.com",
     "home": "https://weektoppick.com",
@@ -13,43 +13,13 @@
   "server": {
     "user": "u493676300",
     "uname": "Linux de-fra-web2061.main-hosting.eu 5.14.0-570.28.1.el9_6.x86_64 #1 SMP PREEMPT_DYNAMIC Tue Jul 22 07:56:01 EDT 2025 x86_64 x86_64 x86_64 GNU/Linux",
-    "datetime": "2025-09-16T13:41:22+00:00",
+    "datetime": "2025-09-16T15:35:33+00:00",
     "cwd": "/home/u493676300/domains/weektoppick.com/public_html"
   },
   "theme": {
-    "active": {
-      "stylesheet": "wtp-core-theme"
-    },
-    "all": [
-      {
-        "name": "wtp-core-theme",
-        "status": "active",
-        "update": "none",
-        "version": "1.6.4",
-        "update_version": "",
-        "auto_update": "off"
-      }
-    ],
-    "mods": {
-      "0": false,
-      "nav_menu_locations": [],
-      "custom_css_post_id": 125,
-      "sidebars_widgets": {
-        "time": 1757688307,
-        "data": {
-          "wp_inactive_widgets": [
-            "block-2",
-            "block-3",
-            "block-4",
-            "block-5",
-            "block-6",
-            "block-8",
-            "block-9",
-            "block-10"
-          ]
-        }
-      }
-    }
+    "active": null,
+    "all": [],
+    "mods": {}
   },
   "plugins": {
     "standard": [
@@ -1958,7 +1928,7 @@
       "wordfence"
     ],
     "counts": {
-      "themes_total": 1,
+      "themes_total": 0,
       "plugins_total": 13,
       "plugins_active": 6,
       "plugins_mu": 7,
@@ -7648,59 +7618,7 @@
         "present": true
       }
     },
-    "theme": {
-      "actions": [
-        {
-          "hook": "after_setup_theme",
-          "cb": "function("
-        },
-        {
-          "hook": "wp_enqueue_scripts",
-          "cb": "function("
-        },
-        {
-          "hook": "wp_footer",
-          "cb": "function ("
-        },
-        {
-          "hook": "init",
-          "cb": "'wtp_generate_selftest'"
-        }
-      ],
-      "filters": [],
-      "shortcodes": [
-        "wtp_header"
-      ],
-      "rest": [],
-      "cpt": [],
-      "tax": [],
-      "enqueues": [
-        {
-          "type": "script",
-          "handle": "wtp-js"
-        },
-        {
-          "type": "style",
-          "handle": "wtp"
-        },
-        {
-          "type": "style",
-          "handle": "wtp-css"
-        }
-      ],
-      "options": [],
-      "transients": [],
-      "crons": [],
-      "defines": [
-        "WTP_VERSION",
-        "WTP_I18N_DIR"
-      ],
-      "files": 7,
-      "present": true,
-      "templates": [
-        "index.php"
-      ]
-    }
+    "theme": {}
   },
   "wtp": {
     "ssot_path": ".wtp/ssot.yml",
