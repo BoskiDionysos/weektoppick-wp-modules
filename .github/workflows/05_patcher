@@ -1,0 +1,94 @@
+name: 05_patcher
+
+on:
+  repository_dispatch:
+    types: [ai-patcher]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: patcher
+  cancel-in-progress: true
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Normalize payload -> /tmp/payload.json
+        run: |
+          set -euo pipefail
+          printf '%s' '${{ toJson(github.event.client_payload) }}' > /tmp/input.json
+          node -e '
+            const fs = require("fs");
+            const p = JSON.parse(fs.readFileSync("/tmp/input.json","utf8"));
+            const out = {
+              path: String(p.path||"").trim(),
+              message: String(p.message||"Agent patch").trim(),
+              branch: String(p.branch||"main").trim(),
+              sha256: String(p.sha256||"").trim(),
+              raw_url: String(p.raw_url||"").trim(),
+              content_b64: String(p.content_b64||"").trim(),
+              content_plain: String(p.content_plain||"").trim()
+            };
+            if(!out.path){ console.error("missing path"); process.exit(1); }
+            fs.writeFileSync("/tmp/payload.json", JSON.stringify(out));
+          '
+          cat /tmp/payload.json
+
+      - name: Fetch/encode content if needed -> CONTENT_B64
+        id: enc
+        run: |
+          set -euo pipefail
+          CONTENT_B64="$(jq -r '.content_b64' /tmp/payload.json)"
+          CONTENT_PLAIN="$(jq -r '.content_plain' /tmp/payload.json)"
+          RAW_URL="$(jq -r '.raw_url' /tmp/payload.json)"
+
+          if [ "$CONTENT_B64" != "null" ] && [ -n "$CONTENT_B64" ]; then
+            :
+          elif [ "$CONTENT_PLAIN" != "null" ] && [ -n "$CONTENT_PLAIN" ]; then
+            CONTENT_B64="$(printf "%s" "$CONTENT_PLAIN" | base64 -w 0)"
+          elif [ "$RAW_URL" != "null" ] && [ -n "$RAW_URL" ]; then
+            curl -fsSL "$RAW_URL" -o /tmp/raw.bin
+            CONTENT_B64="$(base64 -w 0 /tmp/raw.bin)"
+          else
+            echo "::error::No content provided (need content_b64 OR content_plain OR raw_url)"
+            exit 1
+          fi
+
+          echo "CONTENT_B64=${CONTENT_B64}" >> $GITHUB_OUTPUT
+
+      - name: Dispatch -> 00_ai_upsert_file (ai-upsert-file)
+        env:
+          GH_PAT: ${{ secrets.WTP_GITHUB_PAT }}
+          OWNER:  ${{ github.repository_owner }}
+          REPO:   ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          PATH_T="$(jq -r '.path' /tmp/payload.json)"
+          MESSAGE="$(jq -r '.message' /tmp/payload.json)"
+          BRANCH="$(jq -r '.branch' /tmp/payload.json)"
+          SHA256="$(jq -r '.sha256' /tmp/payload.json)"
+          CONTENT_B64="${{ steps.enc.outputs.CONTENT_B64 }}"
+
+          jq -n --arg path "$PATH_T" --arg message "$MESSAGE" --arg branch "$BRANCH" \
+                --arg content_b64 "$CONTENT_B64" --arg sha256 "$SHA256" '
+            {
+              event_type:"ai-upsert-file",
+              client_payload:{
+                path:$path, message:$message, branch:$branch,
+                content_b64:$content_b64,
+                sha256:$sha256
+              }
+            }' > /tmp/dispatch.json
+
+          cat /tmp/dispatch.json
+
+          curl -sS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: token ${GH_PAT}" \
+            https://api.github.com/repos/${OWNER}/${REPO}/dispatches \
+            -d @/tmp/dispatch.json
+
+          echo "Dispatched ai-upsert-file to 00_ai_upsert_file"
