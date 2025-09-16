@@ -1,6 +1,7 @@
 {
-  "path": "themes/wtp-core-theme/_agent-proof.txt",
-  "message": "agent: add proof file (theme)",
-  "content_plain": "Hello from Agent – proof file.\nIf you can see this in repo and on server, the loop works.\n",
-  "branch": "main"
+  "path": "themes/wtp-core-theme/test-agent.txt",
+  "message": "Agent: add test file",
+  "content_plain": "hello from agent\n",
+  "branch": "main",
+  "verify": { "file_exists": "wp-content/themes/wtp-core-theme/test-agent.txt" }
 }
