@@ -42,6 +42,8 @@ jobs:
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
+          echo "::add-mask::$HOST"
+          echo "::add-mask::$USER"
 
       - name: Sanity (SSH, read-only)
         run: |
@@ -139,6 +141,28 @@ jobs:
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             "$USER@$HOST" "ls -1 '${TARGET}/wp-content/plugins' || true" \
             | tee "_ci_logs/${{ github.run_id }}/deploy/remote_plugins_after.txt"
+
+      - name: Sanitize filenames for artifact (replace illegal chars)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="_ci_logs/${{ github.run_id }}/deploy"
+          [ -d "$ROOT" ] || exit 0
+          # Zamieniamy niedozwolone znaki w nazwach: : " < > | * ?
+          while IFS= read -r -d '' p; do
+            new="$p"
+            new="${new//:/-}"
+            new="${new//\"/-}"
+            new="${new//</-}"
+            new="${new//>/-}"
+            new="${new//|/-}"
+            new="${new//\*/-}"
+            new="${new//\?/-}"
+            if [ "$new" != "$p" ]; then
+              mkdir -p "$(dirname "$new")"
+              mv "$p" "$new"
+            fi
+          done < <(find "$ROOT" -depth \( -name '*:*' -o -name '*"*' -o -name '*<*' -o -name '*>*' -o -name '*|*' -o -name '*\**' -o -name '*\?*' \) -print0)
 
       - name: Upload artifact (deploy logs)
         uses: actions/upload-artifact@v4
