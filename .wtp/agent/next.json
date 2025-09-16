@@ -1,0 +1,6 @@
+{
+  "path": "themes/wtp-core-theme/_agent-proof.txt",
+  "message": "agent: add proof file (theme)",
+  "content_plain": "Hello from Agent – proof file.\nIf you can see this in repo and on server, the loop works.\n",
+  "branch": "main"
+}
