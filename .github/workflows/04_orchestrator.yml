@@ -27,17 +27,40 @@ jobs:
           jq -c . .wtp/next.json > /tmp/next.json
           echo "NEXT=$(cat /tmp/next.json | tr -d '\n' | sed 's/"/\\"/g')" >> "$GITHUB_OUTPUT"
 
-      - name: Dispatch -> 05_patcher
+      - name: Dispatch -> 05_patcher (with debug + fallback)
         env:
           GH_PAT: ${{ secrets.WTP_GITHUB_PAT }}
-          OWNER: ${{ github.repository_owner }}
-          REPO:  ${{ github.event.repository.name }}
-          PAY:   ${{ steps.read.outputs.NEXT }}
+          OWNER:  ${{ github.repository_owner }}
+          REPO:   ${{ github.event.repository.name }}
+          PAY:    ${{ steps.read.outputs.NEXT }}
         run: |
           set -euo pipefail
-          curl -sS -X POST \
+          test -n "${GH_PAT:-}" || { echo "::error::Missing WTP_GITHUB_PAT"; exit 1; }
+
+          echo "Dispatch body:"
+          echo "{\"event_type\":\"ai-patcher\",\"client_payload\":${PAY}}"
+
+          echo "→ POST /repos/${OWNER}/${REPO}/dispatches"
+          RESP="$(curl -sS -i -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: token ${GH_PAT}" \
             https://api.github.com/repos/${OWNER}/${REPO}/dispatches \
-            -d "{\"event_type\":\"ai-patcher\",\"client_payload\":${PAY}}"
-          echo "Dispatched ai-patcher with payload from .wtp/next.json"
+            -d "{\"event_type\":\"ai-patcher\",\"client_payload\":${PAY}}")"
+          RC=$?
+          echo "$RESP"
+          echo "curl exit=$RC"
+
+          # Spodziewamy się HTTP/1.1 204 No Content
+          if ! echo "$RESP" | head -n1 | grep -q " 204 "; then
+            echo "::warning::repository_dispatch did not return 204; trying workflow_dispatch fallback."
+
+            jq -n '{ref:"main", inputs:{}}' > /tmp/wf.json
+            FBD="$(curl -sS -i -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: token ${GH_PAT}" \
+              https://api.github.com/repos/${OWNER}/${REPO}/actions/workflows/05_patcher.yml/dispatches \
+              -d @/tmp/wf.json || true)"
+            echo "$FBD"
+          else
+            echo "OK: repository_dispatch 204"
+          fi
