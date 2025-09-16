@@ -17,45 +17,133 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Load next + snapshot
-        id: load
+      - name: Ensure jq
         run: |
           set -euo pipefail
-          if [ ! -f ".wtp/next.json" ]; then
-            echo "skip=1" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          if [ ! -f ".wtp/state/ro/public/latest/snapshot.json" ]; then
-            echo "skip=1" >> $GITHUB_OUTPUT
-            exit 0
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update -y
+            sudo apt-get install -y jq
           fi
 
-          VERIFY_PATH="$(jq -r '.verify.file_exists // empty' .wtp/next.json)"
-          if [ -z "$VERIFY_PATH" ]; then
-            echo "skip=1" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          if jq -r tostring .wtp/state/ro/public/latest/snapshot.json | grep -Fq "$VERIFY_PATH"; then
-            echo "found=1" >> $GITHUB_OUTPUT
-          else
-            echo "found=0" >> $GITHUB_OUTPUT
-          fi
-          echo "verify_path=$VERIFY_PATH" >> $GITHUB_OUTPUT
-
-      - name: Report
+      - name: Load next + snapshot + decide
+        id: d
         run: |
           set -euo pipefail
-          if [ "${{ steps.load.outputs.skip }}" = "1" ]; then
-            echo "::notice::Verifier: skipped (no next.json or no snapshot or no rule)."
+          NX=".wtp/next.json"
+          SNAP=".wtp/state/ro/public/latest/snapshot.json"
+
+          if [ ! -f "$NX" ] || [ ! -f "$SNAP" ]; then
+            echo "mode=skip" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          if [ "${{ steps.load.outputs.found }}" = "1" ]; then
-            echo "::notice::Verifier: OK – found '${{ steps.load.outputs.verify_path }}' in snapshot."
-          else
-            echo "::warning::Verifier: NOT FOUND – '${{ steps.load.outputs.verify_path }}' not present in snapshot."
+          VPATH="$(jq -r '.verify.file_exists // empty' "$NX")"
+          if [ -z "$VPATH" ]; then
+            echo "mode=skip" >> $GITHUB_OUTPUT
+            exit 0
           fi
+
+          # Naiwny test: substring w zserializowanym JSON
+          if jq -r tostring "$SNAP" | grep -Fq "$VPATH"; then
+            echo "mode=ok"      >> $GITHUB_OUTPUT
+            echo "vpath=$VPATH" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Nie znaleziono → sprawdź auto-iteracje (z sensownymi domyślnymi)
+          MAX="$(jq -r '.auto.max_rounds // 0' "$NX")"
+          CUR="$(jq -r '.auto.round // 1' "$NX")"     # domyślnie runda 1
+          CNT="$(jq -r '.auto.plans | length // 0' "$NX")"
+
+          if [ "$MAX" -ge 1 ] && [ "$CUR" -ge 1 ] && [ "$CNT" -ge "$CUR" ] && [ "$CUR" -lt "$MAX" ]; then
+            echo "mode=iterate" >> $GITHUB_OUTPUT
+            echo "vpath=$VPATH" >> $GITHUB_OUTPUT
+            echo "cur=$CUR"     >> $GITHUB_OUTPUT
+            echo "next=$((CUR+1))" >> $GITHUB_OUTPUT
+          else
+            echo "mode=fail"    >> $GITHUB_OUTPUT
+            echo "vpath=$VPATH" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Report OK / Skip / Final fail
+        if: ${{ steps.d.outputs.mode != 'iterate' }}
+        run: |
+          case "${{ steps.d.outputs.mode }}" in
+            ok)   echo "::notice::Verifier: OK – found '${{ steps.d.outputs.vpath }}' in snapshot.";;
+            skip) echo "::notice::Verifier: skipped (no next.json/snapshot/rule).";;
+            fail) echo "::warning::Verifier: NOT FOUND after max rounds – '${{ steps.d.outputs.vpath }}'.";;
+          esac
+
+      - name: Prepare next.json (next round)
+        if: ${{ steps.d.outputs.mode == 'iterate' }}
+        run: |
+          set -euo pipefail
+          NX=".wtp/next.json"
+          NXT="${{ steps.d.outputs.next }}"
+
+          # Baza pól utrzymywanych między rundami
+          BASE=$(jq -c '{path, message, branch, verify, auto}' "$NX")
+          PLAN=$(jq -c ".auto.plans[$((NXT-1))]" "$NX")
+
+          # Zbuduj nowy next.json:
+          # - jeżeli plan ma content_plain → wyczyść content_b64
+          # - jeżeli plan ma content_b64   → wyczyść content_plain
+          MERGED=$(jq -n --argjson base "$BASE" --argjson plan "$PLAN" --argjson nxt "$NXT" '
+            ($base + {
+              content_plain: ($plan.content_plain // null),
+              content_b64:   ($plan.content_b64   // null)
+            })
+            | if has("content_plain") and (.content_plain != null) then .content_b64 = null else . end
+            | if has("content_b64")   and (.content_b64   != null) then .content_plain = null else . end
+            | .auto.round = $nxt
+          ')
+          echo "$MERGED" > /tmp/next.json
+
+      - name: Upsert updated next.json (ai-upsert-file)
+        if: ${{ steps.d.outputs.mode == 'iterate' }}
+        env:
+          GH_PAT: ${{ secrets.WTP_GITHUB_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_PAT:-}" ]; then
+            echo "::error::Missing secret WTP_GITHUB_PAT (required for repository_dispatch)."
+            exit 1
+          fi
+          B64="$(base64 -w 0 /tmp/next.json)"
+          jq -n --arg path ".wtp/next.json" --arg message "agent: auto-iterate to round ${{ steps.d.outputs.next }}" \
+                --arg branch "main" --arg content_b64 "$B64" '
+            {
+              event_type:"ai-upsert-file",
+              client_payload:{ path:$path, message:$message, branch:$branch, content_b64:$content_b64 }
+            }' > /tmp/dispatch.json
+          REPO_FULL="${GITHUB_REPOSITORY}"   # owner/repo
+          curl -sS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: token ${GH_PAT}" \
+            "https://api.github.com/repos/${REPO_FULL}/dispatches" \
+            -d @/tmp/dispatch.json
+          echo "next.json updated (round ${{ steps.d.outputs.next }})"
+
+      - name: Kick 05_patcher with new plan
+        if: ${{ steps.d.outputs.mode == 'iterate' }}
+        env:
+          GH_PAT: ${{ secrets.WTP_GITHUB_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_PAT:-}" ]; then
+            echo "::error::Missing secret WTP_GITHUB_PAT (required for repository_dispatch)."
+            exit 1
+          fi
+          # jawny event_type: ai-patcher
+          jq -n --slurpfile p /tmp/next.json '{event_type:"ai-patcher", client_payload: $p[0] }' > /tmp/patch.json
+          REPO_FULL="${GITHUB_REPOSITORY}"
+          curl -sS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: token ${GH_PAT}" \
+            "https://api.github.com/repos/${REPO_FULL}/dispatches" \
+            -d @/tmp/patch.json
+          echo "dispatched ai-patcher with next round payload"
