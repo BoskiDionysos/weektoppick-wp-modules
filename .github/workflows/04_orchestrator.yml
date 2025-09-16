@@ -1,0 +1,43 @@
+name: 04_orchestrator
+
+on:
+  workflow_dispatch: {}
+  repository_dispatch:
+    types: [ai-orchestrate]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: orchestrator
+  cancel-in-progress: true
+
+jobs:
+  orchestrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read .wtp/next.json
+        id: read
+        run: |
+          set -euo pipefail
+          test -f .wtp/next.json || { echo "::error::.wtp/next.json not found"; exit 1; }
+          jq -c . .wtp/next.json > /tmp/next.json
+          echo "NEXT=$(cat /tmp/next.json | tr -d '\n' | sed 's/"/\\"/g')" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch -> 05_patcher
+        env:
+          GH_PAT: ${{ secrets.WTP_GITHUB_PAT }}
+          OWNER: ${{ github.repository_owner }}
+          REPO:  ${{ github.event.repository.name }}
+          PAY:   ${{ steps.read.outputs.NEXT }}
+        run: |
+          set -euo pipefail
+          curl -sS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: token ${GH_PAT}" \
+            https://api.github.com/repos/${OWNER}/${REPO}/dispatches \
+            -d "{\"event_type\":\"ai-patcher\",\"client_payload\":${PAY}}"
+          echo "Dispatched ai-patcher with payload from .wtp/next.json"
