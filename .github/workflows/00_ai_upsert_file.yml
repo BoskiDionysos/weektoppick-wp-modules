@@ -1,4 +1,4 @@
-name: 00_orchestrator (agent loop: next.json → commit → (01→02→03))
+name: 00_AI_upsert_file
 
 on:
   schedule:
