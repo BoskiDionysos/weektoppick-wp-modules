@@ -1,5 +1,4 @@
-# .github/workflows/98_fix_headers.yml
-name: 98_fix_headers (purge + HTTP opcache reset)
+name: 98_fix_headers (neutralize fatal-catcher + opcache invalidate)
 on: { workflow_dispatch: {} }
 permissions: { contents: read }
 
@@ -13,7 +12,7 @@ jobs:
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
     steps:
-      - name: Purge wtp-fatal-catcher + create once HTTP opcache reset
+      - name: Neutralize wtp-fatal-catcher.php + invalidate OPcache
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.HOST }}
@@ -24,50 +23,50 @@ jobs:
           command_timeout: 5m
           script: |
             set -euo pipefail
-
             # 1) Wejście do WP
             if [ -n "${TARGET:-}" ]; then cd "${TARGET}"; else cd "${HOME}/public_html"; fi
             echo "[PWD] $(pwd)"
 
-            echo "[BEFORE] mu-plugins:"
-            ls -la wp-content/mu-plugins | head -n 200 || true
+            MU="wp-content/mu-plugins"
+            CATCHER="${MU}/wtp-fatal-catcher.php"
 
-            # 2) Usuń KAŻDY wtp-fatal-catcher.php
-            find . -type f -name 'wtp-fatal-catcher.php' -print -delete 2>/dev/null || true
-            find wp-content/mu-plugins -maxdepth 1 -type f -name '*fatal*catcher*.php*' -print -delete 2>/dev/null || true
+            echo "== BEFORE =="
+            ls -la "${MU}" | sed -n '1,200p' || true
 
-            # 3) Sterylny 00-mu-safe-loader.php (zero outputu)
-            cat > wp-content/mu-plugins/00-mu-safe-loader.php <<'PHP'
+            # 2) Utwórz całkowicie cichy plik catcher (nawet jeśli nie istnieje – nadpisujemy bezpieczną wersją)
+            mkdir -p "${MU}"
+            cat > "${CATCHER}" <<'PHP'
+            <?php
+            // silent placeholder - no BOM, no output
+            if (!defined('ABSPATH')) { exit; }
+            PHP
+            chmod 0644 "${CATCHER}"
+
+            # 3) Dodatkowo upewnij się, że nasz 00 loader jest sterylny
+            cat > "${MU}/00-mu-safe-loader.php" <<'PHP'
             <?php
             if (!defined('ABSPATH')) { exit; }
             add_action('muplugins_loaded', static function () {
                 // no output
             }, 0);
             PHP
-            chmod 0644 wp-content/mu-plugins/00-mu-safe-loader.php || true
+            chmod 0644 "${MU}/00-mu-safe-loader.php"
 
-            echo "[AFTER] mu-plugins:"
-            ls -la wp-content/mu-plugins | head -n 200 || true
+            # 4) Invalidate OPcache dokładnie dla catcher'a (CLI)
+            php -r 'function i($p){if(function_exists("opcache_invalidate")){var_dump(opcache_invalidate($p,true));}else{echo "NO_OPCACHE\n";}} i("'${CATCHER}'");' || true
 
-            # 4) Zbuduj jednorazowy plik HTTP do resetu OPcache (hit przez CURL)
+            # 5) Jednorazowy HTTP reset całej puli (gdyby CLI nie wystarczył)
             cat > wtp-reset-opcache.php <<'PHP'
             <?php
             if (function_exists('opcache_reset')) { opcache_reset(); }
             header('Content-Type: text/plain; charset=utf-8');
             echo "OPCACHE_RESET_OK\n";
-            @unlink(__FILE__); // samosprzątanie
+            @unlink(__FILE__);
             PHP
-            chmod 0644 wtp-reset-opcache.php || true
-
-            # 5) Ustal URL strony i odpal HTTP reset
             SITE="$(php ./wp option get siteurl 2>/dev/null || true)"
             echo "[SITE] $SITE"
-            if [ -n "$SITE" ]; then
-              curl -fsSL "$SITE/wtp-reset-opcache.php" || true
-            else
-              echo "[WARN] Nie ustaliłem siteurl – reset pozostanie pod plikiem, wejdź ręcznie: /wtp-reset-opcache.php"
-            fi
+            if [ -n "$SITE" ]; then curl -fsSL "$SITE/wtp-reset-opcache.php" || true; fi
 
-            # 6) Diagnostyka: czy gdzieś jeszcze jest catcher (poza .wtp/snapshot)?
-            echo "[SCAN] residual:"
-            find . -type f -name 'wtp-fatal-catcher.php' -not -path './.wtp/*' -print 2>/dev/null || true
+            echo "== AFTER =="
+            head -n 5 "${CATCHER}" || true
+            ls -la "${MU}" | sed -n '1,200p' || true
