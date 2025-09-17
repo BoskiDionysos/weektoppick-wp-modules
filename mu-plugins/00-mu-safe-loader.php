@@ -1,1 +1,34 @@
-<?php /**  * MU Safe Loader – ładuje wszystkie MU pluginy (tylko *.php) i loguje postęp/błędy.  * Pliki wyłączone (np. *.off, *.disabled, *.off.php, *.disabled.php) są pomijane.  */ if (!defined('ABSPATH')) exit;  $mu_dir = __DIR__; $log    = WP_CONTENT_DIR . '/uploads/wtp-ro/mu-loader.log';  // upewnij się, że ścieżka na log istnieje @mkdir(dirname($log), 0775, true); @file_put_contents($log, "[".date('c')."] MU Safe Loader init\n", FILE_APPEND);  /** Polyfill dla PHP < 8 (na wszelki wypadek) */ if (!function_exists('str_ends_with')) {     function str_ends_with($haystack, $needle) {         if ($needle === '') return true;         $len = strlen($needle);         return $len === 0 ? true : substr($haystack, -$len) === $needle;     } }  $files = @scandir($mu_dir) ?: []; foreach ($files as $f) {     if ($f === '.' || $f === '..') continue;     if ($f === basename(__FILE__)) continue;      // Ładujemy tylko .php     if (!str_ends_with($f, '.php')) continue;      // Pomijamy pliki oznaczone jako wyłączone     $lower = strtolower($f);     if (str_ends_with($lower, '.off.php') || str_ends_with($lower, '.disabled.php') ||         str_ends_with($lower, '.off')     || str_ends_with($lower, '.disabled')) {         @file_put_contents($log, "[".date('c')."] Skip (disabled): $f\n", FILE_APPEND);         continue;     }      $path = $mu_dir . '/' . $f;     if (!is_file($path)) continue;      try {         include_once $path;         @file_put_contents($log, "[".date('c')."] Loaded: $f\n", FILE_APPEND);     } catch (Throwable $e) {         @file_put_contents(             $log,             "[".date('c')."] ERROR in $f: ".$e->getMessage()."\n",             FILE_APPEND         );     } }
+<?php
+/**
+ * WTP Safe Loader – ultra wczesny, bez outputu!
+ * - buforuj wyjście (ob_start)
+ * - loguj fatale do error_log
+ * - NIE drukuj nic do przeglądarki
+ */
+if (!defined('ABSPATH')) { exit; }
+
+if (!defined('WTP_SAFE_LOADER')) {
+    define('WTP_SAFE_LOADER', true);
+
+    // start bardzo wczesnego bufora (czasem ratuje nagłówki)
+    if (!ob_get_level()) {
+        ob_start();
+    }
+
+    // głośne logowanie błędów do error_log
+    @ini_set('display_errors', '0');
+    @ini_set('log_errors', '1');
+    error_reporting(E_ALL);
+
+    register_shutdown_function(function () {
+        $e = error_get_last();
+        if ($e && in_array($e['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
+            error_log('[WTP FATAL] '.$e['message'].' in '.$e['file'].':'.$e['line']);
+            // nie wysyłamy HTML/echo – tylko log
+        }
+        // bezpieczne czyszczenie bufora – nic nie wypisujmy
+        while (ob_get_level() > 0) {
+            ob_end_flush(); // lub ob_end_clean() jeśli chcesz nie wypuszczać nic
+        }
+    });
+}
