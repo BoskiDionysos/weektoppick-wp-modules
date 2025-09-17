@@ -1,0 +1,1 @@
+wtp-plugins-manifest.php.off
