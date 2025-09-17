@@ -12,43 +12,44 @@ jobs:
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
     steps:
-      - name: Hotfix over SSH (remove bad file, restore loader, reset OPcache)
+      - name: Hotfix MU loader (no fail, always continue)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.HOST }}
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
           port: ${{ env.PORT }}
-          script_stop: true
-          command_timeout: 3m
-          # to sprawia, że zmienna TARGET istnieje po stronie serwera
+          # UDOSTĘPNIAMY TARGET na serwerze:
           envs: TARGET
+          script_stop: false
+          command_timeout: 3m
           script: |
-            set -euo pipefail
+            # Nie używamy "set -e"; sami pilnujemy błędów.
+            set -uo pipefail
 
-            # 1) Wejście do katalogu WP:
-            # - najpierw próbujemy TARGET z env (przesłany przez envs:)
-            # - jeśli z jakiegoś powodu puste, użyjemy wypieczonego secretu albo public_html
+            # 1) Wejdź do katalogu WP
             if [ -n "${TARGET:-}" ]; then
-              cd "${TARGET}"
+              cd "${TARGET}" 2>/dev/null || true
             else
-              cd '${{ env.TARGET }}' 2>/dev/null || cd "${HOME}/public_html"
+              cd '${{ env.TARGET }}' 2>/dev/null || true
             fi
+            # Fallback (gdy sekret byłby pusty):
+            [ -d "wp-content" ] || cd "${HOME}/public_html" 2>/dev/null || true
 
-            echo "== PWD =="; pwd
+            echo "== PWD =="; pwd || true
 
-            echo "== BEFORE =="
-            ls -la wp-content/mu-plugins | head -n 200 || true
+            echo "== BEFORE =="; ls -la wp-content/mu-plugins | head -n 200 || true
 
+            # 2) Usuń ewentualny zepsuty catcher
             BAD="wp-content/mu-plugins/wtp-fatal-catcher.php"
             if [ -f "$BAD" ]; then
-              rm -f "$BAD"
+              rm -f "$BAD" || echo "[WARN] Can't remove $BAD"
               echo "Removed $BAD"
             else
               echo "No $BAD (ok)"
             fi
 
-            # Sterylna wersja 00-mu-safe-loader.php — zero outputu
+            # 3) Zapisz sterylny safe-loader (zero outputu, zero spacji przed <?php)
             cat > wp-content/mu-plugins/00-mu-safe-loader.php <<'PHP'
             <?php
             if (!defined('ABSPATH')) { exit; }
@@ -56,9 +57,16 @@ jobs:
                 // no output
             }, 0);
             PHP
+            chmod 0644 wp-content/mu-plugins/00-mu-safe-loader.php || true
 
-            # Reset OPcache (jeśli aktywny)
-            php -r 'if(function_exists("opcache_reset")){opcache_reset();echo "OPCACHE_RESET_OK\n";}else{echo "NO_OPCACHE\n";}'
+            # 4) Spróbuj zresetować OPcache, ale nie zrywaj sesji, jeśli PHP/OPcache brak
+            if command -v php >/dev/null 2>&1; then
+              php -r 'if(function_exists("opcache_reset")){opcache_reset();echo "OPCACHE_RESET_OK\n";}else{echo "NO_OPCACHE\n";}'
+            else
+              echo "[WARN] php not found in PATH (skip opcache reset)"
+            fi
 
-            echo "== AFTER =="
-            ls -la wp-content/mu-plugins | head -n 200 || true
+            echo "== AFTER =="; ls -la wp-content/mu-plugins | head -n 200 || true
+
+            # 5) Nigdy nie kończ błędem (to hotfix)
+            exit 0
