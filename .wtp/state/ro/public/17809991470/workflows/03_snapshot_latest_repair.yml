@@ -1,0 +1,79 @@
+name: 03_snapshot_latest_repair
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RUN_ID: ${{ github.run_id }}
+      RO_BASE: .wtp/state/ro/public
+      RO_DIR: .wtp/state/ro/public/${{ github.run_id }}
+      RO_LATEST: .wtp/state/ro/public/latest
+      SNAP_DIR: .wtp/snapshots
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1) Znajdź NAJNOWSZY katalog runów (pomijamy 'latest')
+      - name: Resolve newest run dir (source of truth)
+        id: src
+        run: |
+          set -euo pipefail
+          LATEST_RUN_DIR="$(ls -1dt ${RO_BASE}/*/ 2>/dev/null | grep -v '/latest/' | head -n1 | sed 's:/$::')"
+          if [ -z "${LATEST_RUN_DIR}" ]; then
+            echo "::error::No run dirs found in ${RO_BASE}"
+            exit 1
+          fi
+          echo "dir=${LATEST_RUN_DIR}" >> $GITHUB_OUTPUT
+          echo "[INFO] Using LATEST_RUN_DIR=${LATEST_RUN_DIR}"
+
+      # 2) Nadpisz 'latest' pełną kopią najnowszego runu
+      - name: Overwrite latest with newest run
+        run: |
+          set -euo pipefail
+          SRC="${{ steps.src.outputs.dir }}"
+          DST="${RO_LATEST}"
+          rm -rf "${DST}"
+          mkdir -p "${DST}"
+          cp -a "${SRC}/." "${DST}/"
+          echo "[INFO] Copied ${SRC} -> ${DST}"
+          test -f "${DST}/snapshot.json" || { echo "::error::latest/snapshot.json missing after copy"; exit 2; }
+
+      # 3) Sprawdź spójność: run_id/ts z latest == ze źródła
+      - name: Consistency check (snapshot.json)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y >/dev/null
+          sudo apt-get install -y jq >/dev/null
+          SRC="${{ steps.src.outputs.dir }}/snapshot.json"
+          DST="${RO_LATEST}/snapshot.json"
+          jq -r '.run_id,.run_ts // .timestamp' "${SRC}" > /tmp/src_ids.txt
+          jq -r '.run_id,.run_ts // .timestamp' "${DST}" > /tmp/dst_ids.txt
+          diff -u /tmp/src_ids.txt /tmp/dst_ids.txt && echo "[OK] latest matches source" || { echo "::error::latest snapshot mismatch"; exit 3; }
+
+      # 4) Zaktualizuj też historyczne aliasy
+      - name: Update snapshots aliases
+        run: |
+          set -euo pipefail
+          mkdir -p "${SNAP_DIR}"
+          cp -f "${RO_LATEST}/snapshot.json" "${SNAP_DIR}/snapshot-latest.json"
+
+      # 5) Commit & push (tylko jeśli są zmiany)
+      - name: Commit changes
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${RO_LATEST}" "${SNAP_DIR}/snapshot-latest.json"
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."
+          else
+            git commit -m "repair: sync latest from newest run"
+            git push
+          fi

@@ -1,0 +1,70 @@
+name: Apply Inbox Patch
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.wtp/inbox/*.patch'
+      - '.wtp/inbox/**/*.patch'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Git config
+        run: |
+          git config user.name  "wtp-bot"
+          git config user.email "wtp-bot@users.noreply.github.com"
+
+      - name: Ensure folders
+        run: |
+          mkdir -p .wtp/inbox .wtp/processed
+
+      - name: Apply all patches from inbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          PATCHES=(.wtp/inbox/*.patch)
+          if [ ${#PATCHES[@]} -eq 0 ]; then
+            echo "Inbox empty. Nothing to do."
+            exit 0
+          fi
+
+          for P in "${PATCHES[@]}"; do
+            BN="$(basename "$P")"
+            echo ">> Applying: $BN"
+
+            if git apply --check --3way "$P"; then
+              git apply --3way "$P"
+              echo "Applied: $BN"
+            else
+              echo "Patch already applied or not applicable cleanly: $BN (continuing)"
+            fi
+
+            TS="$(date -u +%Y%m%dT%H%M%SZ)"
+            ARCH=".wtp/processed/${BN%.patch}.${TS}.patch"
+            git add -A || true
+            mv "$P" "$ARCH"
+            git add "$ARCH" || true
+          done
+
+          if git diff --cached --quiet; then
+            echo "No repo changes to commit."
+            exit 0
+          fi
+
+          git commit -m "[apply-inbox] processed patches"
+          git push origin HEAD:main
+          echo "Done."

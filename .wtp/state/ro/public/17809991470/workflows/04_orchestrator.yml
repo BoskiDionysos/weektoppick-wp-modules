@@ -1,0 +1,74 @@
+name: 04_orchestrator
+
+on:
+  workflow_dispatch: {}
+  repository_dispatch:
+    types: [ai-orchestrate]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: orchestrator
+  cancel-in-progress: true
+
+jobs:
+  orchestrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read .wtp/next.json → /tmp/next.json
+        id: read
+        run: |
+          set -euo pipefail
+          test -f .wtp/next.json || { echo "::error::.wtp/next.json not found"; exit 1; }
+          jq -c . .wtp/next.json > /tmp/next.json
+          echo "NEXT=$(cat /tmp/next.json | tr -d '\n' | sed 's/"/\\"/g')" >> "$GITHUB_OUTPUT"
+
+      - name: Validate & build payload for 05
+        id: build
+        run: |
+          set -euo pipefail
+          PATH_T="$(jq -r '.path // empty' /tmp/next.json)"
+          MSG="$(jq -r '.message // "Agent patch"' /tmp/next.json)"
+          BR="$(jq -r '.branch  // "main"'         /tmp/next.json)"
+          C_PLAIN="$(jq -r '.content_plain // empty' /tmp/next.json)"
+          C_B64="$(jq -r '.content_b64   // empty' /tmp/next.json)"
+          RAW="$(jq -r '.raw_url        // empty' /tmp/next.json)"
+
+          if [ -z "$PATH_T" ]; then
+            echo "::error::next.json is missing required 'path'"; exit 1
+          fi
+          if [ -z "$C_PLAIN" ] && [ -z "$C_B64" ] && [ -z "$RAW" ]; then
+            echo "::error::Provide one of: content_plain, content_b64, raw_url"; exit 1
+          fi
+
+          jq -n \
+            --arg path "$PATH_T" --arg message "$MSG" --arg branch "$BR" \
+            --arg content_plain "$C_PLAIN" --arg content_b64 "$C_B64" --arg raw_url "$RAW" '
+            { path:$path, message:$message, branch:$branch,
+              content_plain:$content_plain, content_b64:$content_b64, raw_url:$raw_url }' \
+            > /tmp/payload.json
+          cat /tmp/payload.json
+
+      - name: Dispatch -> 05_patcher (repository_dispatch)
+        env:
+          GH_PAT: ${{ secrets.WTP_GITHUB_PAT }}
+          OWNER:  ${{ github.repository_owner }}
+          REPO:   ${{ github.event.repository.name }}
+        run: |
+          set -euo pipefail
+          BODY="$(jq -n --slurpfile p /tmp/payload.json '{event_type:"ai-patcher", client_payload:$p[0] }')"
+          echo "::group::Dispatch body"; echo "$BODY"; echo "::endgroup::"
+          HTTP=$(curl -sS -w "%{http_code}" -o /tmp/resp.txt \
+            -X POST -H "Accept: application/vnd.github+json" \
+            -H "Authorization: token ${GH_PAT}" \
+            https://api.github.com/repos/${OWNER}/${REPO}/dispatches \
+            -d "$BODY")
+          echo "HTTP=$HTTP"; head -c 200 /tmp/resp.txt || true
+          if [ "$HTTP" != "204" ]; then
+            echo "::error::repository_dispatch failed (HTTP $HTTP)"; exit 1
+          fi
+          echo "ok=1" >> $GITHUB_OUTPUT
