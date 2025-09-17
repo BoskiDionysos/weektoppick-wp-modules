@@ -1,0 +1,63 @@
+name: 00_quarantine
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  quarantine:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Move workflows to quarantine
+        run: |
+          set -euo pipefail
+          RUN_ID=${{ github.run_id }}
+          QUARANTINE_DIR=".github/workflows._quarantine"
+          KEEP="01_deploy.yml 02_wpcli.yml 03_snapshot.yml ai-upsert-file.yml apply-inbox-patch.yml gsc-collector.yml"
+
+          mkdir -p "${QUARANTINE_DIR}"
+
+          for f in .github/workflows/*.{yml,yaml}; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f")
+            if echo "$KEEP" | grep -qw "$base"; then
+              echo "[KEEP] $base"
+            else
+              echo "[QUARANTINE] $base"
+              git mv "$f" "${QUARANTINE_DIR}/$base"
+            fi
+          done
+
+          # README.md z zasadami
+          cat > "${QUARANTINE_DIR}/README.md" <<'EOF'
+          # 🗂️ Workflows Quarantine
+
+          Ten katalog zawiera **workflowy tymczasowo wyłączone** z aktywnego CI/CD WeekTopPick.
+
+          ## Zasady:
+          - To **NIE są śmieci** – to workflowy zachowane do przeglądu lub późniejszego użycia.
+          - Aktywne workflowy znajdują się wyłącznie w `.github/workflows/`.
+          - Powód kwarantanny: stabilizacja core (deploy, wpcli, snapshot, AI upsert, apply-patch, GSC).
+          - Każdy plik z tego katalogu można łatwo przywrócić → wystarczy przenieść z powrotem do `.github/workflows/`.
+
+          ## Status:
+          - **Core**: 01_deploy.yml, 02_wpcli.yml, 03_snapshot.yml, ai-upsert-file.yml, apply-inbox-patch.yml, gsc-collector.yml
+          - **Quarantine**: wszystkie pozostałe (przeglądane etapami po stabilizacji core).
+
+          > 🔒 Zasada: najpierw zielony core, potem stopniowo wracamy do plików z tego katalogu (status „Review”).
+          EOF
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."
+          else
+            git commit -m "Quarantine non-core workflows (run $RUN_ID)"
+            git push
+          fi
