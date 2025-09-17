@@ -1,4 +1,4 @@
-name: mu-catcher-hunt
+name: mu_catcher_hunt
 
 on:
   workflow_dispatch: {}
@@ -6,34 +6,28 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: mu-catcher-hunt
+  cancel-in-progress: true
+
 jobs:
   hunt:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      HOST:   ${{ secrets.DEPLOY_HOST }}
-      PORT:   ${{ secrets.DEPLOY_PORT }}
-      USER:   ${{ secrets.DEPLOY_USER }}
-      PASS:   ${{ secrets.DEPLOY_PASS }}
-      TARGET: ${{ secrets.DEPLOY_TARGET }}
-
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Kill catcher + sterilize safe-loader (SSH)
+      - name: SSH — nuke wtp-fatal-catcher + enforce safe loader + OPcache reset
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host:     ${{ env.HOST }}
-          port:     ${{ env.PORT }}
-          username: ${{ env.USER }}
-          password: ${{ env.PASS }}
+          host:     ${{ secrets.DEPLOY_HOST }}
+          port:     ${{ secrets.DEPLOY_PORT }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASS }}
           command_timeout: 3m
-          script_stop: true
           envs: TARGET
           script: |
             set -eu
 
-            # Wejście do katalogu WP
+            # Wejście do WP
             if [ -n "${TARGET:-}" ] && [ -d "${TARGET}" ]; then
               cd "${TARGET}"
             else
@@ -44,21 +38,81 @@ jobs:
             echo "== BEFORE =="
             ls -la wp-content/mu-plugins | head -n 200 || true
 
-            # 1) Usuń WSZYSTKIE wtp-fatal-catcher.php (bez bashowych bajerów)
+            # Pokaż hex/head catchera, jeśli istnieje
+            if [ -f wp-content/mu-plugins/wtp-fatal-catcher.php ]; then
+              echo "== CATCHER HEX HEAD =="
+              (command -v xxd >/dev/null && xxd -g 1 -l 32 wp-content/mu-plugins/wtp-fatal-catcher.php) \
+                || (head -c 64 wp-content/mu-plugins/wtp-fatal-catcher.php | od -An -tx1)
+              echo "== CATCHER first lines =="
+              sed -n '1,40p' wp-content/mu-plugins/wtp-fatal-catcher.php | nl -ba || true
+            else
+              echo "No direct wp-content/mu-plugins/wtp-fatal-catcher.php"
+            fi
+
+            echo "== Removing any wtp-fatal-catcher.php =="
             find wp-content/mu-plugins -type f -name 'wtp-fatal-catcher.php' -print -delete 2>/dev/null || true
 
-            # 2) Twarda, sterylna wersja 00-mu-safe-loader.php (ZERO outputu, ZERO BOM)
-            mkdir -p wp-content/mu-plugins
-            cat > wp-content/mu-plugins/00-mu-safe-loader.php <<'PHP'
-            <?php
-            if (!defined('ABSPATH')) { exit; }
-            add_action('muplugins_loaded', static function () {
-                // silence is golden
-            }, 0);
-            PHP
+            # Dodatkowe podejrzane nazwy (jeśli były)
+            for f in $(find wp-content/mu-plugins -maxdepth 1 -type f -printf '%f\n' 2>/dev/null \
+                       | grep -Ei '^wtp.*catcher.*\.php(\.off)?$' || true); do
+              echo "Removing suspicious: $f"
+              rm -f "wp-content/mu-plugins/$f" || true
+            done
 
-            # 3) Reset OPcache (jeśli aktywny)
+            # Sterylna wersja loadera — ZERO BOM/wyjścia
+            mkdir -p wp-content/mu-plugins
+            printf '%s\n' \
+              '<?php' \
+              'if (!defined("ABSPATH")) { exit; }' \
+              'add_action("muplugins_loaded", static function () {' \
+              '    // silence is golden' \
+              '}, 0);' \
+              > wp-content/mu-plugins/00-mu-safe-loader.php
+
+            # Reset OPcache (jeśli aktywny)
             php -r 'if(function_exists("opcache_reset")){opcache_reset();echo "OPCACHE_RESET_OK\n";}else{echo "NO_OPCACHE\n";}'
 
             echo "== AFTER =="
             ls -la wp-content/mu-plugins | head -n 200 || true
+
+            # Grep: czy coś jeszcze odwołuje się do catchera?
+            echo "== Grep includes referencing catcher =="
+            (grep -RIn --color=never -E "wtp-.*fatal.*catcher.*\.php" wp-content/mu-plugins || true)
+
+  scan:
+    runs-on: ubuntu-latest
+    needs: hunt
+    timeout-minutes: 10
+    steps:
+      - name: SSH — scan mu-plugins for BOM/non-PHP heads
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ secrets.DEPLOY_HOST }}
+          port:     ${{ secrets.DEPLOY_PORT }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASS }}
+          command_timeout: 3m
+          envs: TARGET
+          script: |
+            set -eu
+
+            if [ -n "${TARGET:-}" ] && [ -d "${TARGET}" ]; then
+              cd "${TARGET}"
+            else
+              cd "${HOME}/public_html"
+            fi
+            echo "PWD=$(pwd)"
+
+            dir='wp-content/mu-plugins'
+            [ -d "$dir" ] || { echo "No mu-plugins dir"; exit 0; }
+
+            echo "== SCAN HEADS =="
+            find "$dir" -maxdepth 1 -type f -name '*.php*' -print | while read -r f; do
+              head3=$(head -c 3 "$f" | od -An -tx1 | tr -d ' \n')
+              size=$(wc -c < "$f" 2>/dev/null || echo 0)
+              # Prawidłowy początek PHP to 3c 3f 70 ( "<?p" )
+              if [ "$head3" != "3c3f70" ]; then
+                echo "WARN: $f head=$(head -c 16 "$f" | od -An -tx1) size=$size"
+                sed -n '1,5p' "$f" | nl -ba || true
+              fi
+            done
