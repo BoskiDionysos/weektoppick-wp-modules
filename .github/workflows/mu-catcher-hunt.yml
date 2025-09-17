@@ -13,29 +13,69 @@ concurrency:
 jobs:
   hunt:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: SSH — nuke wtp-fatal-catcher + enforce safe loader + OPcache reset
+      - name: SSH — auto-detect WP root, nuke catcher, safe loader, OPcache reset
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ secrets.DEPLOY_HOST }}
           port:     ${{ secrets.DEPLOY_PORT }}
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASS }}
-          command_timeout: 3m
+          command_timeout: 4m
+          # Opcjonalnie możesz przekazać TARGET, ale NIE jest wymagany:
           envs: TARGET
           script: |
             set -eu
 
-            # Wejście do WP
-            if [ -n "${TARGET:-}" ] && [ -d "${TARGET}" ]; then
-              cd "${TARGET}"
-            else
-              cd "${HOME}/public_html"
-            fi
-            echo "PWD=$(pwd)"
+            echo "[INFO] whoami=$(whoami) host=$(hostname)"
+            echo "[INFO] HOME=${HOME}  TARGET=${TARGET:-"(unset)"}"
 
-            echo "== BEFORE =="
+            find_wp_root() {
+              # 1) jeżeli podano TARGET i jest wp-config.php — użyj
+              if [ -n "${TARGET:-}" ] && [ -f "${TARGET}/wp-config.php" ]; then
+                printf '%s\n' "${TARGET}"; return 0
+              fi
+
+              # 2) typowe miejsca (Hostinger / cPanel / DirectAdmin itp.)
+              CANDS="
+              ${HOME}/public_html
+              ${HOME}/www
+              ${HOME}/htdocs
+              ${HOME}/httpdocs
+              ${HOME}/site/wwwroot
+              "
+              for d in $CANDS; do
+                if [ -f "$d/wp-config.php" ]; then
+                  printf '%s\n' "$d"; return 0
+                fi
+              done
+
+              # 3) Hostinger domains/…/public_html
+              if [ -d "${HOME}/domains" ]; then
+                for d in "${HOME}"/domains/*/public_html; do
+                  [ -d "$d" ] || continue
+                  if [ -f "$d/wp-config.php" ]; then
+                    printf '%s\n' "$d"; return 0
+                  fi
+                done
+              fi
+
+              # 4) Ostatecznie: znajdź względnie szybko wp-config.php w HOME (max 5 poziomów)
+              WP=$(find "${HOME}" -maxdepth 5 -type f -name wp-config.php -printf '%h\n' 2>/dev/null | head -n 1 || true)
+              if [ -n "${WP:-}" ] && [ -f "${WP}/wp-config.php" ]; then
+                printf '%s\n' "$WP"; return 0
+              fi
+
+              return 1
+            }
+
+            ROOT="$(find_wp_root)" || { echo "::error::Nie mogę znaleźć katalogu WordPress (wp-config.php)"; exit 1; }
+            cd "$ROOT"
+            echo "[INFO] WP_ROOT=$ROOT"
+            test -f wp-config.php || { echo "::error::Brak wp-config.php w $ROOT"; exit 1; }
+
+            echo "== BEFORE (mu-plugins) =="
             ls -la wp-content/mu-plugins | head -n 200 || true
 
             # Pokaż hex/head catchera, jeśli istnieje
@@ -52,14 +92,14 @@ jobs:
             echo "== Removing any wtp-fatal-catcher.php =="
             find wp-content/mu-plugins -type f -name 'wtp-fatal-catcher.php' -print -delete 2>/dev/null || true
 
-            # Dodatkowe podejrzane nazwy (jeśli były)
+            # Dodatkowe nazwy pasujące do "catcher"
             for f in $(find wp-content/mu-plugins -maxdepth 1 -type f -printf '%f\n' 2>/dev/null \
                        | grep -Ei '^wtp.*catcher.*\.php(\.off)?$' || true); do
               echo "Removing suspicious: $f"
               rm -f "wp-content/mu-plugins/$f" || true
             done
 
-            # Sterylna wersja loadera — ZERO BOM/wyjścia
+            # Wymuś sterylny 00-mu-safe-loader.php (ZERO BOM/wyjścia)
             mkdir -p wp-content/mu-plugins
             printf '%s\n' \
               '<?php' \
@@ -72,11 +112,10 @@ jobs:
             # Reset OPcache (jeśli aktywny)
             php -r 'if(function_exists("opcache_reset")){opcache_reset();echo "OPCACHE_RESET_OK\n";}else{echo "NO_OPCACHE\n";}'
 
-            echo "== AFTER =="
+            echo "== AFTER (mu-plugins) =="
             ls -la wp-content/mu-plugins | head -n 200 || true
 
-            # Grep: czy coś jeszcze odwołuje się do catchera?
-            echo "== Grep includes referencing catcher =="
+            echo "== Grep includes referencing catcher (mu-plugins) =="
             (grep -RIn --color=never -E "wtp-.*fatal.*catcher.*\.php" wp-content/mu-plugins || true)
 
   scan:
@@ -84,7 +123,7 @@ jobs:
     needs: hunt
     timeout-minutes: 10
     steps:
-      - name: SSH — scan mu-plugins for BOM/non-PHP heads
+      - name: SSH — scan mu-plugins heads for BOM/garbage
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ secrets.DEPLOY_HOST }}
@@ -96,12 +135,35 @@ jobs:
           script: |
             set -eu
 
-            if [ -n "${TARGET:-}" ] && [ -d "${TARGET}" ]; then
-              cd "${TARGET}"
-            else
-              cd "${HOME}/public_html"
-            fi
-            echo "PWD=$(pwd)"
+            # Lokalizacja WP (jak wyżej)
+            find_wp_root() {
+              if [ -n "${TARGET:-}" ] && [ -f "${TARGET}/wp-config.php" ]; then
+                printf '%s\n' "${TARGET}"; return 0
+              fi
+              CANDS="
+              ${HOME}/public_html
+              ${HOME}/www
+              ${HOME}/htdocs
+              ${HOME}/httpdocs
+              ${HOME}/site/wwwroot
+              "
+              for d in $CANDS; do
+                if [ -f "$d/wp-config.php" ]; then printf '%s\n' "$d"; return 0; fi
+              done
+              if [ -d "${HOME}/domains" ]; then
+                for d in "${HOME}"/domains/*/public_html; do
+                  [ -d "$d" ] || continue
+                  if [ -f "$d/wp-config.php" ]; then printf '%s\n' "$d"; return 0; fi
+                done
+              fi
+              WP=$(find "${HOME}" -maxdepth 5 -type f -name wp-config.php -printf '%h\n' 2>/dev/null | head -n 1 || true)
+              if [ -n "${WP:-}" ] && [ -f "${WP}/wp-config.php" ]; then printf '%s\n' "$WP"; return 0; fi
+              return 1
+            }
+
+            ROOT="$(find_wp_root)" || { echo "::error::Nie mogę znaleźć katalogu WordPress (wp-config.php)"; exit 1; }
+            cd "$ROOT"
+            echo "[INFO] WP_ROOT=$ROOT"
 
             dir='wp-content/mu-plugins'
             [ -d "$dir" ] || { echo "No mu-plugins dir"; exit 0; }
@@ -110,7 +172,6 @@ jobs:
             find "$dir" -maxdepth 1 -type f -name '*.php*' -print | while read -r f; do
               head3=$(head -c 3 "$f" | od -An -tx1 | tr -d ' \n')
               size=$(wc -c < "$f" 2>/dev/null || echo 0)
-              # Prawidłowy początek PHP to 3c 3f 70 ( "<?p" )
               if [ "$head3" != "3c3f70" ]; then
                 echo "WARN: $f head=$(head -c 16 "$f" | od -An -tx1) size=$size"
                 sed -n '1,5p' "$f" | nl -ba || true
