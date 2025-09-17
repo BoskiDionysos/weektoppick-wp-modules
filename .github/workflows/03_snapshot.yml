@@ -64,14 +64,20 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${SSH_PRIV:-}" ]; then
-            echo "$SSH_PRIV" > ~/.ssh/id_rsa
+            mkdir -p ~/.ssh
+            printf '%s\n' "$SSH_PRIV" > ~/.ssh/id_rsa
             chmod 600 ~/.ssh/id_rsa
-            echo "export SSH_CMD='ssh -p ${PORT} -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts'" >> $GITHUB_ENV
-            echo "export SCP_CMD='scp -P ${PORT} -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts'" >> $GITHUB_ENV
+            {
+              echo "SSH_CMD=ssh -p ${PORT} -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts"
+              echo "SCP_CMD=scp -P ${PORT} -i ~/.ssh/id_rsa -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts"
+            } >> "$GITHUB_ENV"
             echo "::notice::Using SSH key auth."
           else
-            echo "export SSH_CMD=\"sshpass -p '${PASS}' ssh -p ${PORT} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts\"" >> $GITHUB_ENV
-            echo "export SCP_CMD=\"sshpass -p '${PASS}' scp -P ${PORT} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts\"" >> $GITHUB_ENV
+            : "${PASS:?DEPLOY_PASS not set}"
+            {
+              echo "SSH_CMD=sshpass -p '${PASS}' ssh -p ${PORT} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts"
+              echo "SCP_CMD=sshpass -p '${PASS}' scp -P ${PORT} -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts"
+            } >> "$GITHUB_ENV"
             echo "::notice::Using password auth via sshpass."
           fi
 
