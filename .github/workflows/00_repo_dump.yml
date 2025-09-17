@@ -1,4 +1,4 @@
-name: 00_repo_dump
+name: 00_repo_inventory
 
 on:
   workflow_dispatch: {}
@@ -7,30 +7,76 @@ permissions:
   contents: write
 
 jobs:
-  dump:
+  inventory:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Create full dump + filelist
+      - name: Setup Python (for YAML parsing)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install deps
         run: |
           set -euo pipefail
-          mkdir -p _dump
-          # pełny spis plików
-          ls -R > _dump/filelist.txt
-          # archiwum repo BEZ katalogu _dump (żeby tar nie pakował samego siebie)
-          tar --exclude='./_dump' -czf _dump/repo-full.tar.gz .
-          ls -lh _dump/repo-full.tar.gz _dump/filelist.txt
+          python -m pip install --upgrade pip
+          pip install pyyaml
 
-      - name: Upload artifact
+      - name: Build inventory (filelist, workflows index) and archive
+        run: |
+          set -euo pipefail
+          RUN_ID=${{ github.run_id }}
+          mkdir -p _dump
+
+          # 1) Pełny spis plików (tracked + untracked poza ignorowanymi)
+          git ls-files -co --exclude-standard > _dump/filelist.txt
+          # Dodatkowo pełne drzewo z uprawnieniami
+          ls -laR > _dump/tree.txt
+
+          # 2) Indeks workflowów (czytelny MD + JSON)
+          python - << 'PY'
+          import os, glob, json, yaml
+          os.makedirs("_dump", exist_ok=True)
+          items=[]
+          for p in sorted(glob.glob(".github/workflows/*.yml")):
+              try:
+                  with open(p, "r", encoding="utf-8") as f:
+                      y = yaml.safe_load(f) or {}
+              except Exception as e:
+                  y = {"_parse_error": str(e)}
+              items.append({
+                  "file": os.path.basename(p),
+                  "name": y.get("name", os.path.basename(p)),
+                  "on": y.get("on"),
+                  "jobs": list((y.get("jobs") or {}).keys())
+              })
+          with open("_dump/workflows.json","w",encoding="utf-8") as f:
+              json.dump(items, f, ensure_ascii=False, indent=2)
+          lines=["# Workflows index"]
+          for w in items:
+              lines.append(f"## {w['name']} ({w['file']})")
+              lines.append(f"- Triggers: `{w['on']}`")
+              lines.append(f"- Jobs: {', '.join(w['jobs']) if w['jobs'] else '-'}\n")
+          with open("_dump/workflows.md","w",encoding="utf-8") as f:
+              f.write("\n".join(lines))
+          PY
+
+          # 3) Archiwum repo (poza .git i _dump), tworzone POZA repo żeby nie pakować siebie
+          tar --exclude='./.git' --exclude='./_dump' -czf /tmp/repo-full.tar.gz .
+          mv /tmp/repo-full.tar.gz _dump/repo-full.tar.gz
+
+          ls -lh _dump/*
+
+      - name: Upload artifact (inventory bundle)
         uses: actions/upload-artifact@v4
         with:
-          name: repo-full-dump
+          name: repo-inventory-${{ github.run_id }}
           path: _dump/*
           retention-days: 7
 
-      - name: Publish dump into .wtp/state (SSOT like snapshot)
+      - name: Publish to .wtp/state (ro/public/<RUN_ID> and latest)
         run: |
           set -euo pipefail
           RUN_ID=${{ github.run_id }}
@@ -42,16 +88,19 @@ jobs:
 
           cp -f _dump/repo-full.tar.gz "${RO_DIR}/repo-full.tar.gz"
           cp -f _dump/filelist.txt    "${RO_DIR}/filelist.txt"
+          cp -f _dump/tree.txt        "${RO_DIR}/tree.txt"
+          cp -f _dump/workflows.json  "${RO_DIR}/workflows.json"
+          cp -f _dump/workflows.md    "${RO_DIR}/workflows.md"
 
-          # aliasy historyczne + latest
-          cp -f "${RO_DIR}/repo-full.tar.gz" "${SNAP_DIR}/repo-${RUN_ID}.tar.gz"
-          cp -f "${RO_DIR}/filelist.txt"     "${SNAP_DIR}/filelist-${RUN_ID}.txt"
-          cp -f "${RO_DIR}/repo-full.tar.gz" "${SNAP_DIR}/repo-latest.tar.gz"
-          cp -f "${RO_DIR}/filelist.txt"     "${SNAP_DIR}/filelist-latest.txt"
-
+          # latest = fizyczna kopia katalogu
           rm -rf "${RO_LATEST}"
           mkdir -p "${RO_LATEST}"
           cp -a "${RO_DIR}/." "${RO_LATEST}/"
+
+          # aliasy "latest" w snapshots (jak dla snapshotów WP)
+          cp -f "${RO_DIR}/repo-full.tar.gz" "${SNAP_DIR}/repo-latest.tar.gz"
+          cp -f "${RO_DIR}/filelist.txt"     "${SNAP_DIR}/filelist-latest.txt"
+          cp -f "${RO_DIR}/workflows.md"     "${SNAP_DIR}/workflows-latest.md"
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -59,26 +108,16 @@ jobs:
           if git diff --staged --quiet; then
             echo "::notice::Nothing to commit."
           else
-            git commit -m "repo dump run ${RUN_ID}"
+            git commit -m "repo inventory ${RUN_ID}"
             git push
           fi
 
-      # ⬇️ To wydrukuje mi na logu wszystko, co muszę zobaczyć (Ty nic nie robisz)
-      - name: Print workflows + filelist (for analysis in chat)
+      - name: Print quick summary to logs
         run: |
           set -euo pipefail
-          echo "::group::.github/workflows (aktywny katalog)"
-          ls -1 .github/workflows || true
+          echo "::group::Workflows summary"
+          sed -n '1,160p' _dump/workflows.md || true
           echo "::endgroup::"
-
-          echo "::group::.github/workflows._quarantine (jeśli istnieje)"
-          ls -1 .github/workflows._quarantine || true
-          echo "::endgroup::"
-
-          echo "::group::Top-level tree"
-          ls -la | sed -n '1,200p'
-          echo "::endgroup::"
-
-          echo "::group::filelist.txt (pierwsze 500 linii)"
-          sed -n '1,500p' .wtp/state/ro/public/latest/filelist.txt || sed -n '1,500p' _dump/filelist.txt || true
+          echo "::group::Filelist (first 300)"
+          sed -n '1,300p' _dump/filelist.txt || true
           echo "::endgroup::"
