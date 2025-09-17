@@ -1,0 +1,1 @@
+wtp-theme-seo-bridge.php.off
