@@ -1,0 +1,28 @@
+name: 00_repo_dump
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Create full dump (all files)
+        run: |
+          set -euo pipefail
+          mkdir -p _dump
+          tar -czf _dump/repo-full.tar.gz .
+          ls -lh _dump/repo-full.tar.gz
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-full-dump
+          path: _dump/repo-full.tar.gz
+          retention-days: 7
