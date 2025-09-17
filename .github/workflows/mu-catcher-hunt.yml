@@ -1,0 +1,98 @@
+name: mu-catcher-hunt
+on: { workflow_dispatch: {} }
+
+permissions: { contents: read }
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+
+    steps:
+      - name: SSH diagnose & fix wtp-fatal-catcher
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ env.HOST }}
+          port:     ${{ env.PORT }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          script_stop: true
+          command_timeout: 5m
+          script: |
+            set -euo pipefail
+
+            # 0) Wejście do docroota WP (fallback do public_html gdyby TARGET był pusty)
+            if [ -n "${TARGET:-}" ] && [ -d "${TARGET}" ]; then
+              cd "${TARGET}"
+            elif [ -d "${HOME}/public_html" ]; then
+              cd "${HOME}/public_html"
+            else
+              echo "ERR: nie mogę znaleźć docroota"; exit 2
+            fi
+            echo "PWD=$(pwd)"
+
+            # 1) Pokaż podstawowe wskaźniki środowiska
+            php -v | head -n 1 || true
+            echo "---- .user.ini ----"; [ -f ".user.ini" ] && sed -n '1,120p' .user.ini || echo "(brak)"
+            echo "---- .htaccess ----"; [ -f ".htaccess" ] && sed -n '1,120p' .htaccess || echo "(brak)"
+
+            echo "---- ABSPATH via wp-load.php ----"
+            php -r '
+              $p="wp-load.php";
+              if(file_exists($p)){require $p; echo "ABSPATH=".(defined("ABSPATH")?ABSPATH:"(undef)")."\n";}
+              else {echo "no wp-load.php in ".getcwd()."\n";}
+            ' || true
+
+            # 2) Szukaj plików o tej nazwie w całym WP
+            echo "---- SEARCH: wtp-fatal-catcher.php ----"
+            FOUND=$(find . -type f -name 'wtp-fatal-catcher.php' -print || true)
+            if [ -n "$FOUND" ]; then
+              echo "$FOUND"
+            else
+              echo "(nie znaleziono w drzewie)"
+            fi
+
+            # 3) Szukaj odwołań (auto_prepend_file, include/require)
+            echo "---- GREP references ----"
+            (grep -RIn --exclude-dir=vendor --exclude-dir=node_modules \
+              -E 'wtp-fatal-catcher\.php|auto_prepend_file' . || true) | head -n 120
+
+            # 4) Usuń KAŻDY znaleziony egzemplarz i zastąp sterylnym pustym
+            if [ -n "${FOUND:-}" ]; then
+              while IFS= read -r f; do
+                [ -z "$f" ] && continue
+                echo "Fixing: $f"
+                rm -f "$f" || true
+                cat > "$f" <<'PHP'
+<?php
+if (!defined('ABSPATH')) { exit; }
+PHP
+                # nadaj rozsądne prawa
+                chmod 0644 "$f" || true
+              done <<< "$FOUND"
+            fi
+
+            # 5) Twardy reset OPcache (globalny)
+            echo "---- OPCACHE RESET ----"
+            php -r 'if(function_exists("opcache_reset")){var_dump(opcache_reset());}else{echo "NO_OPCACHE\n";}'
+
+            # 6) Krótki test “czy coś wysyła nagłówki przy bootstrapie”
+            echo "---- WP bootstrap headers_sent test ----"
+            php -r '
+              error_reporting(E_ALL);
+              ini_set("display_errors","1");
+              require "wp-load.php";
+              echo "headers_sent(before)=".(headers_sent()?"1":"0")."\n";
+              header("X-WTP-Test: ping");
+              echo "headers_sent(after)=".(headers_sent()?"1":"0")."\n";
+            ' || true
+
+            # 7) Ostatecznie pokaż, co siedzi w mu-plugins
+            echo "---- ls mu-plugins ----"
+            ls -la wp-content/mu-plugins | head -n 200 || true
