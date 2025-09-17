@@ -1,0 +1,47 @@
+name: 99_ssh_hotfix
+on: { workflow_dispatch: {} }
+permissions: { contents: read }
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+    steps:
+      - name: Hotfix over SSH (remove bad file, restore loader, reset OPcache)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port: ${{ env.PORT }}
+          script_stop: true
+          command_timeout: 3m
+          script: |
+            set -euo pipefail
+            cd "${TARGET}" || { echo "Cannot cd TARGET=${TARGET}"; exit 1; }
+
+            echo "== BEFORE =="
+            ls -la wp-content/mu-plugins | head -n 200 || true
+
+            BAD="wp-content/mu-plugins/wtp-fatal-catcher.php"
+            [ -f "$BAD" ] && { rm -f "$BAD"; echo "Removed $BAD"; } || echo "No $BAD (ok)"
+
+            cat > wp-content/mu-plugins/00-mu-safe-loader.php <<'PHP'
+            <?php
+            // No output, no headers, zero spacji przed <?php
+            if (!defined('ABSPATH')) { exit; }
+            add_action('muplugins_loaded', static function () {
+                // loader ready – nic nie wypisujemy
+            }, 0);
+            PHP
+
+            # Reset OPcache (jeśli włączony)
+            php -r 'if(function_exists("opcache_reset")){opcache_reset();echo "OPCACHE_RESET_OK\n";}else{echo "NO_OPCACHE\n";}'
+
+            echo "== AFTER =="
+            ls -la wp-content/mu-plugins | head -n 200 || true
