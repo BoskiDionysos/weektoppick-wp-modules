@@ -13,7 +13,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Scan MU + Theme for BOM/whitespace/output before headers
         uses: appleboy/ssh-action@v1.0.3
@@ -22,78 +22,74 @@ jobs:
           port:     ${{ secrets.DEPLOY_PORT }}
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASS }}
-          command_timeout: 5m
-          envs: |
-            TARGET
+          command_timeout: 10m
           script: |
-            set -euo pipefail
+            set -eu
 
             echo "[INFO] whoami=$(whoami) host=$(hostname)"
-            echo "[INFO] HOME=${HOME}  TARGET=${TARGET:-"(unset)"}"
-
-            # --- HARD-CODED ROOT (Hostinger układ katalogów) ---
-            ROOT_DEFAULT="${HOME}/domains/weektoppick.com/public_html"
-
-            # jeśli podasz TARGET i jest poprawny, użyj go; w przeciwnym razie użyj ROOT_DEFAULT
-            if [ -n "${TARGET:-}" ] && [ -f "${TARGET}/wp-config.php" ]; then
-              ROOT="${TARGET}"
-            else
-              ROOT="${ROOT_DEFAULT}"
-            fi
-
+            ROOT="${HOME}/domains/weektoppick.com/public_html"
             if [ ! -f "${ROOT}/wp-config.php" ]; then
-              echo "::error::Nie znaleziono wp-config.php w ${ROOT} (ani w TARGET). Przerwano."
+              echo "::error::Brak wp-config.php w ${ROOT}"
               exit 1
             fi
-
             cd "${ROOT}"
             echo "[INFO] WP_ROOT=${ROOT}"
 
             echo "== Scan targets =="
             printf '%s\n' "wp-content/mu-plugins" "wp-content/themes" | nl -ba
 
-            # 1) UTF-8 BOM (EF BB BF) na początku plików PHP
+            # -------- 1) UTF-8 BOM (EF BB BF) na początku pliku --------
             echo "== 1) UTF-8 BOM at start (EF BB BF) =="
             FOUND=0
-            while IFS= read -r -d '' f; do
-              head -c 3 "$f" | od -An -tx1 | grep -qi "ef bb bf" && { echo "BOM: $f"; FOUND=1; }
-            done < <(find wp-content/mu-plugins wp-content/themes -type f -name '*.php' -print0 2>/dev/null || true)
-            [ $FOUND -eq 0 ] && echo "(none)"
+            find wp-content/mu-plugins wp-content/themes -type f -name '*.php' 2>/dev/null \
+            | while IFS= read -r f; do
+                # od -tx1 daje bajty; jeśli nie ma 'od', pokaż nagłówek szesnastkowy fallbackiem
+                if head -c 3 "$f" | od -An -tx1 | grep -qi "ef bb bf"; then
+                  echo "BOM: $f"
+                  FOUND=1
+                fi
+              done
+            [ "${FOUND:-0}" -eq 0 ] && echo "(none)"
 
-            # 2) Pliki nie zaczynające się od '<?php' (pierwsze 5 bajtów)
+            # -------- 2) Pliki nie zaczynające się od '<?php' --------
             echo "== 2) Not starting with '<?php' (first bytes) =="
             FOUND=0
-            while IFS= read -r -d '' f; do
-              H=$(head -c 5 "$f" | tr -d '\r\n')
-              if [ "$H" != "<?php" ]; then
-                echo "HEAD: $f  (starts with: $(head -c 16 "$f" | od -An -tx1))"
-                FOUND=1
-              fi
-            done < <(find wp-content/mu-plugins wp-content/themes -type f -name '*.php' -print0 2>/dev/null || true)
-            [ $FOUND -eq 0 ] && echo "(none)"
+            find wp-content/mu-plugins wp-content/themes -type f -name '*.php' 2>/dev/null \
+            | while IFS= read -r f; do
+                H="$(head -c 5 "$f" | tr -d '\r\n')"
+                if [ "$H" != "<?php" ]; then
+                  echo "HEAD: $f  (starts with: $(head -c 16 "$f" | od -An -tx1 || true))"
+                  FOUND=1
+                fi
+              done
+            [ "${FOUND:-0}" -eq 0 ] && echo "(none)"
 
-            # 3) Output po '?>' (trailing output)
+            # -------- 3) Output po '?>' (trailing output) --------
             echo "== 3) Trailing output after closing tag (?> + whitespace) =="
             FOUND=0
-            while IFS= read -r -d '' f; do
-              if grep -qP "\?>\s*$" "$f"; then
-                : # OK, brak śmieci po zamykającym tagu
-              elif grep -qP "\?>.*" "$f"; then
-                echo "TRAIL: $f"
-                FOUND=1
-              fi
-            done < <(find wp-content/mu-plugins wp-content/themes -type f -name '*.php' -print0 2>/dev/null || true)
-            [ $FOUND -eq 0 ] && echo "(none)"
+            find wp-content/mu-plugins wp-content/themes -type f -name '*.php' 2>/dev/null \
+            | while IFS= read -r f; do
+                # jeśli jest '?>' i po nim coś jeszcze (nie-EOF) → problem
+                if grep -q "?>" "$f"; then
+                  # jeśli są jakiekolwiek znaki po '?>' na końcu linii (nie tylko EOF)
+                  if awk 'BEGIN{p=0} /\\?>/{p=1; next} { if(p && length($0)>0){ print "TRAIL"; exit 0 } } END{ if(p==1) exit 1 }' "$f"; then
+                    echo "TRAIL: $f"
+                    FOUND=1
+                  fi
+                fi
+              done
+            [ "${FOUND:-0}" -eq 0 ] && echo "(none)"
 
-            # 4) Heurystyka: echo/print/var_dump/printf w pierwszych 40 liniach pliku
+            # -------- 4) echo/print/var_dump/printf w TOP 40 liniach --------
             echo "== 4) Any accidental echo/print/var_dump at file top (heuristic) =="
             FOUND=0
-            while IFS= read -r -d '' f; do
-              if head -n 40 "$f" | grep -qE '^\s*(echo|print|var_dump|printf)\b'; then
-                echo "ECHO_TOP: $f"
-                FOUND=1
-              fi
-            done < <(find wp-content/mu-plugins wp-content/themes -type f -name '*.php' -print0 2>/dev/null || true)
-            [ $FOUND -eq 0 ] && echo "(none)"
+            find wp-content/mu-plugins wp-content/themes -type f -name '*.php' 2>/dev/null \
+            | while IFS= read -r f; do
+                if head -n 40 "$f" | grep -qE '^[[:space:]]*(echo|print|var_dump|printf)\b'; then
+                  echo "ECHO_TOP: $f"
+                  FOUND=1
+                fi
+              done
+            [ "${FOUND:-0}" -eq 0 ] && echo "(none)"
 
             echo "== DONE =="
