@@ -58,19 +58,19 @@ jobs:
       - name: SSH sanity (whoami/pwd/wp-config)
         run: |
           set -euo pipefail
-          echo "::group::SSH sanity"
-          sshpass -p "$PASS" ssh -p "$PORT" \
-            -o BatchMode=yes -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST" "bash -lc '
-              echo user: \$(whoami)
-              echo host: \$(hostname)
-              cd \"${TARGET}\" || { echo \"ERR: cannot cd TARGET=${TARGET}\"; exit 3; }
-              pwd
-              test -f wp-config.php && echo OK:wp-config || { echo ERR:no-wp-config; exit 4; }
-              ls -la | head -n 20
-            '"
+          SSH_OPTS="-p $PORT -o BatchMode=yes -o PreferredAuthentications=password -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts"
+          echo "::group::ssh -vvv"
+          sshpass -p "$PASS" ssh -vvv $SSH_OPTS "$USER@$HOST" "exit 0" || true
           echo "::endgroup::"
+
+          sshpass -p "$PASS" ssh $SSH_OPTS "$USER@$HOST" "bash -lc '
+            echo user: \$(whoami)
+            echo host: \$(hostname)
+            cd \"${TARGET}\" || { echo \"ERR: cannot cd TARGET=${TARGET}\"; exit 3; }
+            pwd
+            test -f wp-config.php && echo OK:wp-config || { echo ERR:no-wp-config; exit 4; }
+            ls -la | head -n 20
+          '"
 
       - name: Upload remote scripts (snapshot + analyzer)
         run: |
