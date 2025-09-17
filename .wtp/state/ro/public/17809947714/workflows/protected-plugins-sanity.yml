@@ -1,0 +1,70 @@
+name: Protected plugins sanity (remote check + report)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify inputs & list file
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${HOST:-}" && test -n "${PORT:-}" && test -n "${USER:-}" && test -n "${PASS:-}" && test -n "${TARGET:-}" \
+            || { echo "::error::Missing deploy secrets"; exit 1; }
+          test -f ".wtp/protected-plugins.txt" || { echo "::error::.wtp/protected-plugins.txt not found"; exit 1; }
+
+      - name: Collect remote presence
+        id: scan
+        shell: bash
+        run: |
+          set -euo pipefail
+          TMP="$(mktemp -d)"
+          REPORT=".wtp/reports/protected-sanity-${GITHUB_RUN_ID}.md"
+          mkdir -p .wtp/reports
+          echo "# Protected plugins sanity – run ${GITHUB_RUN_ID}" > "$REPORT"
+          echo "" >> "$REPORT"
+          echo "| plugin folder | present on server | note |" >> "$REPORT"
+          echo "|---|:---:|---|" >> "$REPORT"
+
+          # znormalizuj listę (bez BOM, CR, komentarzy, pustych)
+          sed -e 's/\r$//' ".wtp/protected-plugins.txt" | sed 's/^\xEF\xBB\xBF//' \
+            | while IFS= read -r line; do
+                name="${line%%#*}"; name="$(echo "$name" | xargs)"
+                [ -z "$name" ] && continue
+                # sprawdź obecność katalogu na serwerze
+                if sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+                     "[ -d \"$TARGET/wp-content/plugins/$name\" ]"; then
+                  echo "| $name | ✅ | |" >> "$REPORT"
+                else
+                  echo "| $name | ❌ | missing on server |" >> "$REPORT"
+                  echo "::warning::protected plugin missing on server: $name"
+                fi
+              done
+
+          echo "" >> "$REPORT"
+          echo "_Generated at $(date -u +%F' '%T)Z_" >> "$REPORT"
+
+          echo "report=$REPORT" >> "$GITHUB_OUTPUT"
+
+      - name: Commit report
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "ci: protected plugins sanity report #${{ github.run_id }}"
+          file_pattern: ".wtp/reports/protected-sanity-*.md"
+          branch: main

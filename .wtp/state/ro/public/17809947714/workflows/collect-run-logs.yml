@@ -1,0 +1,72 @@
+name: Collect Run Logs (on failure → commit + issue)
+
+on:
+  workflow_run:
+    workflows: ["*"]
+    types: [completed]
+
+jobs:
+  collect:
+    if: ${{ github.event.workflow_run.conclusion != 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # commit logów
+      issues: write     # tworzenie/zaktualizowanie Issue
+      actions: read     # pobieranie logów runa
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare paths
+        id: prep
+        run: |
+          mkdir -p .wtp/state/ci_logs
+          RUN_ID="${{ github.event.workflow_run.id }}"
+          WF_NAME="${{ github.event.workflow_run.name }}"
+          TS="${{ github.event.workflow_run.updated_at }}"
+          SAFE_WF="$(echo "$WF_NAME" | tr ' /' '__')"
+          BASE=".wtp/state/ci_logs/${TS}_${SAFE_WF}_run-${RUN_ID}"
+          echo "base=${BASE}" >> "$GITHUB_OUTPUT"
+
+      - name: Download logs archive (this failed run)
+        env:
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO:   ${{ github.repository }}
+          TOKEN:  ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -fsSL -H "Authorization: Bearer $TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "${GITHUB_API_URL}/repos/${REPO}/actions/runs/${RUN_ID}/logs" -o logs.zip
+          ls -lah logs.zip
+
+      - name: Extract and consolidate logs
+        run: |
+          set -euo pipefail
+          BASE="${{ steps.prep.outputs.base }}"
+          mkdir -p "${BASE}"
+          unzip -qq logs.zip -d "${BASE}"
+          # połącz wszystkie logi w jeden plik tekstowy
+          (echo "Workflow: ${{ github.event.workflow_run.name }}"
+           echo "Run ID:   ${{ github.event.workflow_run.id }}"
+           echo "Event:    ${{ github.event.workflow_run.event }}"
+           echo "Status:   ${{ github.event.workflow_run.conclusion }}"
+           echo "Commit:   ${{ github.event.workflow_run.head_sha }}"
+           echo "----- CONCATENATED JOB LOGS -----"
+           find "${BASE}" -type f -name '*.txt' -print0 | xargs -0 -I{} sh -c 'echo; echo "==== {} ===="; cat "{}"' \
+          ) > "${BASE}.txt"
+          echo "Log file: ${BASE}.txt"
+          wc -l "${BASE}.txt" || true
+
+      - name: Commit logs to repo
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "ci(log): add failed run logs for '${{ github.event.workflow_run.name }}' (#${{ github.event.workflow_run.id }})"
+          file_pattern: ".wtp/state/ci_logs/*"
+
+      - name: Create/Update issue with logs
+        uses: peter-evans/create-issue-from-file@v4
+        with:
+          title: "CI failure: ${{ github.event.workflow_run.name }} (run #${{ github.event.workflow_run.id }})"
+          content-filepath: "${{ steps.prep.outputs.base }}.txt"
+          labels: "ci,bug,auto"

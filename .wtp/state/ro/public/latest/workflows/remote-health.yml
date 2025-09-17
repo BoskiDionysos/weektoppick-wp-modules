@@ -1,0 +1,40 @@
+name: Remote health snapshot
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Fetch health (non-fatal)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .wtp/state/health
+          TS="$(date -u +%Y%m%dT%H%M%SZ)"
+          OUT=".wtp/state/health/${TS}.txt"
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
+            "curl -fsS \"http://127.0.0.1/wp-json/wtp-ro-open/v1/health\" || echo 'health endpoint failed'" > "$OUT" || true
+          echo "Saved: $OUT"
+
+      - name: Commit health snapshot
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "ci: update remote health snapshot"
+          file_pattern: ".wtp/state/health/*.txt"
+          branch: main

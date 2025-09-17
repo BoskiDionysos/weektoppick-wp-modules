@@ -1,0 +1,95 @@
+name: Import Live → Repo (PR)
+ 
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 3 * * *" # codziennie 03:00 (opcjonalnie)
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: import-live
+  cancel-in-progress: true
+
+jobs:
+  pull-live:
+    runs-on: ubuntu-latest
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Tools
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y rsync sshpass jq
+
+      - name: Prepare workspace
+        run: |
+          mkdir -p .wtp/live_tmp
+          printf "%s\n" \
+            "wp-content/mu-plugins/" \
+            "wp-content/plugins/" \
+            "wp-content/themes/" \
+            > .wtp/sync-include.txt
+          printf "%s\n" \
+            "wp-content/uploads/" \
+            ".git/" ".github/" \
+            > .wtp/sync-exclude.txt
+
+      - name: Rsync live → runner (pull)
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" rsync -avz \
+            -e "ssh -p $PORT -o StrictHostKeyChecking=no" \
+            --delete \
+            --include-from=.wtp/sync-include.txt \
+            --exclude-from=.wtp/sync-exclude.txt \
+            "$USER@$HOST:$TARGET/" .wtp/live_tmp/
+
+      - name: Copy into repo tree (staging)
+        run: |
+          set -euo pipefail
+          rsync -av .wtp/live_tmp/wp-content/mu-plugins/ ./mu-plugins/  || true
+          rsync -av .wtp/live_tmp/wp-content/plugins/    ./plugins/     || true
+          rsync -av .wtp/live_tmp/wp-content/themes/     ./wp-content/themes/ || true
+
+      - name: Commit to branch (if changes)
+        run: |
+          set -euo pipefail
+          git config user.name  "wtp-bot"
+          git config user.email "wtp-bot@users.noreply.github.com"
+          BR="live-sync/$(date -u +%Y%m%dT%H%M%SZ)"
+          git checkout -b "$BR"
+          git add mu-plugins/ plugins/ wp-content/themes/ || true
+          if git diff --cached --quiet; then
+            echo "No changes."; exit 0
+          fi
+          git commit -m "Live sync → repo"
+          git push origin "$BR"
+          echo "branch=$BR" >> $GITHUB_OUTPUT
+        id: commit
+
+      - name: Open PR
+        if: ${{ steps.commit.outputs.branch }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = '${{ steps.commit.outputs.branch }}';
+            const pr = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: branch,
+              base: 'main',
+              title: 'Live sync → Repo',
+              body: 'Pull z serwera (mu-plugins / plugins / themes). Sprawdź różnice i zmerguj.'
+            });
+            core.info(`PR #${pr.data.number} opened`);
