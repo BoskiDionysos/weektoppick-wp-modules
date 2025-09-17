@@ -1,0 +1,105 @@
+name: mu_hotfix_headers
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mu-hotfix-headers
+  cancel-in-progress: true
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Patch on server (init cookie hook, trim trailing output, mute early echoes)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ secrets.DEPLOY_HOST }}
+          port:     ${{ secrets.DEPLOY_PORT }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASS }}
+          command_timeout: 15m
+          script: |
+            set -eu
+            ROOT="${HOME}/domains/weektoppick.com/public_html"
+            test -f "${ROOT}/wp-config.php" || { echo "::error::Brak wp-config.php w ${ROOT}"; exit 1; }
+            cd "${ROOT}"
+
+            echo "== 0) Kontekst =="
+            php -v || true
+            echo "WP_ROOT=${ROOT}"
+
+            THEME_FN="wp-content/themes/wtp-core-theme/functions.php"
+            MU_DIR="wp-content/mu-plugins"
+
+            # 1) Wstrzyknij bezpieczny hook 'init' → wymusi ustawianie ciastek PRZED jakimkolwiek outputem.
+            #    Robimy to idempotentnie (jeśli już jest, nie dodajemy drugi raz).
+            echo "== 1) Ensure init hook for cookies in functions.php =="
+            if [ -f "${THEME_FN}" ]; then
+              if ! grep -q "wtp_boot_lang_cookie" "${THEME_FN}"; then
+                TMPFN="$(mktemp)"
+                awk '
+                  NR==1 { print; print ""; print "// WTP: make sure cookies are set before any output"; print "add_action('\''init'\'', function(){ if (function_exists('\''wtp_detect_lang'\'')) { if (!headers_sent()) { wtp_detect_lang(); } } }, 0);"; print ""; next }
+                  { print }
+                ' "${THEME_FN}" > "${TMPFN}"
+                cp "${TMPFN}" "${THEME_FN}"
+                rm -f "${TMPFN}"
+                echo "Injected init hook into ${THEME_FN}"
+              else
+                echo "Init hook already present in ${THEME_FN}"
+              fi
+            else
+              echo "::warning::Theme functions.php not found: ${THEME_FN}"
+            fi
+
+            # 2) TRAIL fix → usuń zamykający tag ?> na końcu oraz białe znaki po nim (dla wszystkich *.php)
+            echo "== 2) Strip trailing '?>' + whitespace at EOF (TRAIL fix) =="
+            find wp-content/mu-plugins wp-content/themes -type f -name '*.php' 2>/dev/null | while IFS= read -r f; do
+              # Usuń trailing BOM/CR/LF śmieci po ?> oraz sam ?> jeśli jest na końcu
+              # Kopia bezpieczeństwa:
+              cp "$f" "$f.wtp.bak" || true
+              # Jeżeli plik kończy się '?>' + coś → przytnij do końca ostatniego bloku PHP bez '?>'
+              # Proste podejście: usuń wszystkie zamykające tagi '?>' które są na końcu pliku lub z trailing whitespace.
+              # (bez naruszania środkowych fragmentów)
+              perl -0777 -pe 's/\?>\s*\z//s' -i "$f" || true
+            done
+            echo "TRAIL cleanup done."
+
+            # 3) ECHO_TOP fix → przekomentuj echo/print/var_dump/printf w pierwszych 40 liniach w znanych plikach
+            echo "== 3) Mute early echo/print in known offenders =="
+            # a) MU: wtp-canonical.php
+            if [ -f "${MU_DIR}/wtp-canonical.php" ]; then
+              awk 'NR<=40 { if ($0 ~ /^[[:space:]]*(echo|print|var_dump|printf)\b/) { print "/*WTP-MUTE*/ // " $0; next } } { print }' \
+                "${MU_DIR}/wtp-canonical.php" > "${MU_DIR}/wtp-canonical.php.wtp.tmp" && mv "${MU_DIR}/wtp-canonical.php.wtp.tmp" "${MU_DIR}/wtp-canonical.php"
+              echo "Muted early echoes in ${MU_DIR}/wtp-canonical.php (top 40 lines)"
+            else
+              echo "Skip: ${MU_DIR}/wtp-canonical.php not found"
+            fi
+            # b) Theme: index.php
+            if [ -f "wp-content/themes/wtp-core-theme/index.php" ]; then
+              awk 'NR<=40 { if ($0 ~ /^[[:space:]]*(echo|print|var_dump|printf)\b/) { print "/*WTP-MUTE*/ // " $0; next } } { print }' \
+                "wp-content/themes/wtp-core-theme/index.php" > "wp-content/themes/wtp-core-theme/index.php.wtp.tmp" && mv "wp-content/themes/wtp-core-theme/index.php.wtp.tmp" "wp-content/themes/wtp-core-theme/index.php"
+              echo "Muted early echoes in theme index.php (top 40 lines)"
+            else
+              echo "Skip: theme index.php not found"
+            fi
+
+            # 4) Opcjonalnie: pokaż hexdump head dla functions.php (kontrola braku BOM) + pierwsze 60 linii
+            echo "== 4) Sanity: functions.php head =="
+            if command -v xxd >/dev/null; then
+              xxd -g 1 -l 16 "${THEME_FN}" || true
+            else
+              head -c 32 "${THEME_FN}" | od -An -tx1 || true
+            fi
+            echo "-- first 60 lines --"
+            nl -ba "${THEME_FN}" | sed -n '1,60p' || true
+
+            # 5) Opcjonalnie: szybki diff czy w ogóle coś się zmieniło (pokaże jeden przykład)
+            echo "== 5) Examples of .wtp.bak created (if any) =="
+            find wp-content/mu-plugins wp-content/themes -type f -name '*.wtp.bak' | head -n 5 || true
+
+            echo "== DONE =="
