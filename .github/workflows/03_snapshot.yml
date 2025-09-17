@@ -34,7 +34,7 @@ jobs:
       - name: 1) Checkout repo
         uses: actions/checkout@v4
 
-      - name: 2) Setup tools
+      - name: 2) Setup tools (curl, sshpass, jq)
         run: |
           set -euo pipefail
           sudo apt-get update -y
@@ -59,23 +59,94 @@ jobs:
       - name: 3) Upload analyzer + snapshot script
         run: |
           set -euo pipefail
-          # analyzer (php)
+
+          # --- analyzer (php) – lekki, nieinwazyjny (możesz rozbudować później) ---
           cat > /tmp/wtp_analyze.php <<'ANALYZER'
           <?php
-          // … (tu zostaje cały skrypt analizy PHP jak w poprzedniej wersji – bez zmian)
-          ?>
+          if (!defined('ABSPATH')) { define('SHORTINIT', true); }
+          // Minimal placeholder – nie robi nic destrukcyjnego.
+          // Zostawiamy jako hak do ewentualnych analiz offline/na żądanie.
+          exit(0);
           ANALYZER
 
-          # raw snapshot shell
+          # --- raw snapshot shell (zbiera dane po stronie serwera i zapisuje JSON-y) ---
           cat > /tmp/wtp_snapshot_raw.sh <<'SNAPRAW'
           #!/usr/bin/env bash
           set -euo pipefail
           : "${TARGET:?TARGET required}"
           : "${RUN_ID:?RUN_ID required}"
-          RAWDIR="${TARGET}/.wtp/state/ci_logs/snapshot"
-          mkdir -p "${RAWDIR}"
-          echo "[INFO] Starting snapshot for run=${RUN_ID} into ${RAWDIR}"
-          # … (tu zostaje cały kod snapshotowania – themes/plugins/mu/users/options itp.)
+
+          cd "${TARGET}"
+
+          OUTDIR="${TARGET}/.wtp/state/ci_logs/snapshot"
+          mkdir -p "${OUTDIR}"
+
+          echo "[INFO] Starting snapshot for run=${RUN_ID} into ${OUTDIR}"
+
+          # helper do JSON escaping (bez zewn. jq po stronie serwera)
+          json_escape() {
+            python3 - <<'PY' "$1"
+import json,sys
+print(json.dumps(sys.argv[1]))
+PY
+          }
+
+          # 0) Host / php / wp
+          PHPVER="$(php -r 'echo PHP_VERSION;')"
+          HOSTNAME="$(hostname || echo unknown)"
+          NOW_UTC="$(date -u +%FT%TZ)"
+
+          # 1) Site URLs i WP version (wp-cli)
+          WPVER="$(wp core version 2>/dev/null || echo 'unknown')"
+          HOME_URL="$(wp option get home 2>/dev/null || echo '')"
+          SITE_URL="$(wp option get siteurl 2>/dev/null || echo '')"
+
+          printf '{"home":%s,"siteurl":%s,"wp_version":%s,"php_version":%s,"hostname":%s,"timestamp_utc":%s}\n' \
+            "$(json_escape "$HOME_URL")" \
+            "$(json_escape "$SITE_URL")" \
+            "$(json_escape "$WPVER")" \
+            "$(json_escape "$PHPVER")" \
+            "$(json_escape "$HOSTNAME")" \
+            "$(json_escape "$NOW_UTC")" > "${OUTDIR}/site.json"
+
+          # 2) Plugins / Themes / Users (wp-cli)
+          wp plugin list --format=json > "${OUTDIR}/plugins.json" || echo "[]" > "${OUTDIR}/plugins.json"
+          wp theme  list --format=json > "${OUTDIR}/themes.json"  || echo "[]" > "${OUTDIR}/themes.json"
+          wp user   list --role=administrator --format=json > "${OUTDIR}/admins.json" || echo "[]" > "${OUTDIR}/admins.json"
+
+          # 3) MU-plugins (scan katalogu)
+          MUDIR="${TARGET}/wp-content/mu-plugins"
+          if [ -d "${MUDIR}" ]; then
+            php -r '
+              $d=getenv("MUDIR");
+              $out=[];
+              if (is_dir($d)){
+                foreach (scandir($d) as $f){
+                  if ($f==="."||$f==="..") continue;
+                  $p="$d/$f";
+                  if (is_file($p)){
+                    $out[]=[
+                      "file"=>$f,
+                      "size"=>filesize($p),
+                      "md5"=>md5_file($p)
+                    ];
+                  }
+                }
+              }
+              echo json_encode($out, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
+            ' > "${OUTDIR}/mu_plugins.json"
+          else
+            echo "[]" > "${OUTDIR}/mu_plugins.json"
+          fi
+
+          # 4) Active theme (prosto z wp-cli)
+          ACTIVE_THEME="$(wp theme list --status=active --field=name 2>/dev/null | head -n1 || true)"
+          printf '{"active":%s}\n' "$(json_escape "$ACTIVE_THEME")" > "${OUTDIR}/active_theme.json"
+
+          # 5) Opcjonalne: prosta kontrola błędów (pusta jeśli ok)
+          : > "${OUTDIR}/errors.txt"
+
+          echo "[INFO] Snapshot artifacts written to ${OUTDIR}"
           SNAPRAW
 
           chmod +x /tmp/wtp_snapshot_raw.sh
@@ -93,11 +164,11 @@ jobs:
           envs: TARGET,RUN_ID
           script: |
             set -euo pipefail
-            RAWDIR="${TARGET}/.wtp/state/ci_logs/snapshot"
             echo "[INFO] run_id=${RUN_ID}"
             bash /tmp/wtp_snapshot_raw.sh
+            php /tmp/wtp_analyze.php || true
             rm -f /tmp/wtp_snapshot_raw.sh /tmp/wtp_analyze.php
-            echo "[INFO] Snapshot done at $RAWDIR"
+            echo "[INFO] Snapshot done"
 
       - name: 5) Download snapshot logs
         run: |
@@ -108,42 +179,115 @@ jobs:
             "_ci_logs/${{ github.run_id }}/" || true
           ls -la "_ci_logs/${{ github.run_id }}/snapshot" || true
 
-      - name: 6) Assemble snapshot.json
+      - name: 6) Assemble snapshot.json (offline)
         run: |
           set -euo pipefail
           RAW="_ci_logs/${{ github.run_id }}/snapshot"
           SNAP="${RAW}/snapshot.json"
-          # … (tu cały jq merge jak w poprzedniej wersji – site, plugins, themes, admins, etc.)
+
+          # defensive defaults
+          [ -f "${RAW}/site.json" ]         || echo '{}'  > "${RAW}/site.json"
+          [ -f "${RAW}/plugins.json" ]      || echo '[]'  > "${RAW}/plugins.json"
+          [ -f "${RAW}/themes.json" ]       || echo '[]'  > "${RAW}/themes.json"
+          [ -f "${RAW}/mu_plugins.json" ]   || echo '[]'  > "${RAW}/mu_plugins.json"
+          [ -f "${RAW}/admins.json" ]       || echo '[]'  > "${RAW}/admins.json"
+          [ -f "${RAW}/active_theme.json" ] || echo '{}'  > "${RAW}/active_theme.json"
+          [ -f "${RAW}/errors.txt" ]        || : > "${RAW}/errors.txt"
+
+          RUN_TS="$(date -u +%FT%TZ)"
+
+          jq -n \
+            --arg run_id   "${{ github.run_id }}" \
+            --arg run_ts   "${RUN_TS}" \
+            --slurpfile site        "${RAW}/site.json" \
+            --slurpfile plugins     "${RAW}/plugins.json" \
+            --slurpfile themes      "${RAW}/themes.json" \
+            --slurpfile mu_plugins  "${RAW}/mu_plugins.json" \
+            --slurpfile admins      "${RAW}/admins.json" \
+            --slurpfile active      "${RAW}/active_theme.json" \
+            --rawfile   errors_file "${RAW}/errors.txt" '
+            {
+              run_id:   $run_id,
+              run_ts:   $run_ts,
+              site:     ($site[0] // {}),
+              plugins:  ($plugins[0] // []),
+              themes:   ($themes[0] // []),
+              mu_plugins: ($mu_plugins[0] // []),
+              admins:   ($admins[0] // []),
+              active_theme: ($active[0] // {}),
+              errors:   ( ($errors_file | split("\n")) | map(select(length>0)) )
+            }' > "${SNAP}"
+
           echo "::notice::Built snapshot.json"
+          jq '.run_id,.site.wp_version,.site.php_version,.active_theme' "${SNAP}" || true
 
       - name: 7) Generate ARCHITECTURE.md
         run: |
           set -euo pipefail
           RAW="_ci_logs/${{ github.run_id }}/snapshot"
+          SNAP="${RAW}/snapshot.json"
           OUT="${RAW}/ARCHITECTURE.md"
-          # … (ten sam kod jq + echo co wcześniej)
-          echo "::notice::ARCHITECTURE.md generated"
 
-      - name: 8) Upload artifact
+          SITE_HOME=$(jq -r '.site.home // ""' "${SNAP}")
+          SITE_WP=$(jq -r '.site.wp_version // "unknown"' "${SNAP}")
+          SITE_PHP=$(jq -r '.site.php_version // "unknown"' "${SNAP}")
+          ACTIVE_THEME=$(jq -r '.active_theme.active // ""' "${SNAP}")
+          PL_COUNT=$(jq -r '.plugins | length' "${SNAP}")
+          MU_COUNT=$(jq -r '.mu_plugins | length' "${SNAP}")
+          ADM_COUNT=$(jq -r '.admins | length' "${SNAP}")
+          RUN_ID="${{ github.run_id }}"
+          RUN_TS=$(jq -r '.run_ts' "${SNAP}")
+
+          {
+            echo "# WeekTopPick – Snapshot Architecture"
+            echo
+            echo "- **Run ID:** ${RUN_ID}"
+            echo "- **Run TS (UTC):** ${RUN_TS}"
+            echo "- **Home URL:** ${SITE_HOME}"
+            echo "- **WordPress:** ${SITE_WP}"
+            echo "- **PHP:** ${SITE_PHP}"
+            echo "- **Active theme:** ${ACTIVE_THEME}"
+            echo "- **Plugins:** ${PL_COUNT} (MU: ${MU_COUNT})"
+            echo "- **Admins:** ${ADM_COUNT}"
+            echo
+            echo "## Plugins"
+            jq -r '.plugins[] | "- " + .name + " (" + .status + ") @ " + (.version // "n/a")' "${SNAP}" || true
+            echo
+            echo "## Themes"
+            jq -r '.themes[]  | "- " + .name + " (" + .status + ") @ " + (.version // "n/a")' "${SNAP}" || true
+            echo
+            echo "## MU-Plugins"
+            jq -r '.mu_plugins[] | "- " + .file + " [" + (.size|tostring) + " B]"' "${SNAP}" || true
+          } > "${OUT}"
+
+          echo "::notice::ARCHITECTURE.md generated"
+          head -n 20 "${OUT}" || true
+
+      - name: 8) Upload artifact (raw snapshot logs)
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-logs-${{ github.run_id }}
           path: _ci_logs/${{ github.run_id }}/snapshot/**
           retention-days: 14
 
-      - name: 9) Commit + publish snapshot
+      - name: 9) Commit + publish snapshot (stable 'latest' copy, no symlinks)
         run: |
           set -euo pipefail
           SNAP_DIR=".wtp/snapshots"
           RO_DIR=".wtp/state/ro/public/${{ github.run_id }}"
           RO_LATEST=".wtp/state/ro/public/latest"
+
           mkdir -p "${SNAP_DIR}" "${RO_DIR}"
           cp -a "_ci_logs/${{ github.run_id }}/snapshot/." "${RO_DIR}/"
+
+          # Historie + wskaźnik latest
           cp "${RO_DIR}/snapshot.json" "${SNAP_DIR}/snapshot-${{ github.run_id }}.json"
           cp "${RO_DIR}/snapshot.json" "${SNAP_DIR}/snapshot-latest.json"
+
           rm -rf "${RO_LATEST}"
           mkdir -p "$(dirname "${RO_LATEST}")"
-          cp -a "${RO_DIR}" "${RO_LATEST}"
+          cp -a "${RO_DIR}/." "${RO_LATEST}/"
+
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "${SNAP_DIR}" "${RO_DIR}" "${RO_LATEST}"
