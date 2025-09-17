@@ -1,4 +1,4 @@
-name: 00_repo_inventory
+name: 00_workflows_dump
 
 on:
   workflow_dispatch: {}
@@ -7,100 +7,46 @@ permissions:
   contents: write
 
 jobs:
-  inventory:
+  dump:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Python (for YAML parsing)
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - name: Install deps
-        run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          pip install pyyaml
-
-      - name: Build inventory (filelist, workflows index) and archive
-        run: |
-          set -euo pipefail
-          mkdir -p _dump
-          # 1) Spisy
-          git ls-files -co --exclude-standard > _dump/filelist.txt
-          ls -laR > _dump/tree.txt
-          # 2) Indeks workflowów
-          python - << 'PY'
-          import os, glob, json, yaml
-          os.makedirs("_dump", exist_ok=True)
-          items=[]
-          for p in sorted(glob.glob(".github/workflows/*.yml")):
-              try:
-                  with open(p, "r", encoding="utf-8") as f:
-                      y = yaml.safe_load(f) or {}
-              except Exception as e:
-                  y = {"_parse_error": str(e)}
-              items.append({
-                  "file": os.path.basename(p),
-                  "name": y.get("name", os.path.basename(p)),
-                  "on": y.get("on"),
-                  "jobs": list((y.get("jobs") or {}).keys())
-              })
-          with open("_dump/workflows.json","w",encoding="utf-8") as f:
-              json.dump(items, f, ensure_ascii=False, indent=2)
-          with open("_dump/workflows.md","w",encoding="utf-8") as f:
-              f.write("# Workflows index\n\n")
-              for w in items:
-                  f.write(f"## {w['name']} ({w['file']})\n")
-                  f.write(f"- Triggers: `{w['on']}`\n")
-                  f.write(f"- Jobs: {', '.join(w['jobs']) if w['jobs'] else '-'}\n\n")
-          PY
-          # 3) Duże archiwum tylko jako artifact (NIE commitujemy)
-          tar --exclude='./.git' --exclude='./_dump' -czf _dump/repo-full.tar.gz .
-
-      - name: Upload artifact (inventory bundle)
-        uses: actions/upload-artifact@v4
-        with:
-          name: repo-inventory-${{ github.run_id }}
-          path: _dump/*
-          retention-days: 7
-
-      - name: Publish small indexes to repo (no large files)
+      - name: Collect workflows content
         run: |
           set -euo pipefail
           RUN_ID=${{ github.run_id }}
-          RO_DIR=".wtp/state/ro/public/${RUN_ID}"
-          RO_LATEST=".wtp/state/ro/public/latest"
+          OUT_DIR=".wtp/state/ro/public/${RUN_ID}/workflows"
+          LATEST=".wtp/state/ro/public/latest/workflows"
 
-          mkdir -p "${RO_DIR}"
-          # tylko lekkie pliki
-          cp -f _dump/filelist.txt   "${RO_DIR}/filelist.txt"
-          cp -f _dump/tree.txt       "${RO_DIR}/tree.txt"
-          cp -f _dump/workflows.json "${RO_DIR}/workflows.json"
-          cp -f _dump/workflows.md   "${RO_DIR}/workflows.md"
+          mkdir -p "${OUT_DIR}"
 
-          rm -rf "${RO_LATEST}"
-          mkdir -p "${RO_LATEST}"
-          cp -a "${RO_DIR}/." "${RO_LATEST}/"
+          for f in .github/workflows/*.{yml,yaml}; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f")
+            echo "[INFO] dumping $base"
+            cp "$f" "${OUT_DIR}/${base}"
+          done
+
+          # refresh latest
+          rm -rf "${LATEST}"
+          mkdir -p "${LATEST}"
+          cp -a "${OUT_DIR}/." "${LATEST}/"
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${RO_DIR}" "${RO_LATEST}"
+          git add "${OUT_DIR}" "${LATEST}"
           if git diff --staged --quiet; then
             echo "::notice::Nothing to commit."
           else
-            git commit -m "repo inventory (indexes only) ${RUN_ID}"
+            git commit -m "dump workflows content run ${RUN_ID}"
             git push
           fi
 
-      - name: Print quick summary to logs
-        run: |
-          set -euo pipefail
-          echo "::group::Workflows summary"
-          sed -n '1,200p' _dump/workflows.md || true
-          echo "::endgroup::"
-          echo "::group::Filelist (first 300)"
-          sed -n '1,300p' _dump/filelist.txt || true
-          echo "::endgroup::"
+      - name: Upload artifact (optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: workflows-dump-${{ github.run_id }}
+          path: .wtp/state/ro/public/${{ github.run_id }}/workflows/*
+          retention-days: 7
