@@ -13,80 +13,102 @@ concurrency:
 jobs:
   audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       RUN_ID: ${{ github.run_id }}
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Ensure input exists
+    steps:
+      - name: 1) Checkout
+        uses: actions/checkout@v4
+
+      - name: 2) Sanity – wejście istnieje?
         run: |
           set -euo pipefail
           IN=".wtp/state/ro/public/latest/repo/repo-snapshot.json"
-          test -f "$IN" || { echo "::error::Brak $IN (najpierw uruchom 03_repo_snapshot)"; exit 1; }
-          head -n 5 "$IN" || true
+          if [[ ! -f "$IN" ]]; then
+            echo "::error::Brak $IN (najpierw uruchom 03_repo_snapshot)"
+            exit 1
+          fi
+          head -n 3 "$IN" || true
 
-      - name: Build REPO_AUDIT.md from repo-snapshot.json
+      - name: 3) Zbuduj REPO_AUDIT.md z repo-snapshot.json
         run: |
           set -euo pipefail
           IN=".wtp/state/ro/public/latest/repo/repo-snapshot.json"
           OUT_DIR="_ci_logs/${RUN_ID}/repo_audit"
-          mkdir -p "$OUT_DIR"
+          OUT_FILE="${OUT_DIR}/REPO_AUDIT.md"
+          mkdir -p "${OUT_DIR}"
+
           python - << 'PY'
-          import json, os, re, pathlib, sys
-          IN  = ".wtp/state/ro/public/latest/repo/repo-snapshot.json"
-          OUT = pathlib.Path(os.environ["OUT_DIR"]) / "REPO_AUDIT.md"
-          data = json.load(open(IN, encoding="utf-8"))
+          import json, os, re
+          from pathlib import Path
+
+          RUN_ID = os.environ["RUN_ID"]
+          IN  = Path(".wtp/state/ro/public/latest/repo/repo-snapshot.json")
+          OUT = Path(f"_ci_logs/{RUN_ID}/repo_audit/REPO_AUDIT.md")
+
+          data  = json.load(IN.open(encoding="utf-8"))
           files = data.get("files", [])
+          counts= data.get("counts", {})
+          bycat = counts.get("by_category", {})
 
           def human(n):
-              for u in ["B","KB","MB","GB","TB"]:
-                  if n < 1024: return f"{n:.1f} {u}"
-                  n/=1024
-              return f"{n:.1f} PB"
+              n = float(n or 0)
+              units = ["B","KB","MB","GB","TB"]
+              i=0
+              while n>=1024 and i<len(units)-1:
+                  n/=1024; i+=1
+              return f"{n:.1f} {units[i]}"
 
-          # rozbicia
+          # grupy
           workflows = [f for f in files if f.get("category")=="workflow"]
-          mu = [f for f in files if f.get("path","").startswith("wp-content/mu-plugins/")]
-          plugins = [f for f in files if f.get("path","").startswith("wp-content/plugins/")]
-          themes  = [f for f in files if f.get("path","").startswith("wp-content/themes/")]
-          wtp     = [f for f in files if f.get("path","").startswith(".wtp/")]
-          docs    = [f for f in files if f.get("category")=="docs"]
-          config  = [f for f in files if f.get("category")=="config"]
-
-          # aktywne vs quarantine po ścieżce
-          active_wf     = [f for f in workflows if f["path"].startswith(".github/workflows/")]
-          quarantined_wf= [f for f in workflows if f["path"].startswith(".github/workflows._quarantine/")]
+          active_wf = [f for f in workflows if f["path"].startswith(".github/workflows/")]
+          quar_wf   = [f for f in workflows if f["path"].startswith(".github/workflows._quarantine/")]
+          mu        = [f for f in files if f["path"].startswith("wp-content/mu-plugins/")]
+          plugins   = [f for f in files if f["path"].startswith("wp-content/plugins/")]
+          themes    = [f for f in files if f["path"].startswith("wp-content/themes/")]
+          wtp       = [f for f in files if f["path"].startswith(".wtp/")]
 
           # duże pliki
           large = sorted([f for f in files if (f.get("size") or 0) > 10*1024*1024],
                          key=lambda x: x.get("size") or 0, reverse=True)[:50]
 
-          # top katalogi w .wtp
-          wtp_files = [f for f in wtp if f.get("size") is not None]
-          wtp_total = sum(f["size"] for f in wtp_files)
-          # szybkie bucketowanie
-          buckets = {}
-          for f in wtp_files:
-              p = f["path"]
-              key = p.split("/", 3)[:3]
-              key = "/".join(key) if len(key)>=3 else "/".join(p.split("/")[:2])
-              buckets.setdefault(key, 0)
-              buckets[key] += f["size"]
-          biggest_wtp = sorted(buckets.items(), key=lambda x:x[1], reverse=True)[:20]
+          # top poddrzewa w .wtp
+          from collections import defaultdict
+          buckets = defaultdict(int)
+          for f in wtp:
+              p = f["path"].split("/")
+              key = "/".join(p[:3]) if len(p)>=3 else "/".join(p[:2])
+              buckets[key]+= (f.get("size") or 0)
+          biggest = sorted(buckets.items(), key=lambda x:x[1], reverse=True)[:20]
 
-          # wynik
+          # rekomendacje wstępne
+          rec = []
+          rec.append("- Utrzymuj aktywne tylko 6 fundamentów w `.github/workflows/` (deploy/wpcli/snapshot + ai-upsert/apply-inbox-patch + gsc).")
+          rec.append("- Pozostałe workflowy trzymaj w `.github/workflows._quarantine/` i przywracaj pojedynczo po stabilizacji.")
+          rec.append("- Usuń lub zarchiwizuj duże pliki (>10MB), jeżeli nie muszą być w repo (limit GH 100MB).")
+          rec.append("- W `.wtp/` zostaw `latest/` i kilka ostatnich runów; starsze katalogi przenieś do artefaktów.")
+          rec.append("- MU-plugins: przejrzyj pod kątem martwych plików / dubli; trzymaj tylko realnie używane.")
+
+          # render
           L=[]
           L.append("# REPO AUDIT")
           L.append(f"- Run ID: {data.get('run_id')}")
           L.append(f"- Run TS (UTC): {data.get('run_ts')}")
           L.append("")
           L.append("## Podsumowanie")
-          L.append(f"- Plików łącznie: {data.get('counts',{}).get('files')}")
-          L.append(f"- Workflows: {len(workflows)} (aktywne: {len(active_wf)}, kwarantanna: {len(quarantined_wf)})")
-          L.append(f"- MU-plugins: {len(mu)} plików  • Plugins: {len(plugins)} • Themes: {len(themes)}")
-          L.append(f"- .wtp/: {len(wtp)} plików  • Docs: {len(docs)} • Config: {len(config)}")
+          L.append(f"- Plików łącznie: {counts.get('files')}")
+          if bycat:
+              L.append("- Kategorie:")
+              for k in sorted(bycat.keys()):
+                  v = bycat[k]
+                  L.append(f"  - **{k}**: {v['count']} plików, {human(v['size'])}")
           L.append("")
-          L.append("## Workflows (aktywny katalog)")
+          L.append(f"- Workflows: {len(workflows)} (aktywne: {len(active_wf)}, kwarantanna: {len(quar_wf)})")
+          L.append(f"- MU-plugins: {len(mu)} • Plugins: {len(plugins)} • Themes: {len(themes)} • .wtp plików: {len(wtp)}")
+          L.append("")
+
+          L.append("## Workflows – aktywne")
           if active_wf:
               L.append("| Plik | Rozmiar | Linijki |")
               L.append("|---|---:|---:|")
@@ -95,21 +117,18 @@ jobs:
           else:
               L.append("_brak_")
           L.append("")
-          L.append("## Workflows (kwarantanna)")
-          if quarantined_wf:
+
+          L.append("## Workflows – kwarantanna")
+          if quar_wf:
               L.append("| Plik | Rozmiar | Linijki |")
               L.append("|---|---:|---:|")
-              for f in sorted(quarantined_wf, key=lambda x:x["path"]):
+              for f in sorted(quar_wf, key=lambda x:x["path"]):
                   L.append(f"| {f['path']} | {human(f.get('size') or 0)} | {f.get('lines') or ''} |")
           else:
               L.append("_brak_")
           L.append("")
-          L.append("## MU-plugins / Plugins / Themes (liczby plików)")
-          L.append(f"- MU-plugins: {len(mu)} plików")
-          L.append(f"- Plugins: {len(plugins)} plików")
-          L.append(f"- Themes: {len(themes)} plików")
-          L.append("")
-          L.append("## Największe pliki (>10 MB)")
+
+          L.append("## Największe pliki (>10MB)")
           if large:
               L.append("| Plik | Rozmiar | Kategoria |")
               L.append("|---|---:|---|")
@@ -118,40 +137,47 @@ jobs:
           else:
               L.append("_brak_")
           L.append("")
-          L.append("## .wtp/ – największe poddrzewa")
-          if biggest_wtp:
+
+          L.append("## .wtp – największe poddrzewa")
+          if biggest:
               L.append("| Poddrzewo | Rozmiar |")
               L.append("|---|---:|")
-              for k, sz in biggest_wtp:
+              for k, sz in biggest:
                   L.append(f"| {k} | {human(sz)} |")
           else:
               L.append("_brak_")
           L.append("")
-          L.append("## Rekomendacje (starter)")
-          L.append("- Utrzymuj aktywne tylko 6 fundamentów w `.github/workflows/`; reszta w `_quarantine/`.")
-          L.append("- Sprawdź duże pliki (>10MB) — czy na pewno muszą być w repo (limit GH 100MB).")
-          L.append("- W `.wtp/` trzymaj tylko najnowsze `latest/` + kilka ostatnich runów; stare zarchiwizuj jako artefakty.")
-          L.append("- MU-plugins: zweryfikuj, czy każdy plik jest używany (puste stuby do usunięcia).")
-          OUT.write_text("\n".join(L)+"\n", encoding="utf-8")
+
+          L.append("## Rekomendacje")
+          for r in rec:
+              L.append(f"- {r}")
+
+          OUT.write_text("\n".join(L) + "\n", encoding="utf-8")
+          print(f"[INFO] Wygenerowano {OUT}")
           PY
 
-      - name: Publish REPO_AUDIT.md to latest/repo/
+      - name: 4) Opublikuj REPO_AUDIT.md do latest/repo/
         run: |
           set -euo pipefail
-          RUN_ID="${RUN_ID}"
           SRC="_ci_logs/${RUN_ID}/repo_audit/REPO_AUDIT.md"
           test -f "$SRC" || { echo "::error::Nie wygenerowano REPO_AUDIT.md"; exit 1; }
-          RO_DIR=".wtp/state/ro/public/${RUN_ID}/repo"
+          RO_RUN=".wtp/state/ro/public/${RUN_ID}/repo"
           RO_LATEST=".wtp/state/ro/public/latest/repo"
-          mkdir -p "${RO_DIR}" "${RO_LATEST}"
-          cp -f "$SRC" "${RO_DIR}/REPO_AUDIT.md"
+          mkdir -p "${RO_RUN}" "${RO_LATEST}"
+          cp -f "$SRC" "${RO_RUN}/REPO_AUDIT.md"
           cp -f "$SRC" "${RO_LATEST}/REPO_AUDIT.md"
+
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${RO_DIR}/REPO_AUDIT.md" "${RO_LATEST}/REPO_AUDIT.md"
-          if git diff --staged --quiet; then echo "::notice::Nothing to commit."; else git commit -m "Publish REPO_AUDIT.md ${RUN_ID}" && git push; fi
+          git add "${RO_RUN}/REPO_AUDIT.md" "${RO_LATEST}/REPO_AUDIT.md"
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."
+          else
+            git commit -m "Publish REPO_AUDIT.md ${RUN_ID}"
+            git push
+          fi
 
-      - name: Upload artifact
+      - name: 5) Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: repo-audit-${{ github.run_id }}
