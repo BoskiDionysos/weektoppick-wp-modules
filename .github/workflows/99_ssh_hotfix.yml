@@ -1,9 +1,10 @@
-name: 98_ssh_purge_fatal
+# .github/workflows/98_fix_headers.yml
+name: 98_fix_headers (purge + HTTP opcache reset)
 on: { workflow_dispatch: {} }
 permissions: { contents: read }
 
 jobs:
-  purge:
+  fix:
     runs-on: ubuntu-latest
     env:
       HOST:   ${{ secrets.DEPLOY_HOST }}
@@ -12,71 +13,61 @@ jobs:
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
     steps:
-      - name: Purge any wtp-fatal-catcher + enforce clean MU loader (all roots)
+      - name: Purge wtp-fatal-catcher + create once HTTP opcache reset
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.HOST }}
+          port: ${{ env.PORT }}
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
-          port: ${{ env.PORT }}
           envs: TARGET
-          script_stop: false
           command_timeout: 5m
           script: |
-            set -uo pipefail
+            set -euo pipefail
 
-            # Zbierz możliwe rooty WP
-            ROOTS=()
-            if [ -n "${TARGET:-}" ]; then ROOTS+=("${TARGET}"); fi
-            if [ -d "${HOME}/public_html" ]; then ROOTS+=("${HOME}/public_html"); fi
-            # unikalizacja
-            uniq() { awk '!x[$0]++'; }
-            mapfile -t ROOTS < <(printf "%s\n" "${ROOTS[@]}" | uniq)
+            # 1) Wejście do WP
+            if [ -n "${TARGET:-}" ]; then cd "${TARGET}"; else cd "${HOME}/public_html"; fi
+            echo "[PWD] $(pwd)"
 
-            echo "== ROOTS =="
-            printf ' - %s\n' "${ROOTS[@]}"
+            echo "[BEFORE] mu-plugins:"
+            ls -la wp-content/mu-plugins | head -n 200 || true
 
-            for R in "${ROOTS[@]}"; do
-              echo "---- scanning: ${R} ----"
-              cd "${R}" 2>/dev/null || { echo "[WARN] cannot cd ${R}"; continue; }
+            # 2) Usuń KAŻDY wtp-fatal-catcher.php
+            find . -type f -name 'wtp-fatal-catcher.php' -print -delete 2>/dev/null || true
+            find wp-content/mu-plugins -maxdepth 1 -type f -name '*fatal*catcher*.php*' -print -delete 2>/dev/null || true
 
-              # pokaż co jest w MU
-              echo "[BEFORE] mu-plugins listing:"
-              ls -la wp-content/mu-plugins | head -n 200 || true
+            # 3) Sterylny 00-mu-safe-loader.php (zero outputu)
+            cat > wp-content/mu-plugins/00-mu-safe-loader.php <<'PHP'
+            <?php
+            if (!defined('ABSPATH')) { exit; }
+            add_action('muplugins_loaded', static function () {
+                // no output
+            }, 0);
+            PHP
+            chmod 0644 wp-content/mu-plugins/00-mu-safe-loader.php || true
 
-              # 1) usuń KAŻDY wtp-fatal-catcher.php gdziekolwiek
-              echo "[ACTION] finding wtp-fatal-catcher.php"
-              find . -type f -name 'wtp-fatal-catcher.php' -print -delete 2>/dev/null || true
+            echo "[AFTER] mu-plugins:"
+            ls -la wp-content/mu-plugins | head -n 200 || true
 
-              # 2) jeszcze raz, ale gdyby były śmieciowe rozszerzenia
-              find . -type f -path './wp-content/mu-plugins/*' -name '*fatal*catcher*.php*' -print -delete 2>/dev/null || true
+            # 4) Zbuduj jednorazowy plik HTTP do resetu OPcache (hit przez CURL)
+            cat > wtp-reset-opcache.php <<'PHP'
+            <?php
+            if (function_exists('opcache_reset')) { opcache_reset(); }
+            header('Content-Type: text/plain; charset=utf-8');
+            echo "OPCACHE_RESET_OK\n";
+            @unlink(__FILE__); // samosprzątanie
+            PHP
+            chmod 0644 wtp-reset-opcache.php || true
 
-              # 3) sterylny 00-mu-safe-loader.php (zero outputu)
-              cat > wp-content/mu-plugins/00-mu-safe-loader.php <<'PHP'
-              <?php
-              if (!defined('ABSPATH')) { exit; }
-              add_action('muplugins_loaded', static function () {
-                  // no output
-              }, 0);
-              PHP
-              chmod 0644 wp-content/mu-plugins/00-mu-safe-loader.php || true
-
-              # 4) pokaż po
-              echo "[AFTER] mu-plugins listing:"
-              ls -la wp-content/mu-plugins | head -n 200 || true
-            done
-
-            # 5) OPcache reset (jeśli się da). Brak PHP nie zrywa joba.
-            if command -v php >/dev/null 2>&1; then
-              php -r 'if(function_exists("opcache_reset")){opcache_reset();echo "OPCACHE_RESET_OK\n";}else{echo "NO_OPCACHE\n";}'
+            # 5) Ustal URL strony i odpal HTTP reset
+            SITE="$(php ./wp option get siteurl 2>/dev/null || true)"
+            echo "[SITE] $SITE"
+            if [ -n "$SITE" ]; then
+              curl -fsSL "$SITE/wtp-reset-opcache.php" || true
             else
-              echo "[WARN] php not found in PATH (skip opcache reset)"
+              echo "[WARN] Nie ustaliłem siteurl – reset pozostanie pod plikiem, wejdź ręcznie: /wtp-reset-opcache.php"
             fi
 
-            # 6) Dodatkowa diagnostyka: czy gdzieś jeszcze jest ten plik?
-            for R in "${ROOTS[@]}"; do
-              echo "[SCAN] residual files under ${R}:"
-              find "${R}" -type f -name 'wtp-fatal-catcher.php' -print 2>/dev/null || true
-            done
-
-            exit 0
+            # 6) Diagnostyka: czy gdzieś jeszcze jest catcher (poza .wtp/snapshot)?
+            echo "[SCAN] residual:"
+            find . -type f -name 'wtp-fatal-catcher.php' -not -path './.wtp/*' -print 2>/dev/null || true
