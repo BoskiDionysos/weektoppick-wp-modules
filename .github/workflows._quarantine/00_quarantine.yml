@@ -29,7 +29,7 @@ jobs:
               echo "[KEEP] $base"
             else
               echo "[QUARANTINE] $base"
-              git mv "$f" "${QUARANTINE_DIR}/$base"
+              git mv -f "$f" "${QUARANTINE_DIR}/$base"
             fi
           done
 
