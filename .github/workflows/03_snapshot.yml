@@ -1,4 +1,4 @@
-name: 03_snapshot (WordPress → SSOT, full state)
+name: 03_snapshot (WP → SSOT, full state + code analysis, safe JSON)
 
 on:
   workflow_run:
@@ -19,9 +19,8 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
-      WTP_CI: "1"
       HOST:   ${{ secrets.DEPLOY_HOST }}
       PORT:   ${{ secrets.DEPLOY_PORT }}
       USER:   ${{ secrets.DEPLOY_USER }}
@@ -29,232 +28,327 @@ jobs:
       TARGET: ${{ secrets.DEPLOY_TARGET }}
 
     steps:
-      - name: 1) Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: 2) Setup tools + known_hosts
-        shell: bash
+      - name: Tooling + network sanity + known_hosts (STRICT)
         run: |
           set -euo pipefail
           for v in HOST PORT USER PASS TARGET; do
-            [ -n "${!v:-}" ] || { echo "::error::Missing $v"; exit 1; }
+            [ -n "${!v:-}" ] || { echo "::error::Missing secret/env: $v"; exit 1; }
           done
           sudo apt-get update -y
           sudo apt-get install -y curl sshpass jq
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts || true
+
+          echo "::group::Network sanity"
+          echo "Host=$HOST  Port=$PORT"
+          getent hosts "$HOST" || echo "::warning::DNS resolve failed for $HOST"
+          (timeout 5 bash -c "cat < /dev/null > /dev/tcp/$HOST/$PORT") \
+            && echo "TCP reachable" || { echo "::error::$HOST:$PORT not reachable"; exit 1; }
+          echo "::endgroup::"
+
+          if ! ssh-keyscan -T 10 -p "$PORT" "$HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+            echo "::error::ssh-keyscan failed ($HOST:$PORT)"; exit 1;
+          fi
           chmod 644 ~/.ssh/known_hosts
           echo "::add-mask::$HOST"
           echo "::add-mask::$USER"
 
-      - name: 3) SSH sanity (non-fatal)
-        shell: bash
-        continue-on-error: true
+      - name: SSH sanity (whoami/pwd/wp-config)
         run: |
           set -euo pipefail
           echo "::group::SSH sanity"
           sshpass -p "$PASS" ssh -p "$PORT" \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
             "$USER@$HOST" "bash -lc '
               echo user: \$(whoami)
               echo host: \$(hostname)
-              cd \"$TARGET\" || { echo \"ERR: cannot cd TARGET\"; exit 2; }
-              test -f wp-config.php && echo OK:wp-config || { echo ERR:no-wp-config; exit 3; }
-              pwd; ls -la | head -n 20
+              cd \"${TARGET}\" || { echo \"ERR: cannot cd TARGET=${TARGET}\"; exit 3; }
+              pwd
+              test -f wp-config.php && echo OK:wp-config || { echo ERR:no-wp-config; exit 4; }
+              ls -la | head -n 20
             '"
           echo "::endgroup::"
 
-      - name: 4) Prepare local dirs
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "_ci_logs/${{ github.run_id }}/snapshot"
-
-      - name: 5) Upload remote raw snapshot script
-        shell: bash
+      - name: Upload remote scripts (snapshot + analyzer)
         run: |
           set -euo pipefail
 
+          # --- PHP analyzer (static scan) ---
+          cat > /tmp/wtp_analyze.php <<'PHPAN'
+          <?php
+          if ($argc < 4) { fwrite(STDERR,"usage: php analyze <base> <type> <out>\n"); exit(1); }
+          $base=rtrim($argv[1],"/"); $type=$argv[2]; $out=$argv[3];
+
+          function scan($d){ $r=[]; if(!is_dir($d)) return $r;
+            $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($d,FilesystemIterator::SKIP_DOTS));
+            foreach($it as $fi){ if($fi->isFile()){
+              $ext=strtolower(pathinfo($fi->getFilename(),PATHINFO_EXTENSION));
+              if(in_array($ext,["php","phtml","phps"])) $r[]=$fi->getPathname();
+            }} return $r;
+          }
+          function uniqpush(&$arr,$k,$v){ if(!isset($arr[$k])) $arr[$k]=1; else return; }
+
+          function analyzeFiles($files){
+            $res=['actions'=>[],'filters'=>[],'shortcodes'=>[],'rest'=>[],'cpt'=>[],'tax'=>[],'enqueues'=>[],'options'=>[],'transients'=>[],'crons'=>[],'defines'=>[],'files'=>0];
+            $seen=['a'=>[],'f'=>[],'sc'=>[],'r'=>[],'cpt'=>[],'tax'=>[],'enq'=>[],'opt'=>[],'tr'=>[],'cr'=>[],'df'=>[]];
+            foreach($files as $f){ $code=@file_get_contents($f); if($code===false) continue;
+              if(preg_match_all('/\badd_action\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*([^)]+)\)/i',$code,$m,PREG_SET_ORDER))
+                foreach($m as $mm){ $k=$mm[1].'|'.trim($mm[2]); if(!isset($seen['a'][$k])){$res['actions'][]=['hook'=>$mm[1],'cb'=>trim($mm[2])];$seen['a'][$k]=1;} }
+              if(preg_match_all('/\badd_filter\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*([^)]+)\)/i',$code,$m,PREG_SET_ORDER))
+                foreach($m as $mm){ $k=$mm[1].'|'.trim($mm[2]); if(!isset($seen['f'][$k])){$res['filters'][]=['hook'=>$mm[1],'cb'=>trim($mm[2])];$seen['f'][$k]=1;} }
+              if(preg_match_all('/\badd_shortcode\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,/i',$code,$m))
+                foreach($m[1] as $sc){ if(!isset($seen['sc'][$sc])){$res['shortcodes'][]=$sc;$seen['sc'][$sc]=1;} }
+              if(preg_match_all('/\bregister_rest_route\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*[\'"]([^\'"]+)[\'"]/i',$code,$m,PREG_SET_ORDER))
+                foreach($m as $mm){ $k=$mm[1].$mm[2]; if(!isset($seen['r'][$k])){$res['rest'][]=['namespace'=>$mm[1],'route'=>$mm[2]];$seen['r'][$k]=1;} }
+              if(preg_match_all('/\bregister_post_type\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,/i',$code,$m))
+                foreach($m[1] as $x){ if(!isset($seen['cpt'][$x])){$res['cpt'][]=$x;$seen['cpt'][$x]=1;} }
+              if(preg_match_all('/\bregister_taxonomy\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,/i',$code,$m))
+                foreach($m[1] as $x){ if(!isset($seen['tax'][$x])){$res['tax'][]=$x;$seen['tax'][$x]=1;} }
+              if(preg_match_all('/\bwp_enqueue_script\s*\(\s*[\'"]([^\'"]+)[\'"]/', $code,$m))
+                foreach($m[1] as $h){ $k='s|'.$h; if(!isset($seen['enq'][$k])){$res['enqueues'][]=['type'=>'script','handle'=>$h];$seen['enq'][$k]=1;} }
+              if(preg_match_all('/\bwp_enqueue_style\s*\(\s*[\'"]([^\'"]+)[\'"]/', $code,$m))
+                foreach($m[1] as $h){ $k='c|'.$h; if(!isset($seen['enq'][$k])){$res['enqueues'][]=['type'=>'style','handle'=>$h];$seen['enq'][$k]=1;} }
+              if(preg_match_all('/\b(get_option|update_option|add_option|delete_option)\s*\(\s*[\'"]([^\'"]+)[\'"]/', $code,$m,PREG_SET_ORDER))
+                foreach($m as $mm){ $o=$mm[2]; if(!isset($seen['opt'][$o])){$res['options'][]=$o;$seen['opt'][$o]=1;} }
+              if(preg_match_all('/\b(set_transient|get_transient|delete_transient)\s*\(\s*[\'"]([^\'"]+)[\'"]/', $code,$m,PREG_SET_ORDER))
+                foreach($m as $mm){ $t=$mm[2]; if(!isset($seen['tr'][$t])){$res['transients'][]=$t;$seen['tr'][$t]=1;} }
+              if(preg_match_all('/\bwp_schedule_event\s*\(\s*[^,]+,\s*[\'"]([^\'"]+)[\'"]\s*,\s*[\'"]?([^,\'")]+)/i',$code,$m,PREG_SET_ORDER))
+                foreach($m as $mm){ $k=$mm[2].'|'.$mm[1]; if(!isset($seen['cr'][$k])){$res['crons'][]=['event'=>$mm[2],'schedule'=>$mm[1]];$seen['cr'][$k]=1;} }
+              if(preg_match_all('/\bdefine\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,/i',$code,$m))
+                foreach($m[1] as $d){ if(!isset($seen['df'][$d])){$res['defines'][]=$d;$seen['df'][$d]=1;} }
+            }
+            $res['files']=count($files); return $res;
+          }
+          function analyze($base,$type){
+            if($type==='theme'){ $res=analyzeFiles(scan($base)); $res['present']=is_dir($base); return $res; }
+            if($type==='plugins'){ $o=[]; if(!is_dir($base)) return $o;
+              $slugs=array_values(array_filter(scandir($base),fn($e)=>$e!=='.'&&$e!=='..')); sort($slugs,SORT_NATURAL);
+              foreach($slugs as $s){ $p="$base/$s"; if(!is_dir($p)) continue; $o[$s]=analyzeFiles(scan($p)); $o[$s]['present']=true; }
+              return $o;
+            }
+            if($type==='mu'){ $o=[]; if(!is_dir($base)) return $o;
+              $items=array_values(array_filter(scandir($base),fn($e)=>$e!=='.'&&$e!=='..')); sort($items,SORT_NATURAL);
+              foreach($items as $it){ $p="$base/$it"; $files=is_dir($p)?scan($p):(preg_match('/\.php([s])?$/i',$it)?[$p]:[]); $o[$it]=analyzeFiles($files); $o[$it]['present']=file_exists($p); if(preg_match('/\.off$/i',$it)) $o[$it]['off']=true; }
+              return $o;
+            }
+            return [];
+          }
+          $data=analyze($base,$type);
+          file_put_contents($out,json_encode($data,JSON_UNESCAPED_SLASHES));
+          PHPAN
+
+          # --- Remote snapshot (only RAW into .wtp/state/ci_logs/snapshot) ---
           cat > /tmp/wtp_snapshot_raw.sh <<'SNAP'
           #!/usr/bin/env bash
           set -euo pipefail
           : "${TARGET:?TARGET required}"
           : "${RUN_ID:?RUN_ID required}"
+
           RAWDIR="${TARGET}/.wtp/state/ci_logs/snapshot"
           mkdir -p "${RAWDIR}"
-          ERR="${RAWDIR}/errors.txt"
-          : > "$ERR"
-          note(){ echo "$1" | tee -a "$ERR" 1>&2 || true; }
+          ERR="${RAWDIR}/errors.txt"; : > "$ERR"
+          note(){ echo "$*" | tee -a "$ERR" >/dev/null || true; }
 
-          cd "$TARGET" || { note "cannot cd TARGET"; exit 1; }
-          wp(){ php ./wp "$@" --path="$TARGET"; }
+          cd "${TARGET}" || { note "Cannot cd TARGET"; exit 1; }
+          wp(){ php ./wp "$@" --path="${TARGET}"; }
 
-          # site/core
+          # Site/Core
           SITE_URL="$(wp option get siteurl 2>/dev/null || true)"
           SITE_HOME="$(wp option get home 2>/dev/null || true)"
           WP_VER="$(wp core version 2>/dev/null || true)"
-          PHP_VER="$(php -r 'echo PHP_VERSION;' 2>/dev/null || true)"
-          TABLE_PREFIX="$(grep -E "^\s*\\\$table_prefix\s*=" wp-config.php 2>/dev/null | sed -E "s/.*['\"]([^'\"]+)['\"].*/\1/" | head -n1 || echo wp_)"
+          PHPV="$(php -r 'echo PHP_VERSION;' 2>/dev/null || true)"
+          TABLE_PREFIX="$(grep -E "^\s*\\\$table_prefix\s*=" "wp-config.php" 2>/dev/null | sed -E "s/.*['\"]([^'\"]+)['\"].*/\1/" | head -n1 || echo "wp_")"
           WPLANG="$(wp option get WPLANG 2>/dev/null || true)"
-          TZ_STR="$(wp option get timezone_string 2>/dev/null || true)"
-          if [[ -z "${TZ_STR}" || "${TZ_STR}" == "false" ]]; then TZ_STR="$(wp option get gmt_offset 2>/dev/null || true)"; fi
+          TZ_STR="$(wp option get timezone_string 2>/dev/null || true)"; [ -z "$TZ_STR" ] && TZ_STR="$(wp option get gmt_offset 2>/dev/null || true)"
           {
-            echo "url=${SITE_URL}"
-            echo "home=${SITE_HOME}"
-            echo "wp_version=${WP_VER}"
-            echo "table_prefix=${TABLE_PREFIX}"
-            echo "language=${WPLANG}"
-            echo "timezone=${TZ_STR}"
-            echo "php_version=${PHP_VER}"
-          } > "${RAWDIR}/site_info.env"
+            echo "url=$SITE_URL"; echo "home=$SITE_HOME"; echo "wp_version=$WP_VER"
+            echo "table_prefix=$TABLE_PREFIX"; echo "language=$WPLANG"; echo "timezone=$TZ_STR"; echo "php_version=$PHPV"
+          } > "${RAWDIR}/site_info.env" || true
+          { echo "user: $(whoami)"; echo "uname: $(uname -a)"; echo "datetime: $(date -Is)"; echo "cwd: $(pwd)"; } > "${RAWDIR}/server_info.txt" || true
 
-          # themes
+          # Themes/plugins/mu lists (fail-safe JSON)
           wp theme list --format=json > "${RAWDIR}/themes.json" 2>>"$ERR" || echo "[]" > "${RAWDIR}/themes.json"
           ACTIVE_THEME="$(wp theme list --status=active --field=name 2>/dev/null | head -n1 || true)"
           printf "%s\n" "$ACTIVE_THEME" > "${RAWDIR}/theme_active_slug.txt" || true
 
-          THEMES_DIR="${TARGET}/wp-content/themes"
-          mkdir -p "${RAWDIR}/themes"
-          : > "${RAWDIR}/themes_trees.tsv"
-          if [[ -d "$THEMES_DIR" ]]; then
-            find "$THEMES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > "${RAWDIR}/themes_slugs.txt" || true
-            while read -r t; do
-              [[ -z "$t" ]] && continue
-              tdir="$THEMES_DIR/$t"; out="${RAWDIR}/themes/$t"; mkdir -p "$out"
-              (cd "$tdir" && find . -type f -printf '%P\n' | sort) > "$out/tree.txt" 2>>"$ERR" || true
-              (cd "$tdir" && find . -type f -print0 | sort -z | xargs -0 sha1sum) > "$out/hashes.sha1" 2>>"$ERR" || true
-              cnt=$(wc -l < "$out/tree.txt" 2>/dev/null || echo 0)
-              gsha=""; [[ -s "$out/hashes.sha1" ]] && gsha="$(awk '{print $1}' "$out/hashes.sha1" | tr -d '\r' | sort | sha1sum | awk '{print $1}')"
-              printf "%s\t%s\t%s\n" "$t" "$cnt" "$gsha" >> "${RAWDIR}/themes_trees.tsv"
-            done < "${RAWDIR}/themes_slugs.txt"
-          else
-            : > "${RAWDIR}/themes_slugs.txt"
-          fi
-
-          # plugins (std)
           wp plugin list --format=json > "${RAWDIR}/plugins.json" 2>>"$ERR" || echo "[]" > "${RAWDIR}/plugins.json"
-          wp plugin list --format=csv  > "${RAWDIR}/plugins.csv"  2>>"$ERR" || : > "${RAWDIR}/plugins.csv"
-
-          PL_DIR="${TARGET}/wp-content/plugins"; mkdir -p "${RAWDIR}/plugins"
-          : > "${RAWDIR}/plugins_trees.tsv"
-          if [[ -d "$PL_DIR" ]]; then
-            find "$PL_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > "${RAWDIR}/plugins_dirs.txt" || true
-            while read -r p; do
-              [[ -z "$p" ]] && continue
-              pdir="$PL_DIR/$p"; out="${RAWDIR}/plugins/$p"; mkdir -p "$out"
-              (cd "$pdir" && find . -type f -printf '%P\n' | sort) > "$out/tree.txt" 2>>"$ERR" || true
-              (cd "$pdir" && find . -type f -print0 | sort -z | xargs -0 sha1sum) > "$out/hashes.sha1" 2>>"$ERR" || true
-              cnt=$(wc -l < "$out/tree.txt" 2>/dev/null || echo 0)
-              gsha=""; [[ -s "$out/hashes.sha1" ]] && gsha="$(awk '{print $1}' "$out/hashes.sha1" | tr -d '\r' | sort | sha1sum | awk '{print $1}')"
-              printf "%s\t%s\t%s\n" "$p" "$cnt" "$gsha" >> "${RAWDIR}/plugins_trees.tsv"
-            done < "${RAWDIR}/plugins_dirs.txt"
-          fi
-
-          # MU (w tym *.off)
           wp plugin list --status=must-use --format=json > "${RAWDIR}/mu_plugins.json" 2>>"$ERR" || echo "[]" > "${RAWDIR}/mu_plugins.json"
-          MU_DIR="${TARGET}/wp-content/mu-plugins"; mkdir -p "${RAWDIR}/mu-plugins"
-          : > "${RAWDIR}/mu_plugins_trees.tsv"
-          if [[ -d "$MU_DIR" ]]; then
-            ls -la "$MU_DIR" > "${RAWDIR}/mu_plugins_ls.txt" 2>>"$ERR" || true
-            : > "${RAWDIR}/mu_plugins_hashes.txt"
-            find "$MU_DIR" -type f -print0 2>/dev/null | while IFS= read -r -d '' f; do sha1sum "$f" >> "${RAWDIR}/mu_plugins_hashes.txt" 2>>"$ERR" || true; done
-            : > "${RAWDIR}/mu_plugins_items.txt"
-            find "$MU_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort >> "${RAWDIR}/mu_plugins_items.txt" || true
-            find "$MU_DIR" -maxdepth 1 -type f -printf '%f\n' | sort >> "${RAWDIR}/mu_plugins_items.txt" || true
-            while read -r it; do
-              [[ -z "$it" ]] && continue
-              out="${RAWDIR}/mu-plugins/$it"; mkdir -p "$out"
-              if [[ -d "$MU_DIR/$it" ]]; then
-                (cd "$MU_DIR/$it" && find . -type f -printf '%P\n' | sort) > "$out/tree.txt" 2>>"$ERR" || true
-                (cd "$MU_DIR/$it" && find . -type f -print0 | sort -z | xargs -0 sha1sum) > "$out/hashes.sha1" 2>>"$ERR" || true
-              else
-                echo "$it" > "$out/tree.txt"
-                sha1sum "$MU_DIR/$it" > "$out/hashes.sha1" 2>>"$ERR" || true
-              fi
-              cnt=$(wc -l < "$out/tree.txt" 2>/dev/null || echo 0)
-              gsha=""; [[ -s "$out/hashes.sha1" ]] && gsha="$(awk '{print $1}' "$out/hashes.sha1" | tr -d '\r' | sort | sha1sum | awk '{print $1}')"
-              printf "%s\t%s\t%s\n" "$it" "$cnt" "$gsha" >> "${RAWDIR}/mu_plugins_trees.tsv"
-            done < "${RAWDIR}/mu_plugins_items.txt"
-
-            : > "${RAWDIR}/mu_plugins_headers.txt"
-            find "$MU_DIR" -maxdepth 1 -type f -name "*.php*" -print0 2>/dev/null | while IFS= read -r -d '' fphp; do
-              { echo "=== $(basename "$fphp") ==="; head -n 80 "$fphp" | grep -E "^\s*(\*|//)?\s*(Plugin Name|Description|Version):" || true; echo; } >> "${RAWDIR}/mu_plugins_headers.txt"
-            done
-          else
-            echo "mu-plugins missing" > "${RAWDIR}/mu_plugins_ls.txt"
-          fi
-
-          # users/admins
+          wp plugin list --status=active --field=name --format=json > "${RAWDIR}/plugins_active.json" 2>>"$ERR" || echo "[]" > "${RAWDIR}/plugins_active.json"
           wp user list --role=administrator --field=user_login --format=json > "${RAWDIR}/admins.json" 2>>"$ERR" || echo "[]" > "${RAWDIR}/admins.json"
 
-          # ssot
-          if [[ -f ".wtp/ssot.yml" ]]; then
-            cp ".wtp/ssot.yml" "${RAWDIR}/ssot.yml" 2>>"$ERR" || true
-            sha1sum ".wtp/ssot.yml" | awk '{print $1}' > "${RAWDIR}/ssot.sha1" || true
-            (base64 -w0 ".wtp/ssot.yml" 2>/dev/null || base64 ".wtp/ssot.yml") | tr -d '\n' > "${RAWDIR}/ssot.b64" || true
+          # Directories hashes/trees (themes/plugins/mu)
+          THEMES_DIR="${TARGET}/wp-content/themes"; PLUG_DIR="${TARGET}/wp-content/plugins"; MU_DIR="${TARGET}/wp-content/mu-plugins"
+          mkdir -p "${RAWDIR}/themes" "${RAWDIR}/plugins" "${RAWDIR}/mu-plugins"
+
+          if [ -d "$THEMES_DIR" ]; then
+            find "$THEMES_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > "${RAWDIR}/themes_slugs.txt" || true
+            : > "${RAWDIR}/themes_trees.tsv"
+            while read -r t; do [ -n "$t" ] || continue; d="$THEMES_DIR/$t"; o="${RAWDIR}/themes/$t"; mkdir -p "$o"
+              (cd "$d" && find . -type f -printf '%P\n' | sort) > "$o/tree.txt" 2>>"$ERR" || true
+              (cd "$d" && find . -type f -print0 | sort -z | xargs -0 sha1sum) > "$o/hashes.sha1" 2>>"$ERR" || true
+              f=$(wc -l < "$o/tree.txt" 2>/dev/null || echo 0); g=""; [ -s "$o/hashes.sha1" ] && g="$(awk '{print $1}' "$o/hashes.sha1" | tr -d '\r' | sort | sha1sum | awk '{print $1}')"
+              printf "%s\t%s\t%s\n" "$t" "$f" "$g" >> "${RAWDIR}/themes_trees.tsv"
+            done < "${RAWDIR}/themes_slugs.txt"
+          else
+            : > "${RAWDIR}/themes_slugs.txt"; : > "${RAWDIR}/themes_trees.tsv"
+          fi
+
+          if [ -d "$PLUG_DIR" ]; then
+            find "$PLUG_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > "${RAWDIR}/plugins_dirs.txt" || true
+            : > "${RAWDIR}/plugins_trees.tsv"
+            while read -r p; do [ -n "$p" ] || continue; d="$PLUG_DIR/$p"; o="${RAWDIR}/plugins/$p"; mkdir -p "$o"
+              (cd "$d" && find . -type f -printf '%P\n' | sort) > "$o/tree.txt" 2>>"$ERR" || true
+              (cd "$d" && find . -type f -print0 | sort -z | xargs -0 sha1sum) > "$o/hashes.sha1" 2>>"$ERR" || true
+              f=$(wc -l < "$o/tree.txt" 2>/dev/null || echo 0); g=""; [ -s "$o/hashes.sha1" ] && g="$(awk '{print $1}' "$o/hashes.sha1" | tr -d '\r' | sort | sha1sum | awk '{print $1}')"
+              printf "%s\t%s\t%s\n" "$p" "$f" "$g" >> "${RAWDIR}/plugins_trees.tsv"
+            done < "${RAWDIR}/plugins_dirs.txt"
+          else
+            : > "${RAWDIR}/plugins_dirs.txt"; : > "${RAWDIR}/plugins_trees.tsv"
+          fi
+
+          if [ -d "$MU_DIR" ]; then
+            : > "${RAWDIR}/mu_plugins_items.txt"
+            find "$MU_DIR" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort >> "${RAWDIR}/mu_plugins_items.txt" || true
+            : > "${RAWDIR}/mu_plugins_trees.tsv"
+            while read -r it; do [ -n "$it" ] || continue; o="${RAWDIR}/mu-plugins/$it"; mkdir -p "$o"
+              if [ -d "$MU_DIR/$it" ]; then
+                (cd "$MU_DIR/$it" && find . -type f -printf '%P\n' | sort) > "$o/tree.txt" 2>>"$ERR" || true
+                (cd "$MU_DIR/$it" && find . -type f -print0 | sort -z | xargs -0 sha1sum) > "$o/hashes.sha1" 2>>"$ERR" || true
+              else
+                echo "$it" > "$o/tree.txt"; sha1sum "$MU_DIR/$it" > "$o/hashes.sha1" 2>>"$ERR" || true
+              fi
+              f=$(wc -l < "$o/tree.txt" 2>/dev/null || echo 0); g=""; [ -s "$o/hashes.sha1" ] && g="$(awk '{print $1}' "$o/hashes.sha1" | tr -d '\r' | sort | sha1sum | awk '{print $1}')"
+              printf "%s\t%s\t%s\n" "$it" "$f" "$g" >> "${RAWDIR}/mu_plugins_trees.tsv"
+            done < "${RAWDIR}/mu_plugins_items.txt"
+          else
+            : > "${RAWDIR}/mu_plugins_items.txt"; : > "${RAWDIR}/mu_plugins_trees.tsv"
+          fi
+
+          # SSOT + languages + tax + theme_mods + options like "charity%"
+          SSOT="${TARGET}/.wtp/ssot.yml"
+          if [ -f "$SSOT" ]; then
+            cp "$SSOT" "${RAWDIR}/ssot.yml" 2>>"$ERR" || true
+            sha1sum "$SSOT" | awk '{print $1}' > "${RAWDIR}/ssot.sha1" || true
+            (base64 -w0 "$SSOT" 2>/dev/null || base64 "$SSOT") | tr -d '\n' > "${RAWDIR}/ssot.b64" || true
           else
             : > "${RAWDIR}/ssot.yml"; : > "${RAWDIR}/ssot.sha1"; : > "${RAWDIR}/ssot.b64"
           fi
 
-          # server info
-          {
-            echo "user: $(whoami 2>/dev/null || true)"
-            echo "uname: $(uname -a 2>/dev/null || true)"
-            echo "datetime: $(date -Is 2>/dev/null || true)"
-            echo "cwd: $(pwd 2>/dev/null || true)"
-          } > "${RAWDIR}/server_info.txt" || true
+          wp language core list --format=json > "${RAWDIR}/languages_core.json" 2>>"$ERR" || echo "[]" > "${RAWDIR}/languages_core.json"
+          LANG_DIR="${TARGET}/wp-content/languages"; mkdir -p "${RAWDIR}/languages"
+          if [ -d "$LANG_DIR" ]; then
+            (cd "$LANG_DIR" && find . -type f -printf '%P\n' | sort) > "${RAWDIR}/languages/tree.txt" 2>>"$ERR" || true
+            (cd "$LANG_DIR" && find . -type f -print0 | sort -z | xargs -0 sha1sum) > "${RAWDIR}/languages/hashes.sha1" 2>>"$ERR" || true
+            f=$(wc -l < "${RAWDIR}/languages/tree.txt" 2>/dev/null || echo 0)
+            g=""; [ -s "${RAWDIR}/languages/hashes.sha1" ] && g="$(awk '{print $1}' "${RAWDIR}/languages/hashes.sha1" | tr -d '\r' | sort | sha1sum | awk '{print $1}')"
+            printf "%s\t%s\n" "$f" "$g" > "${RAWDIR}/languages/summary.tsv"
+          else
+            : > "${RAWDIR}/languages/tree.txt"; : > "${RAWDIR}/languages/hashes.sha1"; printf "0\t\n" > "${RAWDIR}/languages/summary.tsv"
+          fi
 
-          # active plugins
-          wp plugin list --status=active --field=name --format=json > "${RAWDIR}/plugins_active.json" 2>>"$ERR" || echo "[]" > "${RAWDIR}/plugins_active.json"
+          wp taxonomy list --format=json > "${RAWDIR}/taxonomies.json" 2>>"$ERR" || echo "[]" > "${RAWDIR}/taxonomies.json"
+          wp term list category --fields=term_id,slug,name,parent,count,term_taxonomy_id,taxonomy --format=json > "${RAWDIR}/taxonomy_category.json" 2>>"$ERR" || echo "[]" > "${RAWDIR}/taxonomy_category.json"
 
-          exit 0
+          if [ -n "$ACTIVE_THEME" ]; then
+            wp option get "theme_mods_${ACTIVE_THEME}" --format=json > "${RAWDIR}/theme_mods.json" 2>>"$ERR" || echo "{}" > "${RAWDIR}/theme_mods.json"
+          else
+            echo "{}" > "${RAWDIR}/theme_mods.json"
+          fi
+
+          wp option list --search=charity --fields=option_name --format=json > "${RAWDIR}/options_charity_names.json" 2>>"$ERR" || echo "[]" > "${RAWDIR}/options_charity_names.json"
+          php -r '
+            $raw=getenv("RAWDIR"); $target=getenv("TARGET");
+            $names=json_decode(@file_get_contents("$raw/options_charity_names.json"),true) ?: [];
+            $out=[];
+            foreach($names as $n){
+              $name = is_array($n) && isset($n["option_name"]) ? $n["option_name"] : (is_string($n)?$n:"");
+              if(!$name) continue;
+              $cmd="php ./wp option get ".escapeshellarg($name)." --path=".$target." 2>/dev/null";
+              $val=shell_exec($cmd); $out[$name]=trim((string)$val);
+            }
+            file_put_contents("$raw/options_charity.json", json_encode($out, JSON_UNESCAPED_SLASHES));
+          ' 2>>"$ERR" || echo "{}" > "${RAWDIR}/options_charity.json"
+
+          # Static code analysis (active theme + mu + plugins)
+          php /tmp/wtp_analyze.php "${TARGET}/wp-content/mu-plugins" "mu"      "${RAWDIR}/analysis_mu.json"      2>>"$ERR" || echo "{}" > "${RAWDIR}/analysis_mu.json"
+          php /tmp/wtp_analyze.php "${TARGET}/wp-content/plugins"    "plugins" "${RAWDIR}/analysis_plugins.json" 2>>"$ERR" || echo "{}" > "${RAWDIR}/analysis_plugins.json"
+          if [ -n "$ACTIVE_THEME" ] && [ -d "${TARGET}/wp-content/themes/${ACTIVE_THEME}" ]; then
+            php /tmp/wtp_analyze.php "${TARGET}/wp-content/themes/${ACTIVE_THEME}" "theme" "${RAWDIR}/analysis_theme.json" 2>>"$ERR" || echo "{}" > "${RAWDIR}/analysis_theme.json"
+          else
+            echo "{}" > "${RAWDIR}/analysis_theme.json"
+          fi
           SNAP
 
           chmod +x /tmp/wtp_snapshot_raw.sh
           sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=yes /tmp/wtp_snapshot_raw.sh "$USER@$HOST:/tmp/wtp_snapshot_raw.sh"
+          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=yes /tmp/wtp_analyze.php     "$USER@$HOST:/tmp/wtp_analyze.php"
 
-      - name: 6) Run remote raw snapshot
-        shell: bash
+      - name: Run remote snapshot
         run: |
           set -euo pipefail
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=yes "$USER@$HOST" \
-            "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' bash /tmp/wtp_snapshot_raw.sh && rm -f /tmp/wtp_snapshot_raw.sh"
+            "RUN_ID='${{ github.run_id }}' TARGET='${TARGET}' bash /tmp/wtp_snapshot_raw.sh && rm -f /tmp/wtp_snapshot_raw.sh /tmp/wtp_analyze.php"
 
-      - name: 7) Pull RAW back
-        shell: bash
+      - name: Pull RAW back to runner
         run: |
           set -euo pipefail
+          mkdir -p "_ci_logs/${{ github.run_id }}"
           sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=yes -r \
-            "$USER@$HOST:$TARGET/.wtp/state/ci_logs/snapshot" \
-            "_ci_logs/${{ github.run_id }}/" || true
+            "$USER@$HOST:${TARGET}/.wtp/state/ci_logs/snapshot" "_ci_logs/${{ github.run_id }}/" || true
           ls -la "_ci_logs/${{ github.run_id }}/snapshot" || true
 
-      - name: 8) Assemble snapshot.json (locally)
-        shell: bash
+      - name: Validate JSON files (auto-fix garbage)
         run: |
           set -euo pipefail
           RAW="_ci_logs/${{ github.run_id }}/snapshot"
-          SNAP="${RAW}/snapshot.json"
-          [ -d "$RAW" ] || { echo "::error::RAW dir missing"; exit 1; }
+          fix_json() {
+            f="$1"
+            if jq -e . "$f" >/dev/null 2>&1; then
+              return 0
+            fi
+            case "$f" in
+              *theme_mods.json|*options_charity.json|*analysis_theme.json) echo "{}" > "$f" ;;
+              *) echo "[]" > "$f" ;;
+            esac
+            echo "::warning::Repaired invalid JSON -> $f"
+          }
+          find "$RAW" -type f -name "*.json" -print0 | while IFS= read -r -d '' f; do fix_json "$f"; done
 
-          safe() { [ -f "$1" ] && cat "$1" || echo ""; }
-          j() { local f="$1" def="$2"; [ -s "$f" ] && cat "$f" || echo "$def"; }
+      - name: Assemble snapshot.json (safe `fromjson`)
+        run: |
+          set -euo pipefail
+          RAW="_ci_logs/${{ github.run_id }}/snapshot"
+          SNAP="$RAW/snapshot.json"
+
+          read_or() { [ -s "$1" ] && cat "$1" || printf '%s' "$2"; }
+
+          THEMES_ALL="$(read_or "$RAW/themes.json" '[]')"
+          PLUGINS_STD="$(read_or "$RAW/plugins.json" '[]')"
+          MU_PLUGINS="$(read_or "$RAW/mu_plugins.json" '[]')"
+          PLUGINS_ACTIVE="$(read_or "$RAW/plugins_active.json" '[]')"
+          ADMINS="$(read_or "$RAW/admins.json" '[]')"
+          LANG_CORE="$(read_or "$RAW/languages_core.json" '[]')"
+          TAX_CAT="$(read_or "$RAW/taxonomy_category.json" '[]')"
+          THEME_MODS="$(read_or "$RAW/theme_mods.json" '{}')"
+          OPT_CHARITY="$(read_or "$RAW/options_charity.json" '{}')"
+          MU_ANALYSIS="$(read_or "$RAW/analysis_mu.json" '{}')"
+          PLUGINS_ANALYSIS="$(read_or "$RAW/analysis_plugins.json" '{}')"
+          THEME_ANALYSIS="$(read_or "$RAW/analysis_theme.json" '{}')"
 
           declare -A SITE=()
-          if [ -f "${RAW}/site_info.env" ]; then
-            while IFS='=' read -r k v; do [ -n "${k:-}" ] && SITE["$k"]="$v"; done < "${RAW}/site_info.env"
-          fi
+          while IFS='=' read -r k v; do [ -n "${k:-}" ] && SITE["$k"]="$v"; done < "$RAW/site_info.env" || true
 
-          THEMES_ALL="$(j "${RAW}/themes.json" '[]')"
-          PLUGINS_STD="$(j "${RAW}/plugins.json" '[]')"
-          MU_PLUGINS="$(j "${RAW}/mu_plugins.json" '[]')"
-          PLUGINS_ACTIVE="$(j "${RAW}/plugins_active.json" '[]')"
-          ADMINS="$(j "${RAW}/admins.json" '[]')"
+          LANG_SUM="$(read_or "$RAW/languages/summary.tsv" '')"
+          LANG_FILES="$(printf '%s' "$LANG_SUM" | awk -F'\t' 'NR==1{print $1}')"
+          LANG_SHA="$(printf  '%s' "$LANG_SUM" | awk -F'\t' 'NR==1{print $2}')"
 
-          PLUG_TSV="$(safe "${RAW}/plugins_trees.tsv")"
-          MU_TSV="$(safe "${RAW}/mu_plugins_trees.tsv")"
-          ERRS="$(safe "${RAW}/errors.txt")"
-          ACTIVE_THEME="$(safe "${RAW}/theme_active_slug.txt")"
+          PLUG_TSV="$(read_or "$RAW/plugins_trees.tsv" '')"
+          MU_TSV="$(read_or "$RAW/mu_plugins_trees.tsv" '')"
+          ERRS_RAW="$(read_or "$RAW/errors.txt" '')"
+          ACTIVE_THEME="$(read_or "$RAW/theme_active_slug.txt" '')"
 
           jq -n \
             --arg run_id "${{ github.run_id }}" \
@@ -266,78 +360,102 @@ jobs:
             --arg language "${SITE[language]:-}" \
             --arg timezone "${SITE[timezone]:-}" \
             --arg php_version "${SITE[php_version]:-}" \
-            --arg themes_all "$THEMES_ALL" \
+            --arg themes_all_json "$THEMES_ALL" \
             --arg active_theme "$ACTIVE_THEME" \
-            --arg plugins_std "$PLUGINS_STD" \
-            --arg mu_plugins "$MU_PLUGINS" \
-            --arg plugins_active "$PLUGINS_ACTIVE" \
-            --arg admins "$ADMINS" \
-            --arg errs "$ERRS" \
+            --arg plugins_std_json "$PLUGINS_STD" \
+            --arg mu_plugins_json "$MU_PLUGINS" \
+            --arg plugins_active_json "$PLUGINS_ACTIVE" \
+            --arg admins_json "$ADMINS" \
+            --arg ssot_path ".wtp/ssot.yml" \
+            --arg ssot_sha1 "$(read_or "$RAW/ssot.sha1" '')" \
+            --arg ssot_b64  "$(read_or "$RAW/ssot.b64"  '')" \
+            --arg languages_core_json "$LANG_CORE" \
+            --arg lang_files "${LANG_FILES:-0}" \
+            --arg lang_sha   "${LANG_SHA:-}" \
+            --arg taxonomy_category_json "$TAX_CAT" \
+            --arg theme_mods_json "$THEME_MODS" \
+            --arg options_charity_json "$OPT_CHARITY" \
             --arg plug_tsv "$PLUG_TSV" \
             --arg mu_tsv "$MU_TSV" \
+            --arg errs_raw "$ERRS_RAW" \
+            --arg mu_analysis_json "$MU_ANALYSIS" \
+            --arg plugins_analysis_json "$PLUGINS_ANALYSIS" \
+            --arg theme_analysis_json "$THEME_ANALYSIS" \
             '
-              def lines(x): (x|split("\n")|map(select(length>0)));
-              def tsvmap(s):
-                (s|split("\n")|map(select(length>0))|map(split("\t"))|
-                 reduce .[] as $r ({}; . + { ($r[0]) : {files: (($r[1]//"0")|tonumber), sha1: ($r[2]//"") } }));
+              def tsv_to_map(tsv):
+                ( tsv | split("\n") | map(select(length>0)) | map(split("\t"))
+                  | reduce .[] as $r ({}; . + { ($r[0]) : {files: (($r[1]//"0")|tonumber), sha1: ($r[2]//"") } }) );
+
+              def lines($s): ($s | split("\n") | map(select(length>0)));
 
               {
-                run_id: ($run_id|tonumber),
-                timestamp: $timestamp,
-                site: {
-                  url:$url, home:$home, wp_version:$wp_version,
-                  table_prefix:$table_prefix, language:$language, timezone:$timezone, php_version:$php_version
+                run_id: ($run_id|tonumber), timestamp: $timestamp,
+                site: { url:$url, home:$home, wp_version:$wp_version, table_prefix:$table_prefix, language:$language, timezone:$timezone, php_version:$php_version },
+                server: {
+                  user: (""), uname: (""), datetime: (""), cwd: ("")
                 },
                 theme: {
                   active: (if ($active_theme|length)>0 then {stylesheet:$active_theme} else null end),
-                  all: ($themes_all|fromjson)
+                  all: ($themes_all_json|fromjson),
+                  mods: ($theme_mods_json|fromjson)
                 },
                 plugins: {
-                  standard: ($plugins_std|fromjson),
-                  must_use: ($mu_plugins|fromjson),
-                  trees: (tsvmap($plug_tsv)),
-                  mu_trees: (tsvmap($mu_tsv))
+                  standard: ($plugins_std_json|fromjson),
+                  must_use: ($mu_plugins_json|fromjson),
+                  trees: (tsv_to_map($plug_tsv)),
+                  mu_trees: (tsv_to_map($mu_tsv))
                 },
-                admins: ($admins|fromjson),
+                languages: {
+                  core: ($languages_core_json|fromjson),
+                  wp_content: { files: (($lang_files|tonumber)//0), sha1: $lang_sha }
+                },
+                content: { taxonomies: { category: ($taxonomy_category_json|fromjson) } },
+                admins: ($admins_json|fromjson),
                 summary: {
-                  plugins_active: ($plugins_active|fromjson),
+                  plugins_active: ($plugins_active_json|fromjson),
                   counts: {
-                    themes_total: (($themes_all|fromjson)|length),
-                    plugins_total: (($plugins_std|fromjson)|length),
-                    plugins_active: (($plugins_active|fromjson)|length),
-                    plugins_mu: (($mu_plugins|fromjson)|length),
-                    admins: (($admins|fromjson)|length)
+                    themes_total: (($themes_all_json|fromjson)|length),
+                    plugins_total: (($plugins_std_json|fromjson)|length),
+                    plugins_active: (($plugins_active_json|fromjson)|length),
+                    plugins_mu: (($mu_plugins_json|fromjson)|length),
+                    admins: (($admins_json|fromjson)|length)
                   },
-                  errors: lines($errs)
-                }
+                  errors: (lines($errs_raw))
+                },
+                options: { charity: ($options_charity_json|fromjson) },
+                architecture: {
+                  mu_plugins:  ($mu_analysis_json|fromjson),
+                  plugins:     ($plugins_analysis_json|fromjson),
+                  theme:       ($theme_analysis_json|fromjson)
+                },
+                wtp: { ssot_path:$ssot_path, ssot_sha1:$ssot_sha1, ssot_b64:$ssot_b64 }
               }
             ' > "$SNAP"
 
           echo "::notice::Built snapshot.json ($(wc -c < "$SNAP") bytes)"
 
-      - name: 9) Upload artifact (raw + snapshot)
+      - name: Upload artifact (raw snapshot)
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-logs-${{ github.run_id }}
           path: _ci_logs/${{ github.run_id }}/snapshot/**
           retention-days: 14
 
-      - name: 10) Publish snapshot + RO mirror
-        shell: bash
+      - name: Publish snapshot + RO mirror to repo
         run: |
           set -euo pipefail
-          SRC_DIR="_ci_logs/${{ github.run_id }}/snapshot"
-          SNAP_FILE="${SRC_DIR}/snapshot.json"
-          [ -s "$SNAP_FILE" ] || { echo "::error::No snapshot.json"; exit 1; }
+          SRC="_ci_logs/${{ github.run_id }}/snapshot"
+          SNAP="${SRC}/snapshot.json"
 
           SNAP_DIR=".wtp/snapshots"
           RO_DIR=".wtp/state/ro/public/${{ github.run_id }}"
           RO_LATEST=".wtp/state/ro/public/latest"
 
           mkdir -p "$SNAP_DIR" "$RO_DIR"
-          cp -a "$SRC_DIR/." "$RO_DIR/"
-          cp "$SNAP_FILE" "$SNAP_DIR/snapshot-${{ github.run_id }}.json"
-          cp "$SNAP_FILE" "$SNAP_DIR/snapshot-latest.json"
+          cp -a "$SRC/." "$RO_DIR/"
+
+          cp "$SNAP" "$SNAP_DIR/snapshot-${{ github.run_id }}.json"
+          cp "$SNAP" "$SNAP_DIR/snapshot-latest.json"
 
           rm -rf "$RO_LATEST"
           mkdir -p "$(dirname "$RO_LATEST")"
@@ -346,25 +464,22 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$SNAP_DIR/snapshot-${{ github.run_id }}.json" "$SNAP_DIR/snapshot-latest.json" "$RO_DIR" "$RO_LATEST"
-          if git diff --staged --quiet; then
-            echo "::notice::Nothing to commit."
-          else
-            git commit -m "Publish snapshot run ${{ github.run_id }} (raw+trees+mu)"
-            git push
-          fi
+          git diff --staged --quiet || git commit -m "Snapshot ${{ github.run_id }} (safe JSON + RO mirror)" 
+          git push || true
 
-      - name: 11) Summary (always)
+          echo "::notice::RO latest: /.wtp/state/ro/public/latest/snapshot.json"
+
+      - name: Report errors (if any)
         if: always()
-        shell: bash
         run: |
           set -euo pipefail
           ERR="_ci_logs/${{ github.run_id }}/snapshot/errors.txt"
-          if [[ -s "$ERR" ]]; then
+          if [ -s "$ERR" ]; then
             echo "::group::Snapshot errors"
             cat "$ERR" || true
             echo "::endgroup::"
             while IFS= read -r line; do
-              [[ -n "$line" ]] && echo "::warning::$line"
+              [ -n "$line" ] && echo "::warning::$line"
             done < "$ERR"
           fi
-          echo "::notice::03_snapshot completed (run ${{ github.run_id }})."
+          echo "::notice::03_snapshot finished (run ${{ github.run_id }})"
