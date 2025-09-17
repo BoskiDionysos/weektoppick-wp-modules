@@ -1,0 +1,271 @@
+name: 03_snapshot_full
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 0 * * 0"  # niedziela 00:00 UTC ~ 02:00 PL
+  workflow_run:
+    workflows: ["02_wpcli (install/update/activate from SSOT, secure SSH)"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: snapshot-full
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      RUN_ID: ${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y jq sshpass
+
+      - name: Remote collect (FULL)
+        id: remote
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          request_pty: true
+          envs: TARGET
+          script: |
+            set -euo pipefail
+            cd "${TARGET}" || exit 0
+            OUT="${TARGET}/.wtp/state/ci_logs/snapshot_full"
+            mkdir -p "${OUT}" "${OUT}/menus"
+
+            WP="$(command -v wp || true)"
+            php -r 'echo PHP_VERSION;' > "${OUT}/php_version.txt" 2>/dev/null || echo unknown > "${OUT}/php_version.txt"
+            if [ -n "$WP" ]; then
+              $WP core version 2>/dev/null > "${OUT}/wp_version.txt" || echo unknown > "${OUT}/wp_version.txt"
+              $WP option get home    2>/dev/null > "${OUT}/home.txt"    || : > "${OUT}/home.txt"
+              $WP option get siteurl 2>/dev/null > "${OUT}/siteurl.txt" || : > "${OUT}/siteurl.txt"
+              $WP option get blogname 2>/dev/null > "${OUT}/blogname.txt" || : > "${OUT}/blogname.txt"
+              $WP option get blogdescription 2>/dev/null > "${OUT}/blogdescription.txt" || : > "${OUT}/blogdescription.txt"
+              $WP option get timezone_string 2>/dev/null > "${OUT}/tz.txt" || : > "${OUT}/tz.txt"
+              $WP option get permalink_structure 2>/dev/null > "${OUT}/permalink.txt" || : > "${OUT}/permalink.txt"
+              $WP plugin   list --format=json 2>/dev/null > "${OUT}/plugins.json"  || echo "[]" > "${OUT}/plugins.json"
+              $WP theme    list --format=json 2>/dev/null > "${OUT}/themes.json"   || echo "[]" > "${OUT}/themes.json"
+              $WP user     list --role=administrator --format=json 2>/dev/null > "${OUT}/admins.json" || echo "[]" > "${OUT}/admins.json"
+              $WP post-type list --format=json 2>/dev/null > "${OUT}/post_types.json" || echo "[]" > "${OUT}/post_types.json"
+              $WP theme list --status=active --field=name 2>/dev/null | head -n1 > "${OUT}/active_theme.txt" || : > "${OUT}/active_theme.txt"
+              $WP menu list --format=json 2>/dev/null > "${OUT}/menus.json" || echo "[]" > "${OUT}/menus.json"
+            else
+              echo unknown > "${OUT}/wp_version.txt"
+              : > "${OUT}/home.txt"; : > "${OUT}/siteurl.txt"; : > "${OUT}/blogname.txt"; : > "${OUT}/blogdescription.txt"; : > "${OUT}/tz.txt"; : > "${OUT}/permalink.txt"
+              echo "[]" > "${OUT}/plugins.json"; echo "[]" > "${OUT}/themes.json"; echo "[]" > "${OUT}/admins.json"; echo "[]" > "${OUT}/post_types.json"; : > "${OUT}/active_theme.txt"; echo "[]" > "${OUT}/menus.json"
+            fi
+            hostname > "${OUT}/hostname.txt" 2>/dev/null || echo unknown > "${OUT}/hostname.txt"
+            date -u +%FT%TZ > "${OUT}/ts_utc.txt" 2>/dev/null || echo unknown > "${OUT}/ts_utc.txt"
+
+            php -r '
+              $d="wp-content/mu-plugins"; $o=[];
+              if (is_dir($d)) foreach (scandir($d) as $f){ if($f==="."||$f==="..")continue; $p="$d/$f"; if(is_file($p)) $o[]=["file"=>$f,"size"=>@filesize($p),"md5"=>@md5_file($p)];}
+              echo json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
+            ' > "${OUT}/mu_plugins.json" 2>/dev/null || echo "[]" > "${OUT}/mu_plugins.json"
+
+            # Taxonomies + terms (PHP)
+            php -r '
+              require_once "wp-load.php";
+              $tx = get_taxonomies([], "objects");
+              $out = ["taxonomies"=>[], "terms"=>[]];
+              foreach ($tx as $name => $obj) {
+                $out["taxonomies"][] = ["name"=>$name,"label"=>$obj->label ?? $name,"public"=>$obj->public ?? null,"hierarchical"=>$obj->hierarchical ?? null];
+                $terms = get_terms(["taxonomy"=>$name,"hide_empty"=>false]);
+                if (!is_wp_error($terms)) { $out["terms"][$name] = array_map(fn($t)=>["term_id"=>$t->term_id,"slug"=>$t->slug,"name"=>$t->name,"count"=>$t->count], $terms); }
+              }
+              echo json_encode($out, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
+            ' > "${OUT}/taxonomies_terms.json" 2>/dev/null || echo '{"taxonomies":[],"terms":{}}' > "${OUT}/taxonomies_terms.json"
+
+            # Menu items per menu (if menus.json available)
+            if [ -s "${OUT}/menus.json" ] && [ -n "$WP" ]; then
+              php -r '
+                $out = getenv("OUT");
+                $menus = json_decode(@file_get_contents("$out/menus.json"), true) ?: [];
+                foreach ($menus as $m) {
+                  $id = $m["term_id"] ?? null;
+                  if (!$id) continue;
+                  $slug = $m["slug"] ?? $m["name"] ?? $id;
+                  $slug = preg_replace("/[^a-zA-Z0-9_-]+/","-",(string)$slug);
+                  $cmd = "wp menu item list ".escapeshellarg((string)$id)." --format=json 2>/dev/null";
+                  $json = shell_exec($cmd); if(!$json) $json="[]";
+                  file_put_contents("$out/menus/".$slug.".json",$json);
+                }
+              ' 2>/dev/null || true
+            fi
+
+            # Selected options (JSON)
+            php -r '
+              require_once "wp-load.php";
+              $keys=["siteurl","home","blogname","blogdescription","timezone_string","permalink_structure","template","stylesheet"];
+              $o=[]; foreach($keys as $k){ $o[$k]=get_option($k); }
+              echo json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
+            ' > "${OUT}/options.json" 2>/dev/null || echo "{}" > "${OUT}/options.json"
+
+            # Files manifest (www+uploads, limited)
+            php -r '
+              function scan($base,$exts,$max){ $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($base,FilesystemIterator::SKIP_DOTS)); $o=[]; $n=0;
+                foreach($it as $f){ if($n>=$max) break; $p=$f->getPathname(); $e=strtolower(pathinfo($p,PATHINFO_EXTENSION));
+                  if(in_array($e,$exts,true)){ $rel=str_replace(getcwd()."/","",$p); $o[]=["path"=>$rel,"size"=>$f->getSize(),"md5"=>@md5_file($p)]; $n++; } }
+                return $o;
+              }
+              $ext=["html","htm","png","jpg","jpeg","webp"];
+              $o=["www"=>scan(getcwd(),$ext,3000),"uploads"=>scan("wp-content/uploads",$ext,5000)];
+              echo json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
+            ' > "${OUT}/files_manifest.json" 2>/dev/null || echo '{"www":[],"uploads":[]}' > "${OUT}/files_manifest.json"
+
+            : > "${OUT}/errors.txt" || true
+            echo "[INFO] full snapshot written to ${OUT}"
+
+      - name: Pull raw logs
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${RUN_ID}"
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
+            "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/snapshot_full" "_ci_logs/${RUN_ID}/" || echo "[WARN] pull failed"
+          ls -la "_ci_logs/${RUN_ID}/snapshot_full" || true
+
+      - name: Assemble snapshot.json (FULL, SSOT)
+        run: |
+          set -euo pipefail
+          RAW="_ci_logs/${RUN_ID}/snapshot_full"
+          mkdir -p "${RAW}"
+          for f in plugins themes mu_plugins admins post_types; do [ -f "${RAW}/${f}.json" ] || echo '[]' > "${RAW}/${f}.json"; done
+          [ -f "${RAW}/taxonomies_terms.json" ] || echo '{"taxonomies":[],"terms":{}}' > "${RAW}/taxonomies_terms.json"
+          [ -f "${RAW}/menus.json" ] || echo '[]' > "${RAW}/menus.json"
+          [ -f "${RAW}/options.json" ] || echo '{}' > "${RAW}/options.json"
+          [ -f "${RAW}/files_manifest.json" ] || echo '{"www":[],"uploads":[]}' > "${RAW}/files_manifest.json"
+          for f in home siteurl blogname blogdescription tz permalink wp_version php_version hostname ts_utc active_theme; do [ -f "${RAW}/${f}.txt" ] || : > "${RAW}/${f}.txt"; done
+
+          MENUS_DIR="${RAW}/menus"
+          if [ -d "$MENUS_DIR" ]; then
+            jq -n 'reduce inputs as $f ({}; . + $f)' $(for x in "$MENUS_DIR"/*.json; do [ -f "$x" ] && echo "$x"; done) 2>/dev/null \
+              | jq '.' > "${RAW}/menus_items_merged.json" || echo '{}' > "${RAW}/menus_items_merged.json"
+          else
+            echo '{}' > "${RAW}/menus_items_merged.json"
+          fi
+
+          SNAP="${RAW}/snapshot.json"
+          jq -n \
+            --arg run_id "${RUN_ID}" \
+            --arg run_ts "$(date -u +%FT%TZ)" \
+            --rawfile home "${RAW}/home.txt" \
+            --rawfile siteurl "${RAW}/siteurl.txt" \
+            --rawfile blogname "${RAW}/blogname.txt" \
+            --rawfile blogdesc "${RAW}/blogdescription.txt" \
+            --rawfile tz "${RAW}/tz.txt" \
+            --rawfile permalink "${RAW}/permalink.txt" \
+            --rawfile wpv "${RAW}/wp_version.txt" \
+            --rawfile phpv "${RAW}/php_version.txt" \
+            --rawfile host "${RAW}/hostname.txt" \
+            --rawfile ts_utc "${RAW}/ts_utc.txt" \
+            --rawfile active "${RAW}/active_theme.txt" \
+            --slurpfile plugins "${RAW}/plugins.json" \
+            --slurpfile themes  "${RAW}/themes.json" \
+            --slurpfile mupl    "${RAW}/mu_plugins.json" \
+            --slurpfile admins  "${RAW}/admins.json" \
+            --slurpfile ptypes  "${RAW}/post_types.json" \
+            --rawfile   txterms "${RAW}/taxonomies_terms.json" \
+            --slurpfile menus   "${RAW}/menus.json" \
+            --rawfile   menuitems "${RAW}/menus_items_merged.json" \
+            --rawfile   options "${RAW}/options.json" \
+            --rawfile   files   "${RAW}/files_manifest.json" '
+            def trim: sub("[\r\n]+$";"");
+            def J: fromjson? // {};
+            {
+              run_id:$run_id, run_ts:$run_ts,
+              site:{
+                home:($home|trim), siteurl:($siteurl|trim),
+                blogname:($blogname|trim), blogdescription:($blogdesc|trim),
+                timezone:($tz|trim), permalink:($permalink|trim),
+                wp_version:($wpv|trim), php_version:($phpv|trim),
+                hostname:($host|trim), timestamp_utc:($ts_utc|trim)
+              },
+              active_theme:{active:($active|trim)},
+              plugins:($plugins[0]//[]), themes:($themes[0]//[]),
+              mu_plugins:($mupl[0]//[]), admins:($admins[0]//[]),
+              post_types:($ptypes[0]//[]),
+              taxonomies:( ( $txterms|J ).taxonomies // [] ),
+              terms:( ( $txterms|J ).terms // {} ),
+              menus:($menus[0]//[]),
+              menu_items:($menuitems|J),
+              options:($options|J),
+              files:($files|J)
+            }' > "${SNAP}"
+          echo "::notice::Built FULL snapshot.json"
+
+      - name: Generate ARCHITECTURE.md
+        run: |
+          set -euo pipefail
+          RAW="_ci_logs/${RUN_ID}/snapshot_full"
+          SNAP="${RAW}/snapshot.json"
+          OUT="${RAW}/ARCHITECTURE.md"
+          SITE_HOME=$(jq -r '.site.home' "${SNAP}")
+          WPV=$(jq -r '.site.wp_version' "${SNAP}")
+          PHPV=$(jq -r '.site.php_version' "${SNAP}")
+          THEME=$(jq -r '.active_theme.active' "${SNAP}")
+          PL=$(jq -r '.plugins|length' "${SNAP}")
+          MU=$(jq -r '.mu_plugins|length' "${SNAP}")
+          ADM=$(jq -r '.admins|length' "${SNAP}")
+          PT=$(jq -r '.post_types|length' "${SNAP}")
+          TX=$(jq -r '.taxonomies|length' "${SNAP}")
+          WWW=$(jq -r '.files.www|length' "${SNAP}")
+          UP=$(jq -r '.files.uploads|length' "${SNAP}")
+          RUN_TS=$(jq -r '.run_ts' "${SNAP}")
+          {
+            echo "# Snapshot Architecture (FULL)"
+            echo "- Run ID: ${RUN_ID}"
+            echo "- Run TS (UTC): ${RUN_TS}"
+            echo "- Home URL: ${SITE_HOME}"
+            echo "- WordPress: ${WPV}"
+            echo "- PHP: ${PHPV}"
+            echo "- Active theme: ${THEME}"
+            echo "- Plugins: ${PL} (MU: ${MU})"
+            echo "- Admins: ${ADM}"
+            echo "- Post types: ${PT}"
+            echo "- Taxonomies: ${TX}"
+            echo "- Files: www=${WWW}, uploads=${UP}"
+          } > "${OUT}"
+
+      - name: Publish (FULL → latest/)
+        if: always()
+        run: |
+          set -euo pipefail
+          RO_DIR=".wtp/state/ro/public/${RUN_ID}"
+          RO_LATEST=".wtp/state/ro/public/latest"
+          SNAP_DIR=".wtp/snapshots"
+          mkdir -p "${RO_DIR}" "${RO_LATEST}" "${SNAP_DIR}"
+          cp -a "_ci_logs/${RUN_ID}/snapshot_full/." "${RO_DIR}/"
+          cp -f "${RO_DIR}/snapshot.json" "${SNAP_DIR}/snapshot-${RUN_ID}.json" || true
+          cp -f "${RO_DIR}/snapshot.json" "${SNAP_DIR}/snapshot-latest.json" || true
+          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"; cp -a "${RO_DIR}/." "${RO_LATEST}/"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${RO_DIR}" "${RO_LATEST}" "${SNAP_DIR}"
+          if git diff --staged --quiet; then echo "::notice::Nothing to commit."; else git commit -m "Publish FULL snapshot ${RUN_ID}" && git push; fi
+
+      - name: Summary
+        if: always()
+        run: echo "::notice::03_snapshot_full finished for run ${RUN_ID}"
