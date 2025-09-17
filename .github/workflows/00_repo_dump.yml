@@ -4,7 +4,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   dump:
@@ -29,3 +29,38 @@ jobs:
           name: repo-full-dump
           path: _dump/*
           retention-days: 7
+
+      - name: Publish dump into .wtp/state (SSOT like snapshot)
+        run: |
+          set -euo pipefail
+          RUN_ID=${{ github.run_id }}
+          RO_DIR=".wtp/state/ro/public/${RUN_ID}"
+          RO_LATEST=".wtp/state/ro/public/latest"
+          SNAP_DIR=".wtp/snapshots"
+
+          mkdir -p "${RO_DIR}" "${SNAP_DIR}"
+
+          cp -f _dump/repo-full.tar.gz "${RO_DIR}/repo-full.tar.gz"
+          cp -f _dump/filelist.txt    "${RO_DIR}/filelist.txt"
+
+          # aliasy historyczne
+          cp -f "${RO_DIR}/repo-full.tar.gz" "${SNAP_DIR}/repo-${RUN_ID}.tar.gz"
+          cp -f "${RO_DIR}/filelist.txt"     "${SNAP_DIR}/filelist-${RUN_ID}.txt"
+
+          cp -f "${RO_DIR}/repo-full.tar.gz" "${SNAP_DIR}/repo-latest.tar.gz"
+          cp -f "${RO_DIR}/filelist.txt"     "${SNAP_DIR}/filelist-latest.txt"
+
+          # latest = fizyczna kopia katalogu
+          rm -rf "${RO_LATEST}"
+          mkdir -p "${RO_LATEST}"
+          cp -a "${RO_DIR}/." "${RO_LATEST}/"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${RO_DIR}" "${RO_LATEST}" "${SNAP_DIR}"
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."
+          else
+            git commit -m "repo dump run ${RUN_ID}"
+            git push
+          fi
