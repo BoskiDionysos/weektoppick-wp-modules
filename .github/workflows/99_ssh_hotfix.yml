@@ -21,26 +21,43 @@ jobs:
           port: ${{ env.PORT }}
           script_stop: true
           command_timeout: 3m
+          # to sprawia, że zmienna TARGET istnieje po stronie serwera
+          envs: TARGET
           script: |
             set -euo pipefail
-            cd "${TARGET}" || { echo "Cannot cd TARGET=${TARGET}"; exit 1; }
+
+            # 1) Wejście do katalogu WP:
+            # - najpierw próbujemy TARGET z env (przesłany przez envs:)
+            # - jeśli z jakiegoś powodu puste, użyjemy wypieczonego secretu albo public_html
+            if [ -n "${TARGET:-}" ]; then
+              cd "${TARGET}"
+            else
+              cd '${{ env.TARGET }}' 2>/dev/null || cd "${HOME}/public_html"
+            fi
+
+            echo "== PWD =="; pwd
 
             echo "== BEFORE =="
             ls -la wp-content/mu-plugins | head -n 200 || true
 
             BAD="wp-content/mu-plugins/wtp-fatal-catcher.php"
-            [ -f "$BAD" ] && { rm -f "$BAD"; echo "Removed $BAD"; } || echo "No $BAD (ok)"
+            if [ -f "$BAD" ]; then
+              rm -f "$BAD"
+              echo "Removed $BAD"
+            else
+              echo "No $BAD (ok)"
+            fi
 
+            # Sterylna wersja 00-mu-safe-loader.php — zero outputu
             cat > wp-content/mu-plugins/00-mu-safe-loader.php <<'PHP'
             <?php
-            // No output, no headers, zero spacji przed <?php
             if (!defined('ABSPATH')) { exit; }
             add_action('muplugins_loaded', static function () {
-                // loader ready – nic nie wypisujemy
+                // no output
             }, 0);
             PHP
 
-            # Reset OPcache (jeśli włączony)
+            # Reset OPcache (jeśli aktywny)
             php -r 'if(function_exists("opcache_reset")){opcache_reset();echo "OPCACHE_RESET_OK\n";}else{echo "NO_OPCACHE\n";}'
 
             echo "== AFTER =="
