@@ -1,4 +1,4 @@
-name: mu_hotfix_headers
+name: mu_fix_trail_scan
 
 on:
   workflow_dispatch: {}
@@ -7,15 +7,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: mu-hotfix-headers
+  group: mu-fix-trail
   cancel-in-progress: true
 
 jobs:
-  fix:
+  fix-and-scan:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Patch on server (init cookie hook, trim trailing output, mute early echoes)
+      - name: Fix TRAIL (pure POSIX) + rescan
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ secrets.DEPLOY_HOST }}
@@ -25,81 +25,106 @@ jobs:
           command_timeout: 15m
           script: |
             set -eu
+
             ROOT="${HOME}/domains/weektoppick.com/public_html"
             test -f "${ROOT}/wp-config.php" || { echo "::error::Brak wp-config.php w ${ROOT}"; exit 1; }
             cd "${ROOT}"
+            echo "[INFO] WP_ROOT=${ROOT}"
 
-            echo "== 0) Kontekst =="
-            php -v || true
-            echo "WP_ROOT=${ROOT}"
+            TARGETS="wp-content/mu-plugins wp-content/themes"
 
-            THEME_FN="wp-content/themes/wtp-core-theme/functions.php"
-            MU_DIR="wp-content/mu-plugins"
-
-            # 1) Wstrzyknij bezpieczny hook 'init' → wymusi ustawianie ciastek PRZED jakimkolwiek outputem.
-            #    Robimy to idempotentnie (jeśli już jest, nie dodajemy drugi raz).
-            echo "== 1) Ensure init hook for cookies in functions.php =="
-            if [ -f "${THEME_FN}" ]; then
-              if ! grep -q "wtp_boot_lang_cookie" "${THEME_FN}"; then
-                TMPFN="$(mktemp)"
-                awk '
-                  NR==1 { print; print ""; print "// WTP: make sure cookies are set before any output"; print "add_action('\''init'\'', function(){ if (function_exists('\''wtp_detect_lang'\'')) { if (!headers_sent()) { wtp_detect_lang(); } } }, 0);"; print ""; next }
-                  { print }
-                ' "${THEME_FN}" > "${TMPFN}"
-                cp "${TMPFN}" "${THEME_FN}"
-                rm -f "${TMPFN}"
-                echo "Injected init hook into ${THEME_FN}"
-              else
-                echo "Init hook already present in ${THEME_FN}"
+            echo "== A) Wykryj pliki z TRAIL (tekst po '?>' na końcu) =="
+            TRAIL_LIST="$(mktemp)"
+            # Skany bez /proc i bez perl: wypiszemy pliki, w których po '?>' NIE jest czysty EOF
+            # Heurystyka: jeżeli plik zawiera '?>' i ostatnia linia NIE kończy się dokładnie na '?>'
+            # to potencjalnie ma śmieci po zamykającym tagu.
+            while IFS= read -r f; do
+              # pomiń bardzo duże binarne rzeczy – ale my i tak bierzemy *.php
+              if grep -q "?>" "$f"; then
+                # ostatnie 200 bajtów wystarczą, żeby ocenić ogon
+                TAILHEX="$(tail -c 200 "$f" | od -An -tx1 || true)"
+                # jeśli w ogonie jest sekwencja '3f 3e' (?>), a po niej cokolwiek nie-białego → uznamy za TRAIL
+                # prościej: sprawdźmy literalnie: jeśli plik kończy się '?>' + (SP/TAB/CR/LF) → OK,
+                # jeśli ma '?>' a nie kończy się bezpośrednio na '?>' → oznacz jako TRAIL
+                if awk 'END{ if (NR==0) exit 1; last=$0; } END{ if (match(last,/\?>[[:space:]]*$/)) exit 1; else exit 0 }' "$f"; then
+                  echo "$f" >> "$TRAIL_LIST"
+                fi
               fi
+            done < <(find $TARGETS -type f -name '*.php' 2>/dev/null)
+
+            echo "-- TRAIL kandydaci --"
+            if [ -s "$TRAIL_LIST" ]; then
+              nl -ba "$TRAIL_LIST"
             else
-              echo "::warning::Theme functions.php not found: ${THEME_FN}"
+              echo "(brak)"
             fi
 
-            # 2) TRAIL fix → usuń zamykający tag ?> na końcu oraz białe znaki po nim (dla wszystkich *.php)
-            echo "== 2) Strip trailing '?>' + whitespace at EOF (TRAIL fix) =="
-            find wp-content/mu-plugins wp-content/themes -type f -name '*.php' 2>/dev/null | while IFS= read -r f; do
-              # Usuń trailing BOM/CR/LF śmieci po ?> oraz sam ?> jeśli jest na końcu
-              # Kopia bezpieczeństwa:
-              cp "$f" "$f.wtp.bak" || true
-              # Jeżeli plik kończy się '?>' + coś → przytnij do końca ostatniego bloku PHP bez '?>'
-              # Proste podejście: usuń wszystkie zamykające tagi '?>' które są na końcu pliku lub z trailing whitespace.
-              # (bez naruszania środkowych fragmentów)
-              perl -0777 -pe 's/\?>\s*\z//s' -i "$f" || true
-            done
-            echo "TRAIL cleanup done."
-
-            # 3) ECHO_TOP fix → przekomentuj echo/print/var_dump/printf w pierwszych 40 liniach w znanych plikach
-            echo "== 3) Mute early echo/print in known offenders =="
-            # a) MU: wtp-canonical.php
-            if [ -f "${MU_DIR}/wtp-canonical.php" ]; then
-              awk 'NR<=40 { if ($0 ~ /^[[:space:]]*(echo|print|var_dump|printf)\b/) { print "/*WTP-MUTE*/ // " $0; next } } { print }' \
-                "${MU_DIR}/wtp-canonical.php" > "${MU_DIR}/wtp-canonical.php.wtp.tmp" && mv "${MU_DIR}/wtp-canonical.php.wtp.tmp" "${MU_DIR}/wtp-canonical.php"
-              echo "Muted early echoes in ${MU_DIR}/wtp-canonical.php (top 40 lines)"
+            echo "== B) Napraw TRAIL (usuń końcowe '?>' + whitespace) =="
+            if [ -s "$TRAIL_LIST" ]; then
+              while IFS= read -r f; do
+                cp "$f" "$f.wtp.bak" || true
+                # Zbuduj nową wersję bez końcowego '?>' i białych znaków po nim:
+                awk '{
+                      buf = buf $0 ORS
+                    }
+                    END{
+                      # usuń trailing whitespace na końcu
+                      sub(/[[:space:]]+$/,"",buf)
+                      # usuń końcowe "?>" + ewentualny whitespace
+                      sub(/\?>[[:space:]]*$/,"",buf)
+                      printf "%s", buf
+                    }' "$f" > "$f.wtp.tmp" && mv "$f.wtp.tmp" "$f"
+                echo "fixed: $f"
+              done < "$TRAIL_LIST"
             else
-              echo "Skip: ${MU_DIR}/wtp-canonical.php not found"
-            fi
-            # b) Theme: index.php
-            if [ -f "wp-content/themes/wtp-core-theme/index.php" ]; then
-              awk 'NR<=40 { if ($0 ~ /^[[:space:]]*(echo|print|var_dump|printf)\b/) { print "/*WTP-MUTE*/ // " $0; next } } { print }' \
-                "wp-content/themes/wtp-core-theme/index.php" > "wp-content/themes/wtp-core-theme/index.php.wtp.tmp" && mv "wp-content/themes/wtp-core-theme/index.php.wtp.tmp" "wp-content/themes/wtp-core-theme/index.php"
-              echo "Muted early echoes in theme index.php (top 40 lines)"
-            else
-              echo "Skip: theme index.php not found"
+              echo "Nic do naprawy (TRAIL)"
             fi
 
-            # 4) Opcjonalnie: pokaż hexdump head dla functions.php (kontrola braku BOM) + pierwsze 60 linii
-            echo "== 4) Sanity: functions.php head =="
-            if command -v xxd >/dev/null; then
-              xxd -g 1 -l 16 "${THEME_FN}" || true
-            else
-              head -c 32 "${THEME_FN}" | od -An -tx1 || true
-            fi
+            echo "== C) Rescan (BOM / HEAD / TRAIL / ECHO_TOP) =="
+            echo "-- 1) BOM na początku (EF BB BF) --"
+            FOUND=0
+            while IFS= read -r f; do
+              if head -c 3 "$f" | od -An -tx1 | grep -qi "ef bb bf"; then
+                echo "BOM: $f"; FOUND=1
+              fi
+            done < <(find $TARGETS -type f -name '*.php' 2>/dev/null)
+            [ "${FOUND:-0}" -eq 0 ] && echo "(none)"
+
+            echo "-- 2) Pliki nie zaczynające się od '<?php' (informacyjnie) --"
+            FOUND=0
+            while IFS= read -r f; do
+              H="$(head -c 5 "$f" | tr -d '\r\n')"
+              if [ "$H" != "<?php" ]; then
+                echo "HEAD: $f  (starts with: $(head -c 16 "$f" | od -An -tx1 || true))"
+                FOUND=1
+              fi
+            done < <(find $TARGETS -type f -name '*.php' 2>/dev/null)
+            [ "${FOUND:-0}" -eq 0 ] && echo "(none)"
+
+            echo "-- 3) TRAIL po naprawie --"
+            FOUND=0
+            while IFS= read -r f; do
+              if grep -q "?>" "$f"; then
+                if awk 'END{ if (NR==0) exit 1; last=$0; } END{ if (match(last,/\?>[[:space:]]*$/)) exit 1; else exit 0 }' "$f"; then
+                  echo "TRAIL: $f"; FOUND=1
+                fi
+              fi
+            done < <(find $TARGETS -type f -name '*.php' 2>/dev/null)
+            [ "${FOUND:-0}" -eq 0 ] && echo "(none)"
+
+            echo "-- 4) echo/print/var_dump/printf w TOP 40 liniach --"
+            FOUND=0
+            while IFS= read -r f; do
+              if head -n 40 "$f" | grep -qE '^[[:space:]]*(echo|print|var_dump|printf)\b'; then
+                echo "ECHO_TOP: $f"; FOUND=1
+              fi
+            done < <(find $TARGETS -type f -name '*.php' 2>/dev/null)
+            [ "${FOUND:-0}" -eq 0 ] && echo "(none)"
+
+            echo "== D) Podgląd functions.php (początek) =="
+            THEME_FN="wp-content/themes/wtp-core-theme/functions.php"
+            command -v xxd >/dev/null && xxd -g 1 -l 16 "${THEME_FN}" || head -c 32 "${THEME_FN}" | od -An -tx1
             echo "-- first 60 lines --"
             nl -ba "${THEME_FN}" | sed -n '1,60p' || true
-
-            # 5) Opcjonalnie: szybki diff czy w ogóle coś się zmieniło (pokaże jeden przykład)
-            echo "== 5) Examples of .wtp.bak created (if any) =="
-            find wp-content/mu-plugins wp-content/themes -type f -name '*.wtp.bak' | head -n 5 || true
 
             echo "== DONE =="
