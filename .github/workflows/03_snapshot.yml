@@ -28,6 +28,7 @@ jobs:
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
+      RUN_ID: ${{ github.run_id }}
 
     steps:
       - name: 1) Checkout repo
@@ -89,12 +90,12 @@ jobs:
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
           port:     ${{ env.PORT }}
-          envs: TARGET
+          envs: TARGET,RUN_ID
           script: |
             set -euo pipefail
-            RUN_ID='${{ github.run_id }}'
             RAWDIR="${TARGET}/.wtp/state/ci_logs/snapshot"
-            bash /tmp/wtp_snapshot_raw.sh || exit 1
+            echo "[INFO] run_id=${RUN_ID}"
+            bash /tmp/wtp_snapshot_raw.sh
             rm -f /tmp/wtp_snapshot_raw.sh /tmp/wtp_analyze.php
             echo "[INFO] Snapshot done at $RAWDIR"
 
