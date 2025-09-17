@@ -1,10 +1,7 @@
-name: 03_snapshot (SSH via appleboy, spójne z 01 + smoketest)
+name: 03_snapshot (full/lite via SNAP_PROFILE, fixed upload path)
 
 on:
   workflow_dispatch: {}
-  workflow_run:
-    workflows: ["02_wpcli (install/update/activate from SSOT, secure SSH)"]
-    types: [completed]
 
 permissions:
   contents: write
@@ -15,279 +12,273 @@ concurrency:
 
 jobs:
   snapshot:
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 25
-
     env:
       HOST:   ${{ secrets.DEPLOY_HOST }}
       PORT:   ${{ secrets.DEPLOY_PORT }}
       USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
+      SNAP_PROFILE: full   # <— zmień na "lite" jeśli chcesz szybki zrzut
 
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Prepare tools (jq) + build helper scripts
+      - name: Tools + prepare helper scripts (in repo, not /tmp)
         run: |
           set -euo pipefail
           sudo apt-get update -y
-          sudo apt-get install -y jq
+          sudo apt-get install -y curl jq sshpass
+          mkdir -p .wtp/_tmp
 
-          # --- PHP analyzer (lokalnie, potem scp na serwer) ---
-          cat > /tmp/wtp_analyze.php <<'PHPAN'
+          # Analyzer (krótki – wystarczy do metryk + list plików)
+          cat > .wtp/_tmp/wtp_analyze.php <<'PHPAN'
           <?php
-          // Minimal analyzer: zbiera podstawowe sygnały z kodu
-          if ($argc < 4) { fwrite(STDERR, "usage: php analyze <base> <type> <out>\n"); exit(1); }
-          $base = rtrim($argv[1], "/"); $type = $argv[2]; $out = $argv[3];
-
-          function files($dir){ $arr=[]; if(!is_dir($dir)) return $arr;
-            $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS));
-            foreach($it as $f){ if($f->isFile()){ $n=strtolower($f->getFilename());
-              $ext=pathinfo($n, PATHINFO_EXTENSION);
-              if(in_array($ext, ['php','phtml','phps'])) $arr[]=$f->getPathname();
-            }} return $arr;
+          if ($argc < 4) { fwrite(STDERR,"usage: php analyze <base> <type> <out>\n"); exit(1); }
+          $base=rtrim($argv[1],"/"); $type=$argv[2]; $out=$argv[3];
+          function files($d){ $r=[]; if(!is_dir($d)) return $r;
+            $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($d,FilesystemIterator::SKIP_DOTS));
+            foreach($it as $f){ if($f->isFile()) $r[]=substr($f->getPathname(),strlen($d)+1); }
+            sort($r,SORT_NATURAL); return $r; }
+          $res=[];
+          if($type==='theme'){ $res=['present'=>is_dir($base),'files'=>files($base)]; }
+          if($type==='plugins'){
+            if(is_dir($base)){
+              $slugs=array_values(array_filter(scandir($base),fn($e)=>$e!=='.'&&$e!=='..'&&is_dir("$base/$e")));
+              sort($slugs,SORT_NATURAL);
+              foreach($slugs as $s){ $res[$s]=['files'=>files("$base/$s")]; }
+            }
           }
-          function analyze($list){ $r=['files'=>0,'actions'=>0,'filters'=>0,'shortcodes'=>0,'rest'=>0,'cpt'=>0,'tax'=>0,'enqueues'=>0,'defines'=>0];
-            foreach($list as $f){ $c=@file_get_contents($f); if($c===false) continue;
-              $r['files']++;
-              $r['actions']   += preg_match_all('/\badd_action\s*\(/i',$c,$m);
-              $r['filters']   += preg_match_all('/\badd_filter\s*\(/i',$c,$m);
-              $r['shortcodes']+= preg_match_all('/\badd_shortcode\s*\(/i',$c,$m);
-              $r['rest']      += preg_match_all('/\bregister_rest_route\s*\(/i',$c,$m);
-              $r['cpt']       += preg_match_all('/\bregister_post_type\s*\(/i',$c,$m);
-              $r['tax']       += preg_match_all('/\bregister_taxonomy\s*\(/i',$c,$m);
-              $r['enqueues']  += preg_match_all('/\bwp_enqueue_(script|style)\s*\(/i',$c,$m);
-              $r['defines']   += preg_match_all('/\bdefine\s*\(\s*[\'"][^\'"]+[\'"]\s*,/i',$c,$m);
-            } return $r;
+          if($type==='mu'){
+            if(is_dir($base)){
+              $items=array_values(array_filter(scandir($base),fn($e)=>$e!=='.'&&$e!=='..'));
+              sort($items,SORT_NATURAL);
+              foreach($items as $it){ $p="$base/$it";
+                $res[$it]=is_dir($p)?['dir'=>true,'files'=>files($p)]:['dir'=>false,'files'=>[basename($p)]];
+              }
+            }
           }
-
-          if($type==='theme' || $type==='plugins' || $type==='mu'){
-            $scan = $type==='theme' ? files($base) :
-                    ($type==='plugins' ? files($base) : files($base));
-            $res = analyze($scan);
-            file_put_contents($out, json_encode($res, JSON_UNESCAPED_SLASHES));
-          } else { file_put_contents($out, "{}"); }
+          file_put_contents($out,json_encode($res,JSON_UNESCAPED_SLASHES));
           PHPAN
 
-          # --- RAW snapshot runner (na zdalnym) ---
-          cat > /tmp/wtp_snapshot_raw.sh <<'SNAP'
+          # Remote snapshot script z dwoma profilami: lite/full
+          cat > .wtp/_tmp/wtp_snapshot_raw.sh <<'SNAP'
           #!/usr/bin/env bash
           set -euo pipefail
           : "${TARGET:?TARGET required}"
           : "${RUN_ID:?RUN_ID required}"
+          PROFILE="${SNAP_PROFILE:-lite}"
 
           RAWDIR="${TARGET}/.wtp/state/ci_logs/snapshot"
-          mkdir -p "${RAWDIR}"
-          ERR="${RAWDIR}/errors.txt"; : > "${ERR}"
-          note(){ echo "$@" | tee -a "${ERR}" 1>&2 || true; }
+          mkdir -p "${RAWDIR}/analysis" "${RAWDIR}/themes" "${RAWDIR}/plugins" "${RAWDIR}/mu-plugins" "${RAWDIR}/languages" || true
 
-          cd "${TARGET}" || { note "cannot cd TARGET"; exit 1; }
+          cd "${TARGET}" || exit 1
           wp(){ php ./wp "$@" --path="${TARGET}"; }
 
-          # A) Site/Core
-          {
-            echo "url=$(wp option get siteurl 2>/dev/null || true)"
-            echo "home=$(wp option get home 2>/dev/null || true)"
-            echo "wp_version=$(wp core version 2>/dev/null || true)"
-            echo "php_version=$(php -r 'echo PHP_VERSION;' 2>/dev/null || true)"
-          } > "${RAWDIR}/site_info.env"
+          # A) Podstawy
+          URL="$(wp option get siteurl 2>/dev/null || true)"
+          HOME="$(wp option get home 2>/dev/null || true)"
+          WPV="$(wp core version 2>/dev/null || true)"
+          PHPV="$(php -r 'echo PHP_VERSION;' 2>/dev/null || true)"
+          echo "url=${URL}"           >  "${RAWDIR}/site_info.env"
+          echo "home=${HOME}"         >> "${RAWDIR}/site_info.env"
+          echo "wp_version=${WPV}"    >> "${RAWDIR}/site_info.env"
+          echo "php_version=${PHPV}"  >> "${RAWDIR}/site_info.env"
 
-          # B) Themes + active
-          wp theme list --format=json > "${RAWDIR}/themes.json" 2>>"${ERR}" || echo "[]" > "${RAWDIR}/themes.json"
-          wp theme list --status=active --field=name > "${RAWDIR}/theme_active_slug.txt" 2>>"${ERR}" || true
+          # B) WP-CLI listy
+          wp theme list --format=json > "${RAWDIR}/themes.json" 2>/dev/null || echo "[]" > "${RAWDIR}/themes.json"
+          wp plugin list --format=json > "${RAWDIR}/plugins.json" 2>/dev/null || echo "[]" > "${RAWDIR}/plugins.json"
+          wp plugin list --status=active --field=name --format=json > "${RAWDIR}/plugins_active.json" 2>/dev/null || echo "[]" > "${RAWDIR}/plugins_active.json"
+          ACTIVE_THEME="$(wp theme list --status=active --field=name 2>/dev/null | head -n1 || true)"
+          printf "%s\n" "${ACTIVE_THEME}" > "${RAWDIR}/theme_active_slug.txt" || true
 
-          # C) Plugins (std + mu + active)
-          wp plugin list --format=json > "${RAWDIR}/plugins.json" 2>>"${ERR}" || echo "[]" > "${RAWDIR}/plugins.json"
-          wp plugin list --status=active --field=name --format=json > "${RAWDIR}/plugins_active.json" 2>>"${ERR}" || echo "[]" > "${RAWDIR}/plugins_active.json"
-          wp plugin list --status=must-use --format=json > "${RAWDIR}/mu_plugins.json" 2>>"${ERR}" || echo "[]" > "${RAWDIR}/mu_plugins.json"
-
-          # D) Basic code hashes (themes/plugins dirs)
-          THEMES_DIR="${TARGET}/wp-content/themes"
-          PLUG_DIR="${TARGET}/wp-content/plugins"
-          mkdir -p "${RAWDIR}/themes" "${RAWDIR}/plugins"
-
-          if [[ -d "${THEMES_DIR}" ]]; then
-            find "${THEMES_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > "${RAWDIR}/themes_slugs.txt" || true
-            : > "${RAWDIR}/themes_trees.tsv"
-            while read -r t; do
-              [[ -z "$t" ]] && continue
-              (cd "${THEMES_DIR}/${t}" && find . -type f -printf '%P\n' | sort) > "${RAWDIR}/themes/${t}.tree" 2>>"${ERR}" || true
-              (cd "${THEMES_DIR}/${t}" && find . -type f -print0 | sort -z | xargs -0 sha1sum) | awk '{print $1}' | tr -d '\r' | sort | sha1sum | awk '{print $1"\t'${t}'"}' >> "${RAWDIR}/themes_trees.tsv" || true
-            done < "${RAWDIR}/themes_slugs.txt"
+          # C) Analiza plików (krótka)
+          php /tmp/wtp_analyze.php "${TARGET}/wp-content/mu-plugins" "mu"      "${RAWDIR}/analysis/mu.json"      2>/dev/null || echo "{}" > "${RAWDIR}/analysis/mu.json"
+          php /tmp/wtp_analyze.php "${TARGET}/wp-content/plugins"    "plugins" "${RAWDIR}/analysis/plugins.json" 2>/dev/null || echo "{}" > "${RAWDIR}/analysis/plugins.json"
+          if [ -n "${ACTIVE_THEME}" ] && [ -d "${TARGET}/wp-content/themes/${ACTIVE_THEME}" ]; then
+            php /tmp/wtp_analyze.php "${TARGET}/wp-content/themes/${ACTIVE_THEME}" "theme" "${RAWDIR}/analysis/theme.json" 2>/dev/null || echo "{}" > "${RAWDIR}/analysis/theme.json"
           else
-            : > "${RAWDIR}/themes_slugs.txt"; : > "${RAWDIR}/themes_trees.tsv"
+            echo "{}" > "${RAWDIR}/analysis/theme.json"
           fi
 
-          if [[ -d "${PLUG_DIR}" ]]; then
-            find "${PLUG_DIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > "${RAWDIR}/plugins_slugs.txt" || true
-            : > "${RAWDIR}/plugins_trees.tsv"
-            while read -r p; do
-              [[ -z "$p" ]] && continue
-              (cd "${PLUG_DIR}/${p}" && find . -type f -printf '%P\n' | sort) > "${RAWDIR}/plugins/${p}.tree" 2>>"${ERR}" || true
-              (cd "${PLUG_DIR}/${p}" && find . -type f -print0 | sort -z | xargs -0 sha1sum) | awk '{print $1}' | tr -d '\r' | sort | sha1sum | awk '{print $1"\t'${p}'"}' >> "${RAWDIR}/plugins_trees.tsv" || true
-            done < "${RAWDIR}/plugins_slugs.txt"
-          else
-            : > "${RAWDIR}/plugins_slugs.txt"; : > "${RAWDIR}/plugins_trees.tsv"
+          if [ "${PROFILE}" = "full" ]; then
+            # D) Drzewa + hashe: themes
+            TDIR="${TARGET}/wp-content/themes"
+            if [ -d "${TDIR}" ]; then
+              find "${TDIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > "${RAWDIR}/themes_slugs.txt" || true
+              while read -r t; do
+                [ -z "$t" ] && continue
+                tdir="${TDIR}/${t}"; tout="${RAWDIR}/themes/${t}"; mkdir -p "$tout"
+                (cd "$tdir" && find . -type f -printf '%P\n' | sort) > "$tout/tree.txt" 2>/dev/null || true
+                (cd "$tdir" && find . -type f -print0 | sort -z | xargs -0 sha1sum) > "$tout/hashes.sha1" 2>/dev/null || true
+              done < "${RAWDIR}/themes_slugs.txt"
+            fi
+
+            # E) Drzewa + hashe: plugins
+            PDIR="${TARGET}/wp-content/plugins"
+            if [ -d "${PDIR}" ]; then
+              find "${PDIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > "${RAWDIR}/plugins_dirs.txt" || true
+              while read -r p; do
+                [ -z "$p" ] && continue
+                pdir="${PDIR}/${p}"; pout="${RAWDIR}/plugins/${p}"; mkdir -p "$pout"
+                (cd "$pdir" && find . -type f -printf '%P\n' | sort) > "$pout/tree.txt" 2>/dev/null || true
+                (cd "$pdir" && find . -type f -print0 | sort -z | xargs -0 sha1sum) > "$pout/hashes.sha1" 2>/dev/null || true
+              done < "${RAWDIR}/plugins_dirs.txt"
+            fi
+
+            # F) MU-plugins (pliki/katalogi + hashe)
+            MUDIR="${TARGET}/wp-content/mu-plugins"
+            if [ -d "${MUDIR}" ]; then
+              find "${MUDIR}" -maxdepth 1 -type f -printf '%f\n' | sort > "${RAWDIR}/mu_files.txt" 2>/dev/null || true
+              find "${MUDIR}" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > "${RAWDIR}/mu_dirs.txt" 2>/dev/null || true
+              while read -r it; do
+                [ -z "$it" ] && continue
+                path="${MUDIR}/${it}"; mout="${RAWDIR}/mu-plugins/${it}"; mkdir -p "$mout"
+                if [ -d "$path" ]; then
+                  (cd "$path" && find . -type f -printf '%P\n' | sort) > "$mout/tree.txt" 2>/dev/null || true
+                  (cd "$path" && find . -type f -print0 | sort -z | xargs -0 sha1sum) > "$mout/hashes.sha1" 2>/dev/null || true
+                else
+                  echo "$it" > "$mout/tree.txt"
+                  sha1sum "$path" > "$mout/hashes.sha1" 2>/dev/null || true
+                fi
+              done < <(cat "${RAWDIR}/mu_dirs.txt" "${RAWDIR}/mu_files.txt" 2>/dev/null || true)
+            fi
+
+            # G) Języki
+            LDIR="${TARGET}/wp-content/languages"
+            if [ -d "${LDIR}" ]; then
+              (cd "${LDIR}" && find . -type f -printf '%P\n' | sort) > "${RAWDIR}/languages/tree.txt" 2>/dev/null || true
+              (cd "${LDIR}" && find . -type f -print0 | sort -z | xargs -0 sha1sum) > "${RAWDIR}/languages/hashes.sha1" 2>/dev/null || true
+            fi
+
+            # H) Admini, theme_mods, kategorie, SSOT
+            wp user list --role=administrator --field=user_login --format=json > "${RAWDIR}/admins.json" 2>/dev/null || echo "[]" > "${RAWDIR}/admins.json"
+            if [ -n "${ACTIVE_THEME}" ]; then
+              wp option get "theme_mods_${ACTIVE_THEME}" --format=json > "${RAWDIR}/theme_mods.json" 2>/dev/null || echo "{}" > "${RAWDIR}/theme_mods.json"
+            else
+              echo "{}" > "${RAWDIR}/theme_mods.json"
+            fi
+            wp term list category --fields=term_id,slug,name,parent,count,term_taxonomy_id --format=json > "${RAWDIR}/taxonomy_category.json" 2>/dev/null || echo "[]" > "${RAWDIR}/taxonomy_category.json"
+            [ -f "${TARGET}/.wtp/ssot.yml" ] && cp "${TARGET}/.wtp/ssot.yml" "${RAWDIR}/ssot.yml" || true
           fi
 
-          # E) Minimal server info
-          {
-            echo "user: $(whoami || true)"
-            echo "uname: $(uname -a || true)"
-            echo "datetime: $(date -Is || true)"
-          } > "${RAWDIR}/server_info.txt" || true
+          # I) Zbuduj snapshot.json (w zależności od profilu)
+          if [ "${PROFILE}" = "full" ]; then
+            jq -n \
+              --arg run_id "${RUN_ID}" \
+              --arg url "${URL}" --arg home "${HOME}" \
+              --arg wp "${WPV}" --arg php "${PHPV}" \
+              --arg themes "$(cat "${RAWDIR}/themes.json")" \
+              --arg plugins "$(cat "${RAWDIR}/plugins.json")" \
+              --arg active_plugins "$(cat "${RAWDIR}/plugins_active.json")" \
+              --arg active_theme "$(cat "${RAWDIR}/theme_active_slug.txt" 2>/dev/null || echo "")" \
+              --arg mu_a "$(cat "${RAWDIR}/analysis/mu.json")" \
+              --arg pl_a "$(cat "${RAWDIR}/analysis/plugins.json")" \
+              --arg th_a "$(cat "${RAWDIR}/analysis/theme.json")" \
+              --arg admins "$(cat "${RAWDIR}/admins.json" 2>/dev/null || echo "[]")" \
+              --arg theme_mods "$(cat "${RAWDIR}/theme_mods.json" 2>/dev/null || echo "{}")" \
+              --arg tax_cat "$(cat "${RAWDIR}/taxonomy_category.json" 2>/dev/null || echo "[]")" \
+              '{
+                run_id: ($run_id|tonumber),
+                site: { url:$url, home:$home, wp:$wp, php:$php },
+                theme: { active:$active_theme, analysis: ($th_a|fromjson) },
+                plugins: { all: ($plugins|fromjson), active: ($active_plugins|fromjson), analysis: ($pl_a|fromjson) },
+                mu: ($mu_a|fromjson),
+                admins: ($admins|fromjson),
+                theme_mods: ($theme_mods|fromjson),
+                content: { taxonomy: { category: ($tax_cat|fromjson) } }
+              }' > "${RAWDIR}/snapshot.json"
+          else
+            jq -n \
+              --arg run_id "${RUN_ID}" \
+              --arg url "${URL}" --arg home "${HOME}" \
+              --arg wp "${WPV}" --arg php "${PHPV}" \
+              --arg themes "$(cat "${RAWDIR}/themes.json")" \
+              --arg plugins "$(cat "${RAWDIR}/plugins.json")" \
+              --arg active_plugins "$(cat "${RAWDIR}/plugins_active.json")" \
+              --arg active_theme "$(cat "${RAWDIR}/theme_active_slug.txt" 2>/dev/null || echo "")" \
+              --arg mu_a "$(cat "${RAWDIR}/analysis/mu.json")" \
+              --arg pl_a "$(cat "${RAWDIR}/analysis/plugins.json")" \
+              --arg th_a "$(cat "${RAWDIR}/analysis/theme.json")" \
+              '{
+                run_id: ($run_id|tonumber),
+                site: { url:$url, home:$home, wp:$wp, php:$php },
+                theme: { active:$active_theme, analysis: ($th_a|fromjson) },
+                plugins: { all: ($plugins|fromjson), active: ($active_plugins|fromjson), analysis: ($pl_a|fromjson) },
+                mu: ($mu_a|fromjson)
+              }' > "${RAWDIR}/snapshot.json"
+          fi
 
-          exit 0
+          echo "[OK] snapshot.json -> ${RAWDIR}/snapshot.json"
           SNAP
-          chmod +x /tmp/wtp_snapshot_raw.sh
+          chmod +x .wtp/_tmp/wtp_snapshot_raw.sh
 
-      - name: Upload helper scripts (scp)
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host:     ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key:      ${{ secrets.DEPLOY_SSH_KEY }}
-          port:     ${{ secrets.DEPLOY_PORT }}
-          source:   "/tmp/wtp_snapshot_raw.sh,/tmp/wtp_analyze.php"
-          target:   "/tmp"
-
-      - name: SSH sanity (whoami, php -v)
+      - name: SSH sanity
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host:     ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key:      ${{ secrets.DEPLOY_SSH_KEY }}
-          port:     ${{ secrets.DEPLOY_PORT }}
-          script_stop: true
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
           script: |
             set -euo pipefail
-            whoami; php -v | head -n 2 || true
-            test -d "${{ secrets.DEPLOY_TARGET }}" || { echo "ERR: no target"; exit 3; }
+            echo "[INFO] Connected as $(whoami) on $(hostname)"
+            test -d "${TARGET}" && echo "TARGET ok: ${TARGET}" || { echo "NO TARGET"; exit 2; }
 
-      - name: Run RAW snapshot remotely
+      - name: Upload helper scripts (workspace → /tmp on server)
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          source:   ".wtp/_tmp/wtp_*"
+          target:   "/tmp/"
+          overwrite: true
+
+      - name: Run remote snapshot
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host:     ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key:      ${{ secrets.DEPLOY_SSH_KEY }}
-          port:     ${{ secrets.DEPLOY_PORT }}
-          script_stop: true
-          envs: RUN_ID,TARGET
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
           script: |
             set -euo pipefail
             RUN_ID='${{ github.run_id }}'
-            TARGET='${{ secrets.DEPLOY_TARGET }}'
-            RAWDIR="${TARGET}/.wtp/state/ci_logs/snapshot"
-            mkdir -p "${RAWDIR}"
-            php -v | head -n1 || true
-            RUN_ID="$RUN_ID" TARGET="$TARGET" bash /tmp/wtp_snapshot_raw.sh
-            echo "[OK] raw snapshot done into ${RAWDIR}"
+            TARGET='${{ env.TARGET }}'
+            SNAP_PROFILE='${{ env.SNAP_PROFILE }}'
+            bash /tmp/wtp_snapshot_raw.sh
 
-            # Prosta analiza aktywnego motywu (jeśli jest)
-            ACTIVE="$(wp --path="${TARGET}" theme list --status=active --field=name 2>/dev/null | head -n1 || true)"
-            if [ -n "$ACTIVE" ] && [ -d "${TARGET}/wp-content/themes/${ACTIVE}" ]; then
-              php /tmp/wtp_analyze.php "${TARGET}/wp-content/themes/${ACTIVE}" "theme" "${RAWDIR}/theme_analysis.json" || echo "{}" > "${RAWDIR}/theme_analysis.json"
-            else
-              echo "{}" > "${RAWDIR}/theme_analysis.json"
-            fi
-
-      - name: Pull RAW folder back (scp)
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host:     ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          key:      ${{ secrets.DEPLOY_SSH_KEY }}
-          port:     ${{ secrets.DEPLOY_PORT }}
-          source:   "${{ secrets.DEPLOY_TARGET }}/.wtp/state/ci_logs/snapshot/*"
-          target:   "_ci_logs/${{ github.run_id }}/snapshot"
-          strip_components: 5
-
-      - name: Assemble snapshot.json locally
+      - name: Pull RAW back to artifacts
         run: |
           set -euo pipefail
-          RAW="_ci_logs/${{ github.run_id }}/snapshot"
-          SNAP="${RAW}/snapshot.json"
+          mkdir -p "_ci_logs/${{ github.run_id }}"
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
+            "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/snapshot" \
+            "_ci_logs/${{ github.run_id }}/" || true
+          ls -la "_ci_logs/${{ github.run_id }}/snapshot" || true
 
-          safe() { [ -f "$1" ] && cat "$1" || echo ""; }
-          readj(){ [ -s "$1" ] && cat "$1" || echo "$2"; }
-
-          THEMES_ALL="$(readj "${RAW}/themes.json" '[]')"
-          PLUGINS_STD="$(readj "${RAW}/plugins.json" '[]')"
-          MU_PLUGINS="$(readj "${RAW}/mu_plugins.json" '[]')"
-          ACTIVE_THEME="$(safe  "${RAW}/theme_active_slug.txt")"
-          PLUGINS_ACTIVE="$(readj "${RAW}/plugins_active.json" '[]')"
-          THEME_ANALYSIS="$(readj "${RAW}/theme_analysis.json" '{}')"
-
-          SITE_URL="$(grep '^url='        "${RAW}/site_info.env" 2>/dev/null | sed 's/^url=//')"
-          SITE_HOME="$(grep '^home='       "${RAW}/site_info.env" 2>/dev/null | sed 's/^home=//')"
-          WP_VER="$(grep '^wp_version='    "${RAW}/site_info.env" 2>/dev/null | sed 's/^wp_version=//')"
-          PHP_VER="$(grep '^php_version='  "${RAW}/site_info.env" 2>/dev/null | sed 's/^php_version=//')"
-
-          jq -n \
-            --arg run_id "${{ github.run_id }}" \
-            --arg ts "$(date -Is)" \
-            --arg url "$SITE_URL" \
-            --arg home "$SITE_HOME" \
-            --arg wp "$WP_VER" \
-            --arg php "$PHP_VER" \
-            --arg themes_all "$THEMES_ALL" \
-            --arg active_theme "$ACTIVE_THEME" \
-            --arg plugins "$PLUGINS_STD" \
-            --arg mu "$MU_PLUGINS" \
-            --arg act "$PLUGINS_ACTIVE" \
-            --arg theme_an "$THEME_ANALYSIS" \
-            '
-              {
-                run_id: ($run_id|tonumber),
-                timestamp: $ts,
-                site: { url:$url, home:$home, wp_version:$wp, php_version:$php },
-                theme: { active: (if ($active_theme|length)>0 then {stylesheet:$active_theme} else null end),
-                         all: ($themes_all|fromjson),
-                         analysis: ($theme_an|fromjson) },
-                plugins: { standard: ($plugins|fromjson),
-                           must_use: ($mu|fromjson),
-                           active:   ($act|fromjson) }
-              }
-            ' > "$SNAP"
-
-          echo "::notice::Built snapshot.json ($(wc -c < "$SNAP") bytes)"
-          ls -la "$RAW"
-
-      - name: Upload artifact (snapshot logs)
-        uses: actions/upload-artifact@v4
-        with:
-          name: snapshot-logs-${{ github.run_id }}
-          path: _ci_logs/${{ github.run_id }}/snapshot/**
-          retention-days: 14
-
-      - name: Publish snapshot to repo (RO mirror)
+      - name: Publish RO to repo
         run: |
           set -euo pipefail
-          RAW="_ci_logs/${{ github.run_id }}/snapshot"
-          SNAP="${RAW}/snapshot.json"
-
-          SNAP_DIR=".wtp/snapshots"
-          RO_DIR=".wtp/state/ro/public/${{ github.run_id }}"
-          RO_LATEST=".wtp/state/ro/public/latest"
-
-          mkdir -p "$SNAP_DIR" "$RO_DIR"
-          cp -a "$RAW/." "$RO_DIR/"
-          cp "$SNAP" "$SNAP_DIR/snapshot-${{ github.run_id }}.json"
-          cp "$SNAP" "$SNAP_DIR/snapshot-latest.json"
-
-          rm -rf "$RO_LATEST"
-          mkdir -p "$(dirname "$RO_LATEST")"
-          cp -a "$RO_DIR" "$RO_LATEST"
+          SRC="_ci_logs/${{ github.run_id }}/snapshot"
+          DEST_RO=".wtp/state/ro/public/${{ github.run_id }}"
+          LATEST=".wtp/state/ro/public/latest"
+          mkdir -p "${DEST_RO}"
+          cp -a "${SRC}/." "${DEST_RO}/"
+          rm -rf "${LATEST}" && mkdir -p "$(dirname "${LATEST}")" && cp -a "${DEST_RO}" "${LATEST}"
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$SNAP_DIR/snapshot-${{ github.run_id }}.json" "$SNAP_DIR/snapshot-latest.json" "$RO_DIR" "$RO_LATEST"
-          git commit -m "Publish snapshot run ${{ github.run_id }} (appleboy SSH pipeline)" || echo "Nothing to commit"
-          git push || true
+          git add "${DEST_RO}" "${LATEST}"
+          if git diff --staged --quiet; then
+            echo "Nothing to commit."
+          else
+            git commit -m "snapshot(${ { env.SNAP_PROFILE }}): run ${{ github.run_id }} (RO mirror)"
+            git push
+          fi
 
       - name: Done
-        run: echo "::notice::03_snapshot completed for run ${{ github.run_id }}."
+        run: echo "::notice::Snapshot (${ { env.SNAP_PROFILE }}) finished → .wtp/state/ro/public/latest/snapshot.json"
