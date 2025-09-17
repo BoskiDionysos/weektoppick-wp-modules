@@ -1,0 +1,11 @@
+run_id: 17747607002
+timestamp: 2025-09-15T21:49:34+00:00
+site.url: https://weektoppick.com
+wp/php: 6.8.2 / 8.3.22
+themes_total: 1
+plugins_total: 6
+plugins_active: 6
+plugins_mu: 7
+admins: 1
+active_theme: 
+active_plugins: classic-editor,cookie-law-info,litespeed-cache,pretty-link,seo-by-rank-math,wordfence
