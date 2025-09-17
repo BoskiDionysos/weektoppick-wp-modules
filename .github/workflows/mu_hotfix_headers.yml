@@ -1,4 +1,4 @@
-name: mu_fix_trail_scan
+name: mu_hotfix_headers
 
 on:
   workflow_dispatch: {}
@@ -7,15 +7,15 @@ permissions:
   contents: read
 
 concurrency:
-  group: mu-fix-trail
+  group: mu-hotfix-headers
   cancel-in-progress: true
 
 jobs:
-  fix-and-scan:
+  fix:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Fix TRAIL (pure POSIX) + rescan
+      - name: Hotfix on server (init cookie hook + strip TRAIL + mute early echoes)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ secrets.DEPLOY_HOST }}
@@ -27,104 +27,102 @@ jobs:
             set -eu
 
             ROOT="${HOME}/domains/weektoppick.com/public_html"
-            test -f "${ROOT}/wp-config.php" || { echo "::error::Brak wp-config.php w ${ROOT}"; exit 1; }
+            if [ ! -f "${ROOT}/wp-config.php" ]; then
+              echo "::error::Brak wp-config.php w ${ROOT}"
+              exit 1
+            fi
             cd "${ROOT}"
             echo "[INFO] WP_ROOT=${ROOT}"
 
-            TARGETS="wp-content/mu-plugins wp-content/themes"
+            THEME_DIR="wp-content/themes/wtp-core-theme"
+            MU_DIR="wp-content/mu-plugins"
+            THEME_FN="${THEME_DIR}/functions.php"
 
-            echo "== A) Wykryj pliki z TRAIL (tekst po '?>' na końcu) =="
-            TRAIL_LIST="$(mktemp)"
-            # Skany bez /proc i bez perl: wypiszemy pliki, w których po '?>' NIE jest czysty EOF
-            # Heurystyka: jeżeli plik zawiera '?>' i ostatnia linia NIE kończy się dokładnie na '?>'
-            # to potencjalnie ma śmieci po zamykającym tagu.
-            while IFS= read -r f; do
-              # pomiń bardzo duże binarne rzeczy – ale my i tak bierzemy *.php
-              if grep -q "?>" "$f"; then
-                # ostatnie 200 bajtów wystarczą, żeby ocenić ogon
-                TAILHEX="$(tail -c 200 "$f" | od -An -tx1 || true)"
-                # jeśli w ogonie jest sekwencja '3f 3e' (?>), a po niej cokolwiek nie-białego → uznamy za TRAIL
-                # prościej: sprawdźmy literalnie: jeśli plik kończy się '?>' + (SP/TAB/CR/LF) → OK,
-                # jeśli ma '?>' a nie kończy się bezpośrednio na '?>' → oznacz jako TRAIL
-                if awk 'END{ if (NR==0) exit 1; last=$0; } END{ if (match(last,/\?>[[:space:]]*$/)) exit 1; else exit 0 }' "$f"; then
-                  echo "$f" >> "$TRAIL_LIST"
-                fi
+            echo "== 1) Ensure INIT hook in functions.php (cookies before output) =="
+            if [ -f "${THEME_FN}" ]; then
+              if ! grep -q "wtp_boot_lang_cookie" "${THEME_FN}"; then
+                TMPFN="$(mktemp)"
+                {
+                  echo "<?php"
+                  echo "// WTP safeguard: move language cookie to early 'init' (prio 0) to avoid 'headers already sent'"
+                  echo "add_action('init', function(){"
+                  echo "    if (function_exists('wtp_detect_lang')) {"
+                  echo "        if (!headers_sent()) { wtp_detect_lang(); }"
+                  echo "    }"
+                  echo "}, 0);"
+                  echo "?>"
+                } > "${TMPFN}"
+                # sklej nasz blok + istniejący plik (bez niszczenia)
+                cat "${TMPFN}" "${THEME_FN}" > "${THEME_FN}.wtp.tmp" && mv "${THEME_FN}.wtp.tmp" "${THEME_FN}"
+                rm -f "${TMPFN}"
+                echo "Injected init hook into ${THEME_FN}"
+              else
+                echo "Init hook already present in ${THEME_FN}"
               fi
-            done < <(find $TARGETS -type f -name '*.php' 2>/dev/null)
-
-            echo "-- TRAIL kandydaci --"
-            if [ -s "$TRAIL_LIST" ]; then
-              nl -ba "$TRAIL_LIST"
             else
-              echo "(brak)"
+              echo "::warning::Theme functions.php not found: ${THEME_FN}"
             fi
 
-            echo "== B) Napraw TRAIL (usuń końcowe '?>' + whitespace) =="
-            if [ -s "$TRAIL_LIST" ]; then
-              while IFS= read -r f; do
-                cp "$f" "$f.wtp.bak" || true
-                # Zbuduj nową wersję bez końcowego '?>' i białych znaków po nim:
-                awk '{
-                      buf = buf $0 ORS
+            echo "== 2) Build file list (PHP files in mu-plugins and theme) =="
+            LIST="/tmp/wtp_php_files.txt"
+            : > "${LIST}"
+            if [ -d "${MU_DIR}" ]; then
+              find "${MU_DIR}" -type f -name '*.php' >> "${LIST}" 2>/dev/null || true
+            fi
+            if [ -d "${THEME_DIR}" ]; then
+              find "${THEME_DIR}" -type f -name '*.php' >> "${LIST}" 2>/dev/null || true
+            fi
+            sort -u "${LIST}" -o "${LIST}" || true
+            echo "Files to scan: $(wc -l < "${LIST}")"
+
+            echo "== 3) Strip trailing '?>' + whitespace at EOF (TRAIL fix) =="
+            while IFS= read -r f; do
+              [ -f "$f" ] || continue
+              php -r '
+                $f=$argv[1];
+                $s=@file_get_contents($f);
+                if($s===false){exit(0);}
+                $orig=$s;
+                // usuń białe znaki na końcu
+                $s=rtrim($s);
+                // usuń końcowe "?>" + białe znaki (tylko na samym końcu)
+                if(preg_match("/\\?>\\s*\\z/s",$s)){
+                  $s=preg_replace("/\\?>\\s*\\z/s","",$s);
+                }
+                if($s!==$orig){
+                  @copy($f,$f.".wtp.bak");
+                  file_put_contents($f,$s);
+                  echo "TRAIL fixed: $f\n";
+                }
+              ' "$f"
+            done < "${LIST}"
+
+            echo "== 4) Mute early echoes in TOP 40 lines (echo/print/var_dump/printf) =="
+            while IFS= read -r f; do
+              [ -f "$f" ] || continue
+              php -r '
+                $f=$argv[1];
+                $src=@file($f, FILE_IGNORE_NEW_LINES);
+                if($src===false){exit(0);}
+                $changed=false;
+                $max=min(40,count($src));
+                for($i=0;$i<$max;$i++){
+                  if(preg_match("/^\\s*(echo|print|var_dump|printf)\\b/",$src[$i])){
+                    if(strpos($src[$i],"/*WTP-MUTE*/")===false){
+                      $src[$i]="/*WTP-MUTE*/ // ".$src[$i];
+                      $changed=true;
                     }
-                    END{
-                      # usuń trailing whitespace na końcu
-                      sub(/[[:space:]]+$/,"",buf)
-                      # usuń końcowe "?>" + ewentualny whitespace
-                      sub(/\?>[[:space:]]*$/,"",buf)
-                      printf "%s", buf
-                    }' "$f" > "$f.wtp.tmp" && mv "$f.wtp.tmp" "$f"
-                echo "fixed: $f"
-              done < "$TRAIL_LIST"
-            else
-              echo "Nic do naprawy (TRAIL)"
-            fi
+                  }
+                }
+                if($changed){
+                  @copy($f,$f.".wtp.bak2");
+                  file_put_contents($f,implode("\n",$src));
+                  echo "ECHO_TOP muted: $f\n";
+                }
+              ' "$f"
+            done < "${LIST}"
 
-            echo "== C) Rescan (BOM / HEAD / TRAIL / ECHO_TOP) =="
-            echo "-- 1) BOM na początku (EF BB BF) --"
-            FOUND=0
-            while IFS= read -r f; do
-              if head -c 3 "$f" | od -An -tx1 | grep -qi "ef bb bf"; then
-                echo "BOM: $f"; FOUND=1
-              fi
-            done < <(find $TARGETS -type f -name '*.php' 2>/dev/null)
-            [ "${FOUND:-0}" -eq 0 ] && echo "(none)"
-
-            echo "-- 2) Pliki nie zaczynające się od '<?php' (informacyjnie) --"
-            FOUND=0
-            while IFS= read -r f; do
-              H="$(head -c 5 "$f" | tr -d '\r\n')"
-              if [ "$H" != "<?php" ]; then
-                echo "HEAD: $f  (starts with: $(head -c 16 "$f" | od -An -tx1 || true))"
-                FOUND=1
-              fi
-            done < <(find $TARGETS -type f -name '*.php' 2>/dev/null)
-            [ "${FOUND:-0}" -eq 0 ] && echo "(none)"
-
-            echo "-- 3) TRAIL po naprawie --"
-            FOUND=0
-            while IFS= read -r f; do
-              if grep -q "?>" "$f"; then
-                if awk 'END{ if (NR==0) exit 1; last=$0; } END{ if (match(last,/\?>[[:space:]]*$/)) exit 1; else exit 0 }' "$f"; then
-                  echo "TRAIL: $f"; FOUND=1
-                fi
-              fi
-            done < <(find $TARGETS -type f -name '*.php' 2>/dev/null)
-            [ "${FOUND:-0}" -eq 0 ] && echo "(none)"
-
-            echo "-- 4) echo/print/var_dump/printf w TOP 40 liniach --"
-            FOUND=0
-            while IFS= read -r f; do
-              if head -n 40 "$f" | grep -qE '^[[:space:]]*(echo|print|var_dump|printf)\b'; then
-                echo "ECHO_TOP: $f"; FOUND=1
-              fi
-            done < <(find $TARGETS -type f -name '*.php' 2>/dev/null)
-            [ "${FOUND:-0}" -eq 0 ] && echo "(none)"
-
-            echo "== D) Podgląd functions.php (początek) =="
-            THEME_FN="wp-content/themes/wtp-core-theme/functions.php"
-            command -v xxd >/dev/null && xxd -g 1 -l 16 "${THEME_FN}" || head -c 32 "${THEME_FN}" | od -An -tx1
-            echo "-- first 60 lines --"
-            nl -ba "${THEME_FN}" | sed -n '1,60p' || true
+            echo "== 5) Quick sanity (functions.php head) =="
+            head -n 20 "${THEME_FN}" | nl -ba || true
 
             echo "== DONE =="
