@@ -1,0 +1,1 @@
+ * Plugin Name: WTP Taxonomy i18n + SEO (mu-plugin)
