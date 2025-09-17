@@ -37,13 +37,35 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y curl sshpass jq
 
-      - name: 3) Remote snapshot (server-side export)
+      - name: 3) Debug SSH env
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ env.HOST }}
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
           port:     ${{ env.PORT }}
+          request_pty: true
+          envs: TARGET
+          script: |
+            set -euo pipefail
+            echo "=== whoami/hostname ==="
+            whoami
+            hostname
+            echo "=== PHP ==="
+            php -v || true
+            echo "=== WP path ==="
+            which wp || echo "wp not in PATH"
+            echo "=== WP info ==="
+            wp --info || echo "wp failed"
+
+      - name: 4) Remote snapshot (server-side export)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          request_pty: true
           envs: TARGET
           script: |
             set -euo pipefail
@@ -82,20 +104,21 @@ jobs:
             fi
 
             wp theme list --status=active --field=name 2>/dev/null | head -n1 > "${OUTDIR}/active_theme.txt" || :
-
             : > "${OUTDIR}/errors.txt"
 
             echo "[INFO] snapshot raw files at ${OUTDIR}"
+            ls -la "${OUTDIR}" | sed -n '1,200p'
 
-      - name: 4) Download snapshot logs
+      - name: 5) Download snapshot logs
         run: |
           set -euo pipefail
           mkdir -p "_ci_logs/${{ github.run_id }}"
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
             "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/snapshot" \
             "_ci_logs/${{ github.run_id }}/" || true
+          ls -la "_ci_logs/${{ github.run_id }}/snapshot" || true
 
-      - name: 5) Assemble snapshot.json
+      - name: 6) Assemble snapshot.json
         run: |
           set -euo pipefail
           RAW="_ci_logs/${{ github.run_id }}/snapshot"
@@ -145,7 +168,7 @@ jobs:
           echo "::notice::Built snapshot.json"
           jq '.run_id,.site.wp_version,.site.php_version,.active_theme' "${SNAP}" || true
 
-      - name: 6) Generate ARCHITECTURE.md
+      - name: 7) Generate ARCHITECTURE.md
         run: |
           set -euo pipefail
           RAW="_ci_logs/${{ github.run_id }}/snapshot"
@@ -172,14 +195,14 @@ jobs:
             echo "- Admins: ${ADM_COUNT}"
           } > "${OUT}"
 
-      - name: 7) Upload artifact
+      - name: 8) Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-logs-${{ github.run_id }}
           path: _ci_logs/${{ github.run_id }}/snapshot/**
           retention-days: 14
 
-      - name: 8) Commit + publish snapshot (stable latest copy)
+      - name: 9) Commit + publish snapshot (stable latest copy)
         run: |
           set -euo pipefail
           SNAP_DIR=".wtp/snapshots"
@@ -206,7 +229,7 @@ jobs:
             git push
           fi
 
-      - name: 9) Report summary
+      - name: 10) Report summary
         if: always()
         run: |
           set -euo pipefail
