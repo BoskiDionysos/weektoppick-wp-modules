@@ -1,0 +1,52 @@
+name: mu_fix_functions_cleanup
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clean functions.php (dedupe init hook, remove closing ?>)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ secrets.DEPLOY_HOST }}
+          port:     ${{ secrets.DEPLOY_PORT }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASS }}
+          command_timeout: 10m
+          script: |
+            set -eu
+            ROOT="${HOME}/domains/weektoppick.com/public_html"
+            THEME_FN="${ROOT}/wp-content/themes/wtp-core-theme/functions.php"
+            test -f "${THEME_FN}" || { echo "::error::Brak ${THEME_FN}"; exit 1; }
+
+            cp "${THEME_FN}" "${THEME_FN}.pre-clean.bak" || true
+
+            # 1) Usuń zamykający tag ?> jeśli występuje
+            perl -0777 -pe 's/\?>\s*\n?//s' -i "${THEME_FN}"
+
+            # 2) Zdeduplikuj hook init (zostaw tylko JEDEN blok)
+            php -r '
+              $f=$argv[1];
+              $s=@file_get_contents($f);
+              if($s===false){exit(0);}
+              $pattern="/add_action\\(\\s*\\x27init\\x27\\s*,\\s*function\\s*\\(\\)\\s*\\{\\s*if\\s*\\(function_exists\\(\\x27wtp_detect_lang\\x27\\)\\)\\s*\\{\\s*if\\s*\\(!headers_sent\\(\\)\\)\\s*\\{\\s*wtp_detect_lang\\(\\);\\s*\\}\\s*\\}\\s*\\}\\s*,\\s*0\\s*\\);/s";
+              preg_match_all($pattern,$s,$m);
+              if (count($m[0])>1){
+                // zostaw pierwsze wystąpienie, resztę usuń
+                $first=true;
+                $s=preg_replace_callback($pattern,function($x) use (&$first){
+                  if($first){ $first=false; return $x[0]; }
+                  return "";
+                },$s);
+              }
+              file_put_contents($f,$s);
+            ' "${THEME_FN}"
+
+            echo "== AFTER =="
+            nl -ba "${THEME_FN}" | sed -n '1,40p'
+            echo "Cleanup done."
