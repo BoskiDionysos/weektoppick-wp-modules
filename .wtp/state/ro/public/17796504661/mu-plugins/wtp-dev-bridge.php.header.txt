@@ -1,0 +1,1 @@
+ * Plugin Name: WTP Dev Bridge — GitHub Export + Patcher (all-in-one)
