@@ -1,4 +1,4 @@
-name: 03_snapshot (WordPress → SSOT, full state + code analysis, offline assembly)
+name: 03_snapshot (WordPress -> SSOT, full state + code analysis, offline assembly)
 
 on:
   workflow_run:
@@ -15,10 +15,8 @@ concurrency:
 
 jobs:
   snapshot:
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success')
+    # jeden wiersz, bez '|' – GitHub nie marudzi
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -40,7 +38,7 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y curl sshpass jq
 
-      - name: 2a) SSH sanity
+      - name: 3) Remote snapshot (create raw files on server)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ env.HOST }}
@@ -50,127 +48,59 @@ jobs:
           envs: TARGET
           script: |
             set -euo pipefail
-            echo "[INFO] Connected as $(whoami) on $(hostname)"
-            test -d "${TARGET}" && echo "TARGET ok: ${TARGET}" || { echo "NO TARGET: ${TARGET}"; exit 2; }
-            cd "${TARGET}" || exit 3
-            test -f wp-config.php && echo "OK: wp-config" || { echo "ERR: no wp-config"; exit 4; }
-            ls -la | head -n 20
+            : "${TARGET:?TARGET required}"
+            cd "${TARGET}"
 
-      - name: 3) Upload analyzer + snapshot script
-        run: |
-          set -euo pipefail
+            OUTDIR="${TARGET}/.wtp/state/ci_logs/snapshot"
+            mkdir -p "${OUTDIR}"
 
-          # --- analyzer (php) – lekki, nieinwazyjny (możesz rozbudować później) ---
-          cat > /tmp/wtp_analyze.php <<'ANALYZER'
-          <?php
-          if (!defined('ABSPATH')) { define('SHORTINIT', true); }
-          // Minimal placeholder – nie robi nic destrukcyjnego.
-          // Zostawiamy jako hak do ewentualnych analiz offline/na żądanie.
-          exit(0);
-          ANALYZER
+            # sanity
+            test -f wp-config.php
 
-          # --- raw snapshot shell (zbiera dane po stronie serwera i zapisuje JSON-y) ---
-          cat > /tmp/wtp_snapshot_raw.sh <<'SNAPRAW'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          : "${TARGET:?TARGET required}"
-          : "${RUN_ID:?RUN_ID required}"
+            # basics
+            php -r 'echo PHP_VERSION;' > "${OUTDIR}/php_version.txt"
+            wp  core version > "${OUTDIR}/wp_version.txt" 2>/dev/null || echo unknown > "${OUTDIR}/wp_version.txt"
+            wp  option get home    > "${OUTDIR}/home.txt"    2>/dev/null || : > "${OUTDIR}/home.txt"
+            wp  option get siteurl > "${OUTDIR}/siteurl.txt" 2>/dev/null || : > "${OUTDIR}/siteurl.txt"
+            hostname > "${OUTDIR}/hostname.txt" || echo unknown > "${OUTDIR}/hostname.txt"
+            date -u +%FT%TZ > "${OUTDIR}/ts_utc.txt"
 
-          cd "${TARGET}"
+            # lists
+            wp plugin list --format=json > "${OUTDIR}/plugins.json" || echo "[]" > "${OUTDIR}/plugins.json"
+            wp theme  list --format=json > "${OUTDIR}/themes.json"  || echo "[]" > "${OUTDIR}/themes.json"
+            wp user   list --role=administrator --format=json > "${OUTDIR}/admins.json" || echo "[]" > "${OUTDIR}/admins.json"
 
-          OUTDIR="${TARGET}/.wtp/state/ci_logs/snapshot"
-          mkdir -p "${OUTDIR}"
-
-          echo "[INFO] Starting snapshot for run=${RUN_ID} into ${OUTDIR}"
-
-          # helper do JSON escaping (bez zewn. jq po stronie serwera)
-          json_escape() {
-            python3 - <<'PY' "$1"
-import json,sys
-print(json.dumps(sys.argv[1]))
-PY
-          }
-
-          # 0) Host / php / wp
-          PHPVER="$(php -r 'echo PHP_VERSION;')"
-          HOSTNAME="$(hostname || echo unknown)"
-          NOW_UTC="$(date -u +%FT%TZ)"
-
-          # 1) Site URLs i WP version (wp-cli)
-          WPVER="$(wp core version 2>/dev/null || echo 'unknown')"
-          HOME_URL="$(wp option get home 2>/dev/null || echo '')"
-          SITE_URL="$(wp option get siteurl 2>/dev/null || echo '')"
-
-          printf '{"home":%s,"siteurl":%s,"wp_version":%s,"php_version":%s,"hostname":%s,"timestamp_utc":%s}\n' \
-            "$(json_escape "$HOME_URL")" \
-            "$(json_escape "$SITE_URL")" \
-            "$(json_escape "$WPVER")" \
-            "$(json_escape "$PHPVER")" \
-            "$(json_escape "$HOSTNAME")" \
-            "$(json_escape "$NOW_UTC")" > "${OUTDIR}/site.json"
-
-          # 2) Plugins / Themes / Users (wp-cli)
-          wp plugin list --format=json > "${OUTDIR}/plugins.json" || echo "[]" > "${OUTDIR}/plugins.json"
-          wp theme  list --format=json > "${OUTDIR}/themes.json"  || echo "[]" > "${OUTDIR}/themes.json"
-          wp user   list --role=administrator --format=json > "${OUTDIR}/admins.json" || echo "[]" > "${OUTDIR}/admins.json"
-
-          # 3) MU-plugins (scan katalogu)
-          MUDIR="${TARGET}/wp-content/mu-plugins"
-          if [ -d "${MUDIR}" ]; then
-            php -r '
-              $d=getenv("MUDIR");
-              $out=[];
-              if (is_dir($d)){
-                foreach (scandir($d) as $f){
-                  if ($f==="."||$f==="..") continue;
-                  $p="$d/$f";
-                  if (is_file($p)){
-                    $out[]=[
-                      "file"=>$f,
-                      "size"=>filesize($p),
-                      "md5"=>md5_file($p)
-                    ];
+            # MU plugins (scan directory)
+            MUDIR="${TARGET}/wp-content/mu-plugins"
+            if [ -d "${MUDIR}" ]; then
+              php -r '
+                $d=getenv("MUDIR");
+                $out=[];
+                if (is_dir($d)){
+                  foreach (scandir($d) as $f){
+                    if ($f==="."||$f==="..") continue;
+                    $p="$d/$f";
+                    if (is_file($p)){
+                      $out[]=["file"=>$f,"size"=>filesize($p),"md5"=>md5_file($p)];
+                    }
                   }
                 }
-              }
-              echo json_encode($out, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
-            ' > "${OUTDIR}/mu_plugins.json"
-          else
-            echo "[]" > "${OUTDIR}/mu_plugins.json"
-          fi
+                echo json_encode($out, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
+              ' > "${OUTDIR}/mu_plugins.json"
+            else
+              echo "[]" > "${OUTDIR}/mu_plugins.json"
+            fi
 
-          # 4) Active theme (prosto z wp-cli)
-          ACTIVE_THEME="$(wp theme list --status=active --field=name 2>/dev/null | head -n1 || true)"
-          printf '{"active":%s}\n' "$(json_escape "$ACTIVE_THEME")" > "${OUTDIR}/active_theme.json"
+            # active theme (text)
+            wp theme list --status=active --field=name 2>/dev/null | head -n1 > "${OUTDIR}/active_theme.txt" || : > "${OUTDIR}/active_theme.txt"
 
-          # 5) Opcjonalne: prosta kontrola błędów (pusta jeśli ok)
-          : > "${OUTDIR}/errors.txt"
+            # error bucket
+            : > "${OUTDIR}/errors.txt"
 
-          echo "[INFO] Snapshot artifacts written to ${OUTDIR}"
-          SNAPRAW
+            echo "[INFO] snapshot raw files at ${OUTDIR}"
+            ls -la "${OUTDIR}" | sed -n '1,200p'
 
-          chmod +x /tmp/wtp_snapshot_raw.sh
-
-          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no /tmp/wtp_analyze.php     "${USER}@${HOST}:/tmp/wtp_analyze.php"
-          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no /tmp/wtp_snapshot_raw.sh "${USER}@${HOST}:/tmp/wtp_snapshot_raw.sh"
-
-      - name: 4) Run snapshot remotely
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host:     ${{ env.HOST }}
-          username: ${{ env.USER }}
-          password: ${{ env.PASS }}
-          port:     ${{ env.PORT }}
-          envs: TARGET,RUN_ID
-          script: |
-            set -euo pipefail
-            echo "[INFO] run_id=${RUN_ID}"
-            bash /tmp/wtp_snapshot_raw.sh
-            php /tmp/wtp_analyze.php || true
-            rm -f /tmp/wtp_snapshot_raw.sh /tmp/wtp_analyze.php
-            echo "[INFO] Snapshot done"
-
-      - name: 5) Download snapshot logs
+      - name: 4) Download snapshot logs
         run: |
           set -euo pipefail
           mkdir -p "_ci_logs/${{ github.run_id }}"
@@ -179,49 +109,59 @@ PY
             "_ci_logs/${{ github.run_id }}/" || true
           ls -la "_ci_logs/${{ github.run_id }}/snapshot" || true
 
-      - name: 6) Assemble snapshot.json (offline)
+      - name: 5) Assemble snapshot.json (offline)
         run: |
           set -euo pipefail
           RAW="_ci_logs/${{ github.run_id }}/snapshot"
           SNAP="${RAW}/snapshot.json"
 
-          # defensive defaults
-          [ -f "${RAW}/site.json" ]         || echo '{}'  > "${RAW}/site.json"
-          [ -f "${RAW}/plugins.json" ]      || echo '[]'  > "${RAW}/plugins.json"
-          [ -f "${RAW}/themes.json" ]       || echo '[]'  > "${RAW}/themes.json"
-          [ -f "${RAW}/mu_plugins.json" ]   || echo '[]'  > "${RAW}/mu_plugins.json"
-          [ -f "${RAW}/admins.json" ]       || echo '[]'  > "${RAW}/admins.json"
-          [ -f "${RAW}/active_theme.json" ] || echo '{}'  > "${RAW}/active_theme.json"
-          [ -f "${RAW}/errors.txt" ]        || : > "${RAW}/errors.txt"
+          # defaults if anything missing
+          [ -f "${RAW}/plugins.json" ]    || echo '[]' > "${RAW}/plugins.json"
+          [ -f "${RAW}/themes.json" ]     || echo '[]' > "${RAW}/themes.json"
+          [ -f "${RAW}/mu_plugins.json" ] || echo '[]' > "${RAW}/mu_plugins.json"
+          [ -f "${RAW}/admins.json" ]     || echo '[]' > "${RAW}/admins.json"
+          [ -f "${RAW}/errors.txt" ]      || : > "${RAW}/errors.txt"
 
-          RUN_TS="$(date -u +%FT%TZ)"
-
+          # build JSON (czyści \n w plikach txt)
           jq -n \
-            --arg run_id   "${{ github.run_id }}" \
-            --arg run_ts   "${RUN_TS}" \
-            --slurpfile site        "${RAW}/site.json" \
-            --slurpfile plugins     "${RAW}/plugins.json" \
-            --slurpfile themes      "${RAW}/themes.json" \
-            --slurpfile mu_plugins  "${RAW}/mu_plugins.json" \
-            --slurpfile admins      "${RAW}/admins.json" \
-            --slurpfile active      "${RAW}/active_theme.json" \
-            --rawfile   errors_file "${RAW}/errors.txt" '
+            --arg run_id     "${{ github.run_id }}" \
+            --arg run_ts     "$(date -u +%FT%TZ)" \
+            --rawfile home      "${RAW}/home.txt" \
+            --rawfile siteurl   "${RAW}/siteurl.txt" \
+            --rawfile wpv       "${RAW}/wp_version.txt" \
+            --rawfile phpv      "${RAW}/php_version.txt" \
+            --rawfile host      "${RAW}/hostname.txt" \
+            --rawfile ts_utc    "${RAW}/ts_utc.txt" \
+            --rawfile active    "${RAW}/active_theme.txt" \
+            --slurpfile plugins "${RAW}/plugins.json" \
+            --slurpfile themes  "${RAW}/themes.json" \
+            --slurpfile mupl    "${RAW}/mu_plugins.json" \
+            --slurpfile admins  "${RAW}/admins.json" \
+            --rawfile   errs    "${RAW}/errors.txt" '
+            def trimnl: sub("[\\r\\n]+$";"");
             {
-              run_id:   $run_id,
-              run_ts:   $run_ts,
-              site:     ($site[0] // {}),
-              plugins:  ($plugins[0] // []),
-              themes:   ($themes[0] // []),
-              mu_plugins: ($mu_plugins[0] // []),
-              admins:   ($admins[0] // []),
-              active_theme: ($active[0] // {}),
-              errors:   ( ($errors_file | split("\n")) | map(select(length>0)) )
+              run_id: $run_id,
+              run_ts: $run_ts,
+              site: {
+                home:       ($home    | trimnl),
+                siteurl:    ($siteurl | trimnl),
+                wp_version: ($wpv     | trimnl),
+                php_version:($phpv    | trimnl),
+                hostname:   ($host    | trimnl),
+                timestamp_utc: ($ts_utc | trimnl)
+              },
+              plugins: ($plugins[0] // []),
+              themes:  ($themes[0]  // []),
+              mu_plugins: ($mupl[0] // []),
+              admins:  ($admins[0]  // []),
+              active_theme: { active: ($active | trimnl) },
+              errors: ( ($errs | split("\n")) | map(select(length>0)) )
             }' > "${SNAP}"
 
           echo "::notice::Built snapshot.json"
           jq '.run_id,.site.wp_version,.site.php_version,.active_theme' "${SNAP}" || true
 
-      - name: 7) Generate ARCHITECTURE.md
+      - name: 6) Generate ARCHITECTURE.md
         run: |
           set -euo pipefail
           RAW="_ci_logs/${{ github.run_id }}/snapshot"
@@ -235,13 +175,12 @@ PY
           PL_COUNT=$(jq -r '.plugins | length' "${SNAP}")
           MU_COUNT=$(jq -r '.mu_plugins | length' "${SNAP}")
           ADM_COUNT=$(jq -r '.admins | length' "${SNAP}")
-          RUN_ID="${{ github.run_id }}"
           RUN_TS=$(jq -r '.run_ts' "${SNAP}")
 
           {
             echo "# WeekTopPick – Snapshot Architecture"
             echo
-            echo "- **Run ID:** ${RUN_ID}"
+            echo "- **Run ID:** ${{ github.run_id }}"
             echo "- **Run TS (UTC):** ${RUN_TS}"
             echo "- **Home URL:** ${SITE_HOME}"
             echo "- **WordPress:** ${SITE_WP}"
@@ -263,14 +202,14 @@ PY
           echo "::notice::ARCHITECTURE.md generated"
           head -n 20 "${OUT}" || true
 
-      - name: 8) Upload artifact (raw snapshot logs)
+      - name: 7) Upload artifact (raw snapshot logs)
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-logs-${{ github.run_id }}
           path: _ci_logs/${{ github.run_id }}/snapshot/**
           retention-days: 14
 
-      - name: 9) Commit + publish snapshot (stable 'latest' copy, no symlinks)
+      - name: 8) Commit + publish snapshot (stable 'latest' copy)
         run: |
           set -euo pipefail
           SNAP_DIR=".wtp/snapshots"
@@ -280,7 +219,7 @@ PY
           mkdir -p "${SNAP_DIR}" "${RO_DIR}"
           cp -a "_ci_logs/${{ github.run_id }}/snapshot/." "${RO_DIR}/"
 
-          # Historie + wskaźnik latest
+          # Historia + wskaźnik latest (bez symlinków)
           cp "${RO_DIR}/snapshot.json" "${SNAP_DIR}/snapshot-${{ github.run_id }}.json"
           cp "${RO_DIR}/snapshot.json" "${SNAP_DIR}/snapshot-latest.json"
 
@@ -298,7 +237,7 @@ PY
             git push
           fi
 
-      - name: 10) Report summary
+      - name: 9) Report summary
         if: always()
         run: |
           set -euo pipefail
