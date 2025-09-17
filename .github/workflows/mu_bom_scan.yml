@@ -6,45 +6,53 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: mu-bom-scan
+  cancel-in-progress: true
+
 jobs:
   scan:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Scan MU+Theme for BOM/leading output
+      - name: Scan MU + Theme for BOM/whitespace/output before headers
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ secrets.DEPLOY_HOST }}
           port:     ${{ secrets.DEPLOY_PORT }}
           username: ${{ secrets.DEPLOY_USER }}
           password: ${{ secrets.DEPLOY_PASS }}
-          command_timeout: 2m
-          script_stop: true
+          command_timeout: 5m
+          envs: |
+            TARGET
           script: |
             set -euo pipefail
 
             echo "[INFO] whoami=$(whoami) host=$(hostname)"
+            echo "[INFO] HOME=${HOME}  TARGET=${TARGET:-"(unset)"}"
 
-            # --- find WP root ---
-            find_wp_root() {
-              if [ -n "${TARGET:-}" ] && [ -f "${TARGET}/wp-config.php" ]; then printf '%s\n' "${TARGET}"; return 0; fi
-              for d in "$HOME/public_html" "$HOME/www" "$HOME/htdocs" "$HOME/httpdocs" "$HOME/site/wwwroot"; do
-                [ -f "$d/wp-config.php" ] && { printf '%s\n' "$d"; return 0; }
-              done
-              if [ -d "$HOME/domains" ]; then
-                for d in "$HOME"/domains/*/public_html; do [ -f "$d/wp-config.php" ] && { printf '%s\n' "$d"; return 0; }; done
-              fi
-              WP=$(find "$HOME" -maxdepth 5 -type f -name wp-config.php -printf '%h\n' 2>/dev/null | head -n1 || true)
-              [ -n "$WP" ] && printf '%s\n' "$WP" || return 1
-            }
+            # --- HARD-CODED ROOT (Hostinger układ katalogów) ---
+            ROOT_DEFAULT="${HOME}/domains/weektoppick.com/public_html"
 
-            ROOT="$(find_wp_root)" || { echo "::error::No WP root"; exit 1; }
-            cd "$ROOT"
-            echo "[INFO] WP_ROOT=$ROOT"
+            # jeśli podasz TARGET i jest poprawny, użyj go; w przeciwnym razie użyj ROOT_DEFAULT
+            if [ -n "${TARGET:-}" ] && [ -f "${TARGET}/wp-config.php" ]; then
+              ROOT="${TARGET}"
+            else
+              ROOT="${ROOT_DEFAULT}"
+            fi
+
+            if [ ! -f "${ROOT}/wp-config.php" ]; then
+              echo "::error::Nie znaleziono wp-config.php w ${ROOT} (ani w TARGET). Przerwano."
+              exit 1
+            fi
+
+            cd "${ROOT}"
+            echo "[INFO] WP_ROOT=${ROOT}"
 
             echo "== Scan targets =="
             printf '%s\n' "wp-content/mu-plugins" "wp-content/themes" | nl -ba
 
+            # 1) UTF-8 BOM (EF BB BF) na początku plików PHP
             echo "== 1) UTF-8 BOM at start (EF BB BF) =="
             FOUND=0
             while IFS= read -r -d '' f; do
@@ -52,20 +60,24 @@ jobs:
             done < <(find wp-content/mu-plugins wp-content/themes -type f -name '*.php' -print0 2>/dev/null || true)
             [ $FOUND -eq 0 ] && echo "(none)"
 
+            # 2) Pliki nie zaczynające się od '<?php' (pierwsze 5 bajtów)
             echo "== 2) Not starting with '<?php' (first bytes) =="
             FOUND=0
             while IFS= read -r -d '' f; do
               H=$(head -c 5 "$f" | tr -d '\r\n')
-              [ "$H" != "<?php" ] && { echo "HEAD: $f  (starts with: $(head -c 16 "$f" | od -An -tx1))"; FOUND=1; }
+              if [ "$H" != "<?php" ]; then
+                echo "HEAD: $f  (starts with: $(head -c 16 "$f" | od -An -tx1))"
+                FOUND=1
+              fi
             done < <(find wp-content/mu-plugins wp-content/themes -type f -name '*.php' -print0 2>/dev/null || true)
             [ $FOUND -eq 0 ] && echo "(none)"
 
+            # 3) Output po '?>' (trailing output)
             echo "== 3) Trailing output after closing tag (?> + whitespace) =="
             FOUND=0
             while IFS= read -r -d '' f; do
-              # szukamy zamykającego '?>' i czegokolwiek nie-EOF po nim
               if grep -qP "\?>\s*$" "$f"; then
-                : # czysty koniec
+                : # OK, brak śmieci po zamykającym tagu
               elif grep -qP "\?>.*" "$f"; then
                 echo "TRAIL: $f"
                 FOUND=1
@@ -73,10 +85,10 @@ jobs:
             done < <(find wp-content/mu-plugins wp-content/themes -type f -name '*.php' -print0 2>/dev/null || true)
             [ $FOUND -eq 0 ] && echo "(none)"
 
+            # 4) Heurystyka: echo/print/var_dump/printf w pierwszych 40 liniach pliku
             echo "== 4) Any accidental echo/print/var_dump at file top (heuristic) =="
             FOUND=0
             while IFS= read -r -d '' f; do
-              # tylko pierwsze 40 linii
               if head -n 40 "$f" | grep -qE '^\s*(echo|print|var_dump|printf)\b'; then
                 echo "ECHO_TOP: $f"
                 FOUND=1
