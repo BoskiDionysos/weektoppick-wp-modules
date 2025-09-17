@@ -1,72 +1,117 @@
-name: 98_fix_headers (neutralize fatal-catcher + opcache invalidate)
-on: { workflow_dispatch: {} }
-permissions: { contents: read }
+name: 99_mu_hunt_fix (remove catcher, hard rewrite safe loader, opcache reset)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mu-hunt-fix
+  cancel-in-progress: true
 
 jobs:
-  fix:
+  hunt_fix:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+
     env:
       HOST:   ${{ secrets.DEPLOY_HOST }}
       PORT:   ${{ secrets.DEPLOY_PORT }}
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
+
     steps:
-      - name: Neutralize wtp-fatal-catcher.php + invalidate OPcache
+      - name: Checkout (for logs/artifacts only)
+        uses: actions/checkout@v4
+
+      - name: SSH sanity (whoami + dir)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.HOST }}
-          port: ${{ env.PORT }}
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
+          port: ${{ env.PORT }}
+          command_timeout: 3m
           envs: TARGET
-          command_timeout: 5m
           script: |
             set -euo pipefail
-            # 1) Wejście do WP
-            if [ -n "${TARGET:-}" ]; then cd "${TARGET}"; else cd "${HOME}/public_html"; fi
-            echo "[PWD] $(pwd)"
+            if [ -n "${TARGET:-}" ] && [ -d "${TARGET}" ]; then cd "${TARGET}"; else cd "${HOME}/public_html"; fi
+            echo "[SANITY] user=$(whoami) host=$(hostname)"
+            echo "[SANITY] PWD=$(pwd)"
+            test -f wp-config.php && echo "[SANITY] wp-config.php OK" || { echo "[SANITY] wp-config.php MISSING"; exit 3; }
 
-            MU="wp-content/mu-plugins"
-            CATCHER="${MU}/wtp-fatal-catcher.php"
+      - name: Remove catcher + hard rewrite safe loader + reset OPcache
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port: ${{ env.PORT }}
+          command_timeout: 5m
+          envs: TARGET
+          script: |
+            set -euo pipefail
 
-            echo "== BEFORE =="
-            ls -la "${MU}" | sed -n '1,200p' || true
+            # 1) Wejście do WP root
+            if [ -n "${TARGET:-}" ] && [ -d "${TARGET}" ]; then
+              cd "${TARGET}"
+            else
+              cd "${HOME}/public_html"
+            fi
+            echo "PWD=$(pwd)"
 
-            # 2) Utwórz całkowicie cichy plik catcher (nawet jeśli nie istnieje – nadpisujemy bezpieczną wersją)
-            mkdir -p "${MU}"
-            cat > "${CATCHER}" <<'PHP'
-            <?php
-            // silent placeholder - no BOM, no output
-            if (!defined('ABSPATH')) { exit; }
-            PHP
-            chmod 0644 "${CATCHER}"
+            echo "== BEFORE (mu-plugins listing) =="
+            ls -la wp-content/mu-plugins | sed -n '1,200p' || true
 
-            # 3) Dodatkowo upewnij się, że nasz 00 loader jest sterylny
-            cat > "${MU}/00-mu-safe-loader.php" <<'PHP'
-            <?php
-            if (!defined('ABSPATH')) { exit; }
-            add_action('muplugins_loaded', static function () {
-                // no output
-            }, 0);
-            PHP
-            chmod 0644 "${MU}/00-mu-safe-loader.php"
+            # 2) Usuń WSZYSTKIE wtp-fatal-catcher.php (prosto, bez bashowych bajerów)
+            find wp-content/mu-plugins -type f -name 'wtp-fatal-catcher.php' -print -delete 2>/dev/null || true
 
-            # 4) Invalidate OPcache dokładnie dla catcher'a (CLI)
-            php -r 'function i($p){if(function_exists("opcache_invalidate")){var_dump(opcache_invalidate($p,true));}else{echo "NO_OPCACHE\n";}} i("'${CATCHER}'");' || true
+            # 3) STERYLNY 00-mu-safe-loader.php (zero BOM, zero outputu, tylko LF)
+            mkdir -p wp-content/mu-plugins
+            : > wp-content/mu-plugins/00-mu-safe-loader.php
+            printf "%s\n" "<?php"                                                          >> wp-content/mu-plugins/00-mu-safe-loader.php
+            printf "%s\n" "if (!defined('ABSPATH')) { exit; }"                             >> wp-content/mu-plugins/00-mu-safe-loader.php
+            printf "%s\n" "add_action('muplugins_loaded', static function () {"            >> wp-content/mu-plugins/00-mu-safe-loader.php
+            printf "%s\n" "    // silence is golden"                                      >> wp-content/mu-plugins/00-mu-safe-loader.php
+            printf "%s\n" "}, 0);"                                                        >> wp-content/mu-plugins/00-mu-safe-loader.php
 
-            # 5) Jednorazowy HTTP reset całej puli (gdyby CLI nie wystarczył)
-            cat > wtp-reset-opcache.php <<'PHP'
-            <?php
-            if (function_exists('opcache_reset')) { opcache_reset(); }
-            header('Content-Type: text/plain; charset=utf-8');
-            echo "OPCACHE_RESET_OK\n";
-            @unlink(__FILE__);
-            PHP
-            SITE="$(php ./wp option get siteurl 2>/dev/null || true)"
-            echo "[SITE] $SITE"
-            if [ -n "$SITE" ]; then curl -fsSL "$SITE/wtp-reset-opcache.php" || true; fi
+            # 4) Na wszelki wypadek zdejmij BOM jeśli by się pojawił
+            php -r "file_put_contents('wp-content/mu-plugins/00-mu-safe-loader.php', preg_replace('/^\xEF\xBB\xBF/', '', file_get_contents('wp-content/mu-plugins/00-mu-safe-loader.php')));"
 
-            echo "== AFTER =="
-            head -n 5 "${CATCHER}" || true
-            ls -la "${MU}" | sed -n '1,200p' || true
+            # 5) Reset OPcache, żeby nie brało starej wersji z cache
+            php -r "if(function_exists('opcache_reset')){opcache_reset();echo 'OPCACHE_RESET_OK\n';}else{echo 'NO_OPCACHE\n';}"
+
+            echo "== AFTER (mu-plugins listing) =="
+            ls -la wp-content/mu-plugins | sed -n '1,200p' || true
+
+            echo "== SAFE LOADER HEX HEAD (should start with 3c 3f 70 68 70) =="
+            command -v xxd >/dev/null && xxd -g 1 -l 32 wp-content/mu-plugins/00-mu-safe-loader.php || head -c 64 wp-content/mu-plugins/00-mu-safe-loader.php | od -An -tx1
+
+            echo "== SAFE LOADER FIRST LINES =="
+            sed -n '1,20p' wp-content/mu-plugins/00-mu-safe-loader.php
+
+            echo "== Grep for any remaining 'wtp-fatal-catcher.php' =="
+            grep -R --line-number --fixed-strings 'wtp-fatal-catcher.php' wp-content 2>/dev/null || echo "OK: no references"
+
+      - name: (Optional) Inspect theme/functions.php head (for header warnings)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port: ${{ env.PORT }}
+          command_timeout: 2m
+          envs: TARGET
+          script: |
+            set -euo pipefail
+            if [ -n "${TARGET:-}" ] && [ -d "${TARGET}" ]; then cd "${TARGET}"; else cd "${HOME}/public_html"; fi
+            if [ -f wp-content/themes/wtp-core-theme/functions.php ]; then
+              echo "== THEME functions.php HEX HEAD (should start with 3c 3f 70 68 70) =="
+              command -v xxd >/dev/null && xxd -g 1 -l 32 wp-content/themes/wtp-core-theme/functions.php || head -c 64 wp-content/themes/wtp-core-theme/functions.php | od -An -tx1
+              echo "== THEME functions.php first 80 lines =="
+              nl -ba wp-content/themes/wtp-core-theme/functions.php | sed -n '1,80p'
+            else
+              echo "Theme functions.php not found (skipping)."
+            fi
