@@ -10,7 +10,7 @@ jobs:
   fix:
     runs-on: ubuntu-latest
     steps:
-      - name: Clean functions.php (dedupe init hook, remove closing ?>)
+      - name: Clean functions.php (BOM, closing tag, dedupe init hook)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ secrets.DEPLOY_HOST }}
@@ -24,29 +24,46 @@ jobs:
             THEME_FN="${ROOT}/wp-content/themes/wtp-core-theme/functions.php"
             test -f "${THEME_FN}" || { echo "::error::Brak ${THEME_FN}"; exit 1; }
 
-            cp "${THEME_FN}" "${THEME_FN}.pre-clean.bak" || true
+            cp -f "${THEME_FN}" "${THEME_FN}.pre-clean.bak" || true
 
-            # 1) Usuń zamykający tag ?> jeśli występuje
-            perl -0777 -pe 's/\?>\s*\n?//s' -i "${THEME_FN}"
+            # 1) Usuń BOM i końcowe '?>' (tylko jeśli jest NA KOŃCU pliku)
+            php -r '
+              $f=$argv[1];
+              $s=@file_get_contents($f);
+              if($s===false){fwrite(STDERR,"cannot read\n"); exit(1);}
+              // strip UTF-8 BOM
+              if (strncmp($s, "\xEF\xBB\xBF", 3) === 0) {
+                $s = substr($s, 3);
+                error_log("[CLEAN] Removed UTF-8 BOM");
+              }
+              // strip closing tag ONLY at EOF (optional whitespace/newlines allowed)
+              $s = preg_replace("/\\?>\\s*\\z/s", "", $s, -1, $cnt);
+              if ($cnt) { error_log("[CLEAN] Removed closing ?> at EOF"); }
 
-            # 2) Zdeduplikuj hook init (zostaw tylko JEDEN blok)
+              file_put_contents($f,$s);
+            ' "${THEME_FN}"
+
+            # 2) Zdeduplikuj konkretny blok init (zostaw pierwsze wystąpienie)
             php -r '
               $f=$argv[1];
               $s=@file_get_contents($f);
               if($s===false){exit(0);}
               $pattern="/add_action\\(\\s*\\x27init\\x27\\s*,\\s*function\\s*\\(\\)\\s*\\{\\s*if\\s*\\(function_exists\\(\\x27wtp_detect_lang\\x27\\)\\)\\s*\\{\\s*if\\s*\\(!headers_sent\\(\\)\\)\\s*\\{\\s*wtp_detect_lang\\(\\);\\s*\\}\\s*\\}\\s*\\}\\s*,\\s*0\\s*\\);/s";
               preg_match_all($pattern,$s,$m);
-              if (count($m[0])>1){
-                // zostaw pierwsze wystąpienie, resztę usuń
+              $n = count($m[0]);
+              if ($n>1) {
                 $first=true;
                 $s=preg_replace_callback($pattern,function($x) use (&$first){
                   if($first){ $first=false; return $x[0]; }
                   return "";
                 },$s);
+                error_log("[CLEAN] Dedupe init hook: removed ".($n-1)." duplicate(s)");
               }
               file_put_contents($f,$s);
             ' "${THEME_FN}"
 
-            echo "== AFTER =="
-            nl -ba "${THEME_FN}" | sed -n '1,40p'
+            echo "== HEAD (1..60) =="
+            nl -ba "${THEME_FN}" | sed -n '1,60p'
+            echo "== TAIL (last 60) =="
+            nl -ba "${THEME_FN}" | tail -n 60
             echo "Cleanup done."
