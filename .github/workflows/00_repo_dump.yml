@@ -19,8 +19,8 @@ jobs:
           mkdir -p _dump
           # pełny spis plików
           ls -R > _dump/filelist.txt
-          # pełne archiwum repo
-          tar -czf _dump/repo-full.tar.gz .
+          # archiwum repo BEZ katalogu _dump
+          tar --exclude='./_dump' -czf _dump/repo-full.tar.gz .
           ls -lh _dump/repo-full.tar.gz _dump/filelist.txt
 
       - name: Upload artifact
