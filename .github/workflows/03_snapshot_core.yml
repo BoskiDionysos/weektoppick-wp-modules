@@ -1,0 +1,121 @@
+name: 03_snapshot_core
+
+on:
+  workflow_dispatch: {}
+  workflow_run:
+    workflows: ["02_wpcli (install/update/activate from SSOT, secure SSH)"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: snapshot-core
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      RUN_ID: ${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y jq sshpass
+
+      - name: Remote collect (CORE)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          request_pty: true
+          envs: TARGET
+          script: |
+            set -euo pipefail
+            cd "${TARGET}" || exit 0
+            OUT="${TARGET}/.wtp/state/ci_logs/snapshot_core"
+            mkdir -p "${OUT}"
+            php -r 'echo PHP_VERSION;' > "${OUT}/php_version.txt" 2>/dev/null || echo unknown > "${OUT}/php_version.txt"
+            (command -v wp >/dev/null 2>&1 && wp core version 2>/dev/null > "${OUT}/wp_version.txt") || echo unknown > "${OUT}/wp_version.txt"
+            (command -v wp >/dev/null 2>&1 && wp option get home 2>/dev/null > "${OUT}/home.txt") || : > "${OUT}/home.txt"
+            (command -v wp >/dev/null 2>&1 && wp option get siteurl 2>/dev/null > "${OUT}/siteurl.txt") || : > "${OUT}/siteurl.txt"
+            (command -v wp >/dev/null 2>&1 && wp plugin list --format=json 2>/dev/null > "${OUT}/plugins.json") || echo "[]" > "${OUT}/plugins.json"
+            (command -v wp >/dev/null 2>&1 && wp theme  list --format=json 2>/dev/null > "${OUT}/themes.json")  || echo "[]" > "${OUT}/themes.json"
+            (command -v wp >/dev/null 2>&1 && wp user   list --role=administrator --format=json 2>/dev/null > "${OUT}/admins.json") || echo "[]" > "${OUT}/admins.json"
+            (command -v wp >/dev/null 2>&1 && wp theme list --status=active --field=name 2>/dev/null | head -n1 > "${OUT}/active_theme.txt") || : > "${OUT}/active_theme.txt"
+            php -r '
+              $d="wp-content/mu-plugins"; $o=[];
+              if (is_dir($d)) { foreach (scandir($d) as $f) { if($f==="."||$f==="..") continue; $p="$d/$f"; if (is_file($p)) $o[]=["file"=>$f,"size"=>@filesize($p),"md5"=>@md5_file($p)]; } }
+              echo json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
+            ' > "${OUT}/mu_plugins.json" 2>/dev/null || echo "[]" > "${OUT}/mu_plugins.json"
+            hostname > "${OUT}/hostname.txt" 2>/dev/null || echo unknown > "${OUT}/hostname.txt"
+            date -u +%FT%TZ > "${OUT}/ts_utc.txt" 2>/dev/null || echo unknown > "${OUT}/ts_utc.txt"
+            : > "${OUT}/errors.txt" || true
+
+      - name: Pull logs
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${RUN_ID}"
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
+            "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/snapshot_core" "_ci_logs/${RUN_ID}/" || echo "[WARN] pull failed"
+          ls -la "_ci_logs/${RUN_ID}/snapshot_core" || true
+
+      - name: Assemble snapshot-core.json
+        run: |
+          set -euo pipefail
+          RAW="_ci_logs/${RUN_ID}/snapshot_core"
+          mkdir -p "${RAW}"
+          for f in plugins themes mu_plugins admins; do [ -f "${RAW}/${f}.json" ] || echo '[]' > "${RAW}/${f}.json"; done
+          for f in home siteurl wp_version php_version hostname ts_utc active_theme; do [ -f "${RAW}/${f}.txt" ] || : > "${RAW}/${f}.txt"; done
+          SNAP="${RAW}/snapshot-core.json"
+          jq -n \
+            --arg run_id "${RUN_ID}" \
+            --arg run_ts "$(date -u +%FT%TZ)" \
+            --rawfile home "${RAW}/home.txt" \
+            --rawfile siteurl "${RAW}/siteurl.txt" \
+            --rawfile wpv "${RAW}/wp_version.txt" \
+            --rawfile phpv "${RAW}/php_version.txt" \
+            --rawfile host "${RAW}/hostname.txt" \
+            --rawfile ts_utc "${RAW}/ts_utc.txt" \
+            --rawfile active "${RAW}/active_theme.txt" \
+            --slurpfile plugins "${RAW}/plugins.json" \
+            --slurpfile themes  "${RAW}/themes.json" \
+            --slurpfile mupl    "${RAW}/mu_plugins.json" \
+            --slurpfile admins  "${RAW}/admins.json" '
+            def trim: sub("[\r\n]+$";"");
+            {
+              run_id:$run_id, run_ts:$run_ts,
+              site:{home:($home|trim),siteurl:($siteurl|trim),wp_version:($wpv|trim),php_version:($phpv|trim),hostname:($host|trim),timestamp_utc:($ts_utc|trim)},
+              active_theme:{active:($active|trim)},
+              plugins:($plugins[0]//[]), themes:($themes[0]//[]), mu_plugins:($mupl[0]//[]), admins:($admins[0]//[])
+            }' > "${SNAP}"
+          echo "::notice::Built snapshot-core.json"
+
+      - name: Publish (core → latest/core/)
+        if: always()
+        run: |
+          set -euo pipefail
+          RO_DIR=".wtp/state/ro/public/${RUN_ID}/core"
+          RO_LATEST=".wtp/state/ro/public/latest/core"
+          mkdir -p "${RO_DIR}" "${RO_LATEST}"
+          cp -a "_ci_logs/${RUN_ID}/snapshot_core/." "${RO_DIR}/"
+          cp -a "${RO_DIR}/." "${RO_LATEST}/"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${RO_DIR}" "${RO_LATEST}"
+          if git diff --staged --quiet; then echo "::notice::Nothing to commit."; else git commit -m "snapshot core ${RUN_ID}" && git push; fi
