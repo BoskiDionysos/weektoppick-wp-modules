@@ -1,0 +1,12 @@
+# Snapshot Architecture (FULL)
+- Run ID: 17810899154
+- Run TS (UTC): 2025-09-17T21:17:13Z
+- Home URL: https://weektoppick.com
+- WordPress: 6.8.2
+- PHP: 8.3.22
+- Active theme: wtp-core-theme
+- Plugins: 14 (MU: 28)
+- Admins: 1
+- Post types: 17
+- Taxonomies: 8
+- Files: www=243, uploads=14
