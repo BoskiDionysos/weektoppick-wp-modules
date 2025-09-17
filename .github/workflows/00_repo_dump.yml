@@ -19,7 +19,7 @@ jobs:
           mkdir -p _dump
           # pełny spis plików
           ls -R > _dump/filelist.txt
-          # archiwum repo BEZ katalogu _dump
+          # archiwum repo BEZ katalogu _dump (żeby tar nie pakował samego siebie)
           tar --exclude='./_dump' -czf _dump/repo-full.tar.gz .
           ls -lh _dump/repo-full.tar.gz _dump/filelist.txt
 
@@ -43,14 +43,12 @@ jobs:
           cp -f _dump/repo-full.tar.gz "${RO_DIR}/repo-full.tar.gz"
           cp -f _dump/filelist.txt    "${RO_DIR}/filelist.txt"
 
-          # aliasy historyczne
+          # aliasy historyczne + latest
           cp -f "${RO_DIR}/repo-full.tar.gz" "${SNAP_DIR}/repo-${RUN_ID}.tar.gz"
           cp -f "${RO_DIR}/filelist.txt"     "${SNAP_DIR}/filelist-${RUN_ID}.txt"
-
           cp -f "${RO_DIR}/repo-full.tar.gz" "${SNAP_DIR}/repo-latest.tar.gz"
           cp -f "${RO_DIR}/filelist.txt"     "${SNAP_DIR}/filelist-latest.txt"
 
-          # latest = fizyczna kopia katalogu
           rm -rf "${RO_LATEST}"
           mkdir -p "${RO_LATEST}"
           cp -a "${RO_DIR}/." "${RO_LATEST}/"
@@ -64,3 +62,23 @@ jobs:
             git commit -m "repo dump run ${RUN_ID}"
             git push
           fi
+
+      # ⬇️ To wydrukuje mi na logu wszystko, co muszę zobaczyć (Ty nic nie robisz)
+      - name: Print workflows + filelist (for analysis in chat)
+        run: |
+          set -euo pipefail
+          echo "::group::.github/workflows (aktywny katalog)"
+          ls -1 .github/workflows || true
+          echo "::endgroup::"
+
+          echo "::group::.github/workflows._quarantine (jeśli istnieje)"
+          ls -1 .github/workflows._quarantine || true
+          echo "::endgroup::"
+
+          echo "::group::Top-level tree"
+          ls -la | sed -n '1,200p'
+          echo "::endgroup::"
+
+          echo "::group::filelist.txt (pierwsze 500 linii)"
+          sed -n '1,500p' .wtp/state/ro/public/latest/filelist.txt || sed -n '1,500p' _dump/filelist.txt || true
+          echo "::endgroup::"
