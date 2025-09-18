@@ -1,0 +1,86 @@
+name: ci-brief
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: write
+
+jobs:
+  brief:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build CI brief (last runs)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner;
+            const repo  = context.repo.repo;
+
+            const interesting = [
+              "01_deploy",
+              "02_wpcli",
+              "03_snapshot",
+              "03_snapshot_full",
+              "98_try_wtp_theme_safely",
+              "99_switch_theme_now"
+            ];
+
+            async function lastRun(name){
+              const res = await github.rest.actions.listWorkflowRunsForRepo({
+                owner, repo, per_page: 100
+              });
+              const runs = res.data.workflow_runs
+                .filter(r => r.name && r.name.includes(name))
+                .sort((a,b)=> new Date(b.created_at)-new Date(a.created_at));
+              return runs[0] || null;
+            }
+
+            const lines = [];
+            lines.push("# CI BRIEF");
+            lines.push("");
+            const when = new Date().toISOString();
+            lines.push(`_Generated: ${when}_`);
+            lines.push("");
+
+            (async () => {
+              for (const w of interesting) {
+                const r = await lastRun(w);
+                if (!r) { lines.push(`- **${w}**: no runs`); continue; }
+                const status = r.conclusion || r.status;
+                const emoji = status === 'success' ? '✅' :
+                              status === 'failure' ? '❌' :
+                              status === 'cancelled' ? '🚫' : '🕗';
+                lines.push(`- **${w}**: ${emoji} ${status}  |  run_id: ${r.id}  |  started: ${r.created_at}`);
+              }
+
+              lines.push("");
+              lines.push("### Quick links (latest artifacts)");
+              lines.push("- Snapshot: `.wtp/state/ro/public/latest/snapshot.json`");
+              lines.push("- Repo audit: `.wtp/state/ro/public/latest/repo/REPO_AUDIT.md`");
+              lines.push("- Try-theme report: `.wtp/state/ro/public/latest/try-theme/`");
+
+              fs.mkdirSync('.wtp/state/ro/public/latest', { recursive: true });
+              fs.writeFileSync('.wtp/state/ro/public/latest/CI_BRIEF.md', lines.join('\\n') + '\\n');
+            })();
+
+      - name: Commit + push brief (rebase-safe)
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .wtp/state/ro/public/latest/CI_BRIEF.md
+          if git diff --staged --quiet; then
+            echo "::notice::No changes"; exit 0
+          fi
+          git commit -m "CI brief update"
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
+          for i in 1 2 3; do
+            git fetch origin "$BRANCH"
+            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+            if git push origin "HEAD:$BRANCH"; then echo "::notice::Pushed (attempt $i)"; exit 0; fi
+            sleep 2
+          done
+          echo "::error::Push failed after 3 attempts"; exit 1
