@@ -21,13 +21,16 @@ jobs:
       - name: Activate wtp-core-theme (safe) → curl check → rollback if broken
         id: remote
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          RUN_ID: ${{ github.run_id }}
         with:
           host:     ${{ env.HOST }}
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
           port:     ${{ env.PORT }}
           request_pty: true
-          envs: TARGET
+          # PRZEKAZUJEMY do zdalnej sesji:
+          envs: TARGET,RUN_ID
           script: |
             set -euo pipefail
             TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
@@ -43,7 +46,7 @@ jobs:
             # 1) aktywny motyw "przed"
             (command -v wp >/dev/null 2>&1 && wp theme list --status=active --field=name 2>/dev/null | head -n1) > "$OUT/theme_before.txt" || true
 
-            # 2) włącz debug log na chwilę
+            # 2) tymczasowy debug log
             if ! grep -q "WP_DEBUG_LOG" wp-config.php 2>/dev/null; then
               printf "\n/* WTP TEMP DEBUG */ define('WP_DEBUG', true); define('WP_DEBUG_LOG', true); define('WP_DEBUG_DISPLAY', false);\n" >> wp-config.php
               echo "added_debug_flags" > "$OUT/wp_debug_temp.txt"
@@ -57,19 +60,19 @@ jobs:
               echo "$ACT_RES" > "$OUT/activate_rc.txt"
             fi
 
-            # 4) curl (przed/po) i prosta heurystyka blank page
+            # 4) curl check po aktywacji
             STATUS=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
             BODY="$(curl -ks "$HOMEURL" || true)"
             echo "$STATUS" > "$OUT/http_status_after.txt"
             printf "%s" "$BODY" > "$OUT/home_after.html"
             echo "$(printf "%s" "$BODY" | wc -c)" > "$OUT/home_after_size.txt"
 
-            # 5) zbierz logi błędów (ostatnie 200 linii)
+            # 5) logi błędów (ostatnie 200 linii)
             for LOG in error_log logs/error_log wp-content/debug.log; do
               [ -f "$LOG" ] && tail -n 200 "$LOG" > "$OUT/$(echo "$LOG" | tr '/' '_')"
             done
 
-            # 6) jeśli HTTP != 200 lub body bardzo małe → rollback do twentytwentyfive
+            # 6) rollback jeśli blank/HTTP != 200
             SIZE=$(cat "$OUT/home_after_size.txt" || echo 0)
             if [ "$STATUS" != "200" ] || [ "${SIZE:-0}" -lt 400 ]; then
               echo "[WARN] broken after activate (status=$STATUS size=$SIZE) → rollback" | tee "$OUT/action.txt"
@@ -86,12 +89,14 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "_ci_logs/${RUN_ID}/try_theme"
+          # fallback ścieżki po stronie serwera
+          SVRTGT="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
-            "${USER}@${HOST}:${TARGET:-$HOME/domains/weektoppick.com/public_html}/.wtp/state/ci_logs/try_theme_${RUN_ID}" \
+            "${USER}@${HOST}:${SVRTGT}/.wtp/state/ci_logs/try_theme_${RUN_ID}" \
             "_ci_logs/${RUN_ID}/try_theme/" || true
           ls -la "_ci_logs/${RUN_ID}/try_theme" || true
 
-      - name: Publish report (RO + latest/try-theme)
+      - name: Publish report (RO + latest/try-theme) — rebase-safe push
         run: |
           set -euo pipefail
           RO_DIR=".wtp/state/ro/public/${RUN_ID}/try-theme"
@@ -100,7 +105,22 @@ jobs:
           cp -a "_ci_logs/${RUN_ID}/try_theme/." "${RO_DIR}/"
           rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"
           cp -a "${RO_DIR}/." "${RO_LATEST}/"
+
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          if git diff --staged --quiet; then echo "::notice::Nothing to commit."; else git commit -m "try wtp-core-theme ${RUN_ID}" && git push; fi
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."; exit 0
+          fi
+          git commit -m "try wtp-core-theme ${RUN_ID}"
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git branch --show-current >/devnull 2>&1 || git checkout -B "$BRANCH"
+          for i in 1 2 3; do
+            git fetch origin "$BRANCH"
+            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+            if git push origin "HEAD:$BRANCH"; then
+              echo "::notice::Pushed (attempt $i)"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Push failed after 3 attempts"; exit 1
