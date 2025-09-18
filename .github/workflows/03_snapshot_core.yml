@@ -46,7 +46,7 @@ jobs:
           password: ${{ env.PASS }}
           port: ${{ env.PORT }}
           request_pty: true
-          env: TARGET
+          envs: TARGET
           script: |
             set -euo pipefail
             cd "${TARGET}" || exit 0
