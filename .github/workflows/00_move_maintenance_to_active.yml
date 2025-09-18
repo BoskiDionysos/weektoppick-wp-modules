@@ -1,9 +1,14 @@
 name: 00_move_maintenance_to_active
+
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: move-maintenance-to-active
+  cancel-in-progress: true
 
 jobs:
   move:
@@ -22,7 +27,7 @@ jobs:
           WF_M_DIR=".github/workflows._maintenance"
           mkdir -p "$WF_DIR" "$WF_M_DIR"
 
-          echo "Updating local branch…"
+          echo "Updating local branch"
           git pull --rebase --autostash origin "${GITHUB_REF_NAME:-main}" || true
 
           move() {
@@ -36,18 +41,40 @@ jobs:
             fi
           }
 
-          # <<< KONKRETNE PLIKI >>>
-          move "03_repo_snapshot.yml"
-          move "03_repo_audit.yml"
-          move "03_snapshot_core.yml"
-          move "00_repo_housekeeping.yml"
-          move "00_prune_wtp.yml"
+          # files to restore
+          move 03_repo_snapshot.yml
+          move 03_repo_audit.yml
+          move 03_snapshot_core.yml
+          move 00_repo_housekeeping.yml
+          move 00_prune_wtp.yml
 
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git commit -m "chore: move maintenance workflows back to active" || { echo "Nothing to commit"; exit 0; }
-          git push
+          git add -A || true
+          if git diff --staged --quiet; then
+            echo "Nothing to commit"
+          else
+            git commit -m "chore: move maintenance workflows back to active"
+            git push || true
+          fi
 
-      - name: Summary
-        run: echo "::notice::Przeniesione. Odśwież Actions – powinny wrócić: 03_repo_snapshot, 03_repo_audit, 03_snapshot_core, 00_repo_housekeeping, 00_prune_wtp."
+      - name: Retire launcher (optional)
+        shell: bash
+        run: |
+          set -euo pipefail
+          WF_DIR=".github/workflows"
+          WF_M_DIR=".github/workflows._maintenance"
+          SRC="$WF_DIR/00_maintenance_tasks.yml"
+          DST="$WF_M_DIR/00_maintenance_tasks.yml.disabled"
+          if [ -f "$SRC" ]; then
+            mkdir -p "$WF_M_DIR"
+            echo "move: $SRC -> $DST"
+            git mv -f "$SRC" "$DST"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "retire: disable 00_maintenance_tasks.yml"
+            git push || true
+          else
+            echo "launcher not present in active (ok)"
+          fi
