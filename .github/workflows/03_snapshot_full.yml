@@ -269,5 +269,5 @@ jobs:
           echo "::error::Failed to push after rebasing 3 times."; exit 1
 
       - name: Summary
-        if: always
+        if: ${{ always() }}
         run: echo "::notice::03_snapshot_full finished for run ${RUN_ID}"
