@@ -145,7 +145,7 @@ PHP
     <p>No content yet.</p>
   <?php endif; ?>
 </main>
-<?php get_footer();
+<?php get_footer(); ?>
 PHP
 
             # Activate theme & purge cache
@@ -207,7 +207,7 @@ PHP
           mkdir -p "${RO_LATEST}"
           cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
 
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if git diff --staged --quiet; then
