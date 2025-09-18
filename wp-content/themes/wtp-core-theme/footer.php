@@ -1,1 +1,1 @@
-<footer class="site-footer"><p>&copy; <?php echo date('Y'); ?> WeekTopPick</p></footer> <?php wp_footer(); ?> </body> </html>
+<footer class="container" style="margin-top:40px;padding-top:20px;border-top:1px solid #eee">   <p>&copy; <?php echo date('Y'); ?> WeekTopPick — <?php wtp_t('powered_by','Powered by'); ?> WTP</p> </footer> <?php wp_footer(); ?> </body> </html>
