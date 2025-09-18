@@ -1,0 +1,237 @@
+{
+  "run_id": "17827047229",
+  "run_ts": "2025-09-18T11:21:41Z",
+  "site": {
+    "home": "https://weektoppick.com",
+    "siteurl": "https://weektoppick.com",
+    "wp_version": "6.8.2",
+    "php_version": "8.3.22",
+    "hostname": "de-fra-web2061.main-hosting.eu",
+    "timestamp_utc": "2025-09-18T11:21:31Z"
+  },
+  "active_theme": {
+    "active": ""
+  },
+  "plugins": [
+    {
+      "name": "classic-editor",
+      "status": "active",
+      "update": "none",
+      "version": "1.6.7",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "cookie-law-info",
+      "status": "active",
+      "update": "none",
+      "version": "3.3.5",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "litespeed-cache",
+      "status": "active",
+      "update": "none",
+      "version": "7.5.0.1",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "pretty-link",
+      "status": "active",
+      "update": "none",
+      "version": "3.6.17",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "seo-by-rank-math",
+      "status": "active",
+      "update": "none",
+      "version": "1.0.253",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "wordfence",
+      "status": "active",
+      "update": "none",
+      "version": "8.1.0",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "00-mu-safe-loader",
+      "status": "must-use",
+      "update": false,
+      "version": "",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "wtp-canonical",
+      "status": "must-use",
+      "update": false,
+      "version": "",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "wtp-canonical-redirects",
+      "status": "must-use",
+      "update": false,
+      "version": "",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "wtp-deploy-guard",
+      "status": "must-use",
+      "update": false,
+      "version": "1.0.0",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "wtp-dev-bridge",
+      "status": "must-use",
+      "update": false,
+      "version": "4.0.0",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "wtp-patch-safe-loader-log",
+      "status": "must-use",
+      "update": false,
+      "version": "0.1.0",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "wtp-ro-exporter",
+      "status": "must-use",
+      "update": false,
+      "version": "1.2.0",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "wtp-theme-guardian",
+      "status": "must-use",
+      "update": false,
+      "version": "0.1.0",
+      "update_version": "",
+      "auto_update": "off"
+    }
+  ],
+  "themes": [],
+  "mu_plugins": [
+    {
+      "file": "00-mu-safe-loader.php",
+      "size": 1063,
+      "md5": "5c8e9f5ef6757e581b09da35e79632b2"
+    },
+    {
+      "file": "wtp-canonical-redirects.php",
+      "size": 712,
+      "md5": "d5cba3f4548d24f6eefdd77d84758c6f"
+    },
+    {
+      "file": "wtp-canonical.php",
+      "size": 1947,
+      "md5": "c77b945405d699534dcf29b38bdaf23d"
+    },
+    {
+      "file": "wtp-deploy-guard.php",
+      "size": 3525,
+      "md5": "467aeaaf3fc793e1cac4b5d831455966"
+    },
+    {
+      "file": "wtp-dev-bridge.php",
+      "size": 20183,
+      "md5": "d4936ab30c4ef2f1e29591fe0df54886"
+    },
+    {
+      "file": "wtp-exporter-chunked.php.off",
+      "size": 11518,
+      "md5": "1e9d33e65a4c439ce9ab0c93802fcf43"
+    },
+    {
+      "file": "wtp-log-mirror.php.off",
+      "size": 2456,
+      "md5": "012f33bdc69978d97e0206ef7a7fdc2f"
+    },
+    {
+      "file": "wtp-logs-export.php.off",
+      "size": 2959,
+      "md5": "dcdad39040c952886e80ac87af1436b4"
+    },
+    {
+      "file": "wtp-patch-safe-loader-log.php",
+      "size": 732,
+      "md5": "27600b743f03337a72211e85406f9f99"
+    },
+    {
+      "file": "wtp-patcher-plugins.php.off",
+      "size": 8668,
+      "md5": "86c741820d7a2f5645030159a84707f3"
+    },
+    {
+      "file": "wtp-patcher-theme.php.off",
+      "size": 5228,
+      "md5": "dd9530db571c21c9437b3d329aa2cc8f"
+    },
+    {
+      "file": "wtp-plugins-manifest.php.off",
+      "size": 1460,
+      "md5": "13fb7694b4090c03b62676439cac7fb3"
+    },
+    {
+      "file": "wtp-push-runner-cron.php.off",
+      "size": 4618,
+      "md5": "5a1dd7fd71d6ad265943402b67a3afff"
+    },
+    {
+      "file": "wtp-ro-exporter.php",
+      "size": 10108,
+      "md5": "d1b3083c5e73884ec342476d7c518b50"
+    },
+    {
+      "file": "wtp-seo.php.off",
+      "size": 15120,
+      "md5": "18b188e2fa7f46229cad9dc48fc142c7"
+    },
+    {
+      "file": "wtp-tax-i18n-seo.php.off",
+      "size": 16625,
+      "md5": "281dd686cb2356f768d401717aa4b2d6"
+    },
+    {
+      "file": "wtp-theme-guardian.php",
+      "size": 1284,
+      "md5": "a25090d55e76f55705188f299e7a5a26"
+    },
+    {
+      "file": "wtp-theme-seo-bridge.php.off",
+      "size": 2749,
+      "md5": "dc7e7779dbdb199d2bd50565bba0d425"
+    },
+    {
+      "file": "wtp-translate.php.off",
+      "size": 6543,
+      "md5": "50ab3256b657587600abd172942636af"
+    }
+  ],
+  "admins": [
+    {
+      "ID": 1,
+      "user_login": "bmpanek@gmail.com",
+      "display_name": "WeekTopPick Editorial Team",
+      "user_email": "bmpanek@gmail.com",
+      "user_registered": "2025-08-28 09:08:51",
+      "roles": "administrator"
+    }
+  ]
+}
