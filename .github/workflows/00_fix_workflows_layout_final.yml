@@ -1,0 +1,80 @@
+name: 00_fix_workflows_layout_final
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-workflows-layout
+  cancel-in-progress: true
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Move back maintenance workflows to active
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          WF_DIR=".github/workflows"
+          WF_M_DIR=".github/workflows._maintenance"
+          mkdir -p "$WF_DIR" "$WF_M_DIR"
+
+          # >>> TU PRZYWRACAMY DO AKTYWNYCH (żeby były widoczne w Actions UI)
+          to_active=(
+            "03_repo_snapshot.yml"
+            "03_repo_audit.yml"
+            "03_snapshot_core.yml"
+            "00_prune_wtp.yml"
+            "00_repo_housekeeping.yml"
+          )
+
+          moved_any=0
+          for f in "${to_active[@]}"; do
+            if [[ -f "$WF_M_DIR/$f" ]]; then
+              echo "move: $WF_M_DIR/$f -> $WF_DIR/$f"
+              git mv -f "$WF_M_DIR/$f" "$WF_DIR/$f"
+              moved_any=1
+            else
+              echo "skip: $WF_M_DIR/$f (not found)"
+            fi
+          done
+
+          # (Opcjonalnie – jeśli coś trafiło omyłkowo do active i chcesz to wyłączyć, podaj tu nazwy)
+          to_maintenance=(
+            # "ai-upsert-file.yml"
+            # "apply-inbox-patch.yml"
+            # "gsc-collector.yml"
+          )
+          for f in "${to_maintenance[@]}"; do
+            if [[ -f "$WF_DIR/$f" ]]; then
+              echo "move: $WF_DIR/$f -> $WF_M_DIR/$f"
+              git mv -f "$WF_DIR/$f" "$WF_M_DIR/$f"
+              moved_any=1
+            fi
+          done
+
+          if [[ "$moved_any" -eq 0 ]]; then
+            echo "::notice::Nic do przeniesienia."
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(layout): restore maintenance workflows to active for direct runs" || true
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME:-main}" || true
+          git push || true
+
+      - name: Summary
+        if: always()
+        run: |
+          set -euo pipefail
+          echo "::notice::Układ przywrócony. Sprawdź zakładkę Actions – powinny wrócić: 03_repo_snapshot, 03_repo_audit, 03_snapshot_core, 00_prune_wtp, 00_repo_housekeeping."
