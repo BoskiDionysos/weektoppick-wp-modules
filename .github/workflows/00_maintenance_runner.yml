@@ -1,0 +1,93 @@
+name: 00_maintenance_runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      workflow_file:
+        description: "Nazwa pliku z .github/workflows._maintenance/, np. 03_repo_audit.yml"
+        required: true
+      keep_active:
+        description: "Zostawić plik aktywny po odpaleniu? (yes/no)"
+        required: false
+        default: "no"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: maintenance-runner
+  cancel-in-progress: true
+
+jobs:
+  run_maintenance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate input & list available maintenance workflows
+        id: val
+        run: |
+          set -euo pipefail
+          WF_M_DIR=".github/workflows._maintenance"
+          WF_DIR=".github/workflows"
+          NAME="${{ github.event.inputs.workflow_file }}"
+          echo "== Available in _maintenance =="
+          ls -1 "$WF_M_DIR" || true
+          test -f "${WF_M_DIR}/${NAME}" || { echo "::error::Brak ${WF_M_DIR}/${NAME}"; exit 1; }
+          echo "wf_path=${WF_M_DIR}/${NAME}" >> "$GITHUB_OUTPUT"
+          echo "dst_path=${WF_DIR}/${NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Move maintenance workflow to active
+        run: |
+          set -euo pipefail
+          src="${{ steps.val.outputs.wf_path }}"
+          dst="${{ steps.val.outputs.dst_path }}"
+          mkdir -p "$(dirname "$dst")"
+          mv -f "$src" "$dst"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$dst"
+          git commit -m "maintenance-runner: activate $(basename "$dst") temporarily" || true
+          git push || true
+
+      - name: Trigger the workflow via GitHub API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          WF_FILE: ${{ github.event.inputs.workflow_file }}
+        run: |
+          set -euo pipefail
+          # API: POST /repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches
+          # workflow_id może być nazwą pliku.
+          curl -sS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/actions/workflows/${WF_FILE}/dispatches" \
+            -d "{\"ref\":\"${BRANCH}\"}"
+          echo "::notice::Triggered ${WF_FILE} on ref ${BRANCH}"
+
+      - name: Move back to _maintenance (unless keep_active=yes)
+        if: ${{ github.event.inputs.keep_active != 'yes' }}
+        run: |
+          set -euo pipefail
+          WF_DIR=".github/workflows"
+          WF_M_DIR=".github/workflows._maintenance"
+          NAME="${{ github.event.inputs.workflow_file }}"
+          if [ -f "${WF_DIR}/${NAME}" ]; then
+            mv -f "${WF_DIR}/${NAME}" "${WF_M_DIR}/${NAME}"
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add "${WF_M_DIR}/${NAME}" "${WF_DIR}" || true
+            git commit -m "maintenance-runner: move back ${NAME} to _maintenance" || true
+            git push || true
+          else
+            echo "::warning::${WF_DIR}/${NAME} not found (already moved?)"
+          fi
+
+      - name: Done
+        run: echo "::notice::Launched ${{ github.event.inputs.workflow_file }} (check Actions list for its run)"
