@@ -9,6 +9,7 @@ on:
         type: choice
         options:
           - repo_snapshot
+          - repo_snapshot_core
           - repo_audit
           - repo_housekeeping
           - prune_wtp
@@ -21,18 +22,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # --- Pełny snapshot repo (szczegółowy) ---
   repo_snapshot:
     if: ${{ github.event.inputs.task == 'repo_snapshot' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-
+        with:
+          fetch-depth: 0
       - name: Setup Python
         uses: actions/setup-python@v5
-        with: { python-version: "3.x" }
-
+        with:
+          python-version: "3.x"
       - name: Build inventory (files → JSON + REPO_ARCHITECTURE.md)
         shell: bash
         run: |
@@ -43,20 +45,18 @@ jobs:
           ROOT = Path(".").resolve()
           out = ROOT / "_ci_logs" / os.environ.get("GITHUB_RUN_ID","0") / "repo"
           out.mkdir(parents=True, exist_ok=True)
-
           def sha(p):
+            import hashlib
             h=hashlib.sha256()
             try:
               with open(p,'rb') as f:
                 for b in iter(lambda:f.read(1024*1024), b''): h.update(b)
               return h.hexdigest()
             except: return None
-
           def lines_cnt(p):
             try:
               with open(p,'rb') as f: return sum(1 for _ in f)
             except: return None
-
           def cat(s):
             if s.startswith(".git/"): return "git"
             if s.startswith(".github/workflows._quarantine/") and s.endswith((".yml",".yaml")): return "workflow-quarantine"
@@ -69,28 +69,26 @@ jobs:
             if s.startswith("docs/") or s.endswith(".md"): return "docs"
             if s.endswith((".json",".yml",".yaml",".toml",".ini",".env",".editorconfig",".gitattributes",".gitignore",".htaccess")): return "config"
             return "other"
-
           rec=[]
           for dp,_,fn in os.walk(ROOT):
             if "/.git" in dp or dp.endswith("/.git") or "/_ci_logs" in dp: continue
             for n in fn:
-              rel = Path(dp).joinpath(n).relative_to(ROOT).as_posix()
+              rel = (Path(dp)/n).relative_to(ROOT).as_posix()
               p = ROOT / rel
               try: sz = p.stat().st_size
               except: sz = None
+              is_text = rel.split(".")[-1].lower() in {"php","js","ts","css","scss","json","md","yml","yaml","xml","html","htm","txt","ini","env","toml","py","sh"}
               rec.append({
                 "path": rel,
                 "category": cat(rel),
                 "size": sz,
                 "sha256": sha(p) if (sz or 0) <= 25*1024*1024 else None,
-                "lines": lines_cnt(p) if rel.split(".")[-1].lower() in {"php","js","ts","css","scss","json","md","yml","yaml","xml","html","htm","txt","ini","env","toml","py","sh"} and (sz or 0) <= 5*1024*1024 else None
+                "lines": lines_cnt(p) if is_text and (sz or 0) <= 5*1024*1024 else None
               })
-
           from collections import defaultdict
           by = defaultdict(lambda: {"count":0,"size":0})
           for r in rec:
             by[r["category"]]["count"]+=1; by[r["category"]]["size"]+=(r["size"] or 0)
-
           snap = {
             "run_id": os.environ.get("GITHUB_RUN_ID"),
             "run_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -98,25 +96,26 @@ jobs:
             "files": rec
           }
           out.joinpath("repo-snapshot.json").write_text(json.dumps(snap, indent=2), encoding="utf-8")
-
           def human(n):
             for u in ["B","KB","MB","GB","TB"]:
               if n<1024: return f"{n:.1f} {u}"
               n/=1024
             return f"{n:.1f} PB"
-
           lines=[]
           lines+=["# REPO ARCHITECTURE", f"- Run ID: {snap['run_id']}", f"- Run TS (UTC): {snap['run_ts']}", f"- Files total: {snap['counts']['files']}", "", "## Categories"]
           for k in sorted(by): lines.append(f"- **{k}**: {by[k]['count']} files, {human(by[k]['size'])}")
-          lines+=["", "## Workflows (active)", "| File | Size | Lines |","|---|---:|---:|"]
-          for r in [x for x in rec if x["category"]=="workflow-active"]: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
-          lines+=["", "## Workflows (maintenance)", "| File | Size | Lines |","|---|---:|---:|"]
-          for r in [x for x in rec if x["category"]=="workflow-maintenance"]: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
-          lines+=["", "## Workflows (quarantine)", "| File | Size | Lines |","|---|---:|---:|"]
-          for r in [x for x in rec if x["category"]=="workflow-quarantine"]: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
+          def dump_section(title, catname):
+            lines.append("")
+            lines.append(f"## {title}")
+            arr=[x for x in rec if x["category"]==catname]
+            if not arr: lines.append("_none_"); return
+            lines.append("| File | Size | Lines |"); lines.append("|---|---:|---:|")
+            for r in arr: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
+          dump_section("Workflows (active)", "workflow-active")
+          dump_section("Workflows (maintenance)", "workflow-maintenance")
+          dump_section("Workflows (quarantine)", "workflow-quarantine")
           out.joinpath("REPO_ARCHITECTURE.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
           PY
-
       - name: Publish to .wtp/state (RO + latest)
         shell: bash
         run: |
@@ -132,6 +131,75 @@ jobs:
           git commit -m "repo_snapshot via maintenance task" || true
           git push || true
 
+  # --- Lekki snapshot (core) — tylko kluczowe listy/sekcje, szybko ---
+  repo_snapshot_core:
+    if: ${{ github.event.inputs.task == 'repo_snapshot_core' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.x" }
+      - name: Build light inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - << 'PY'
+          import os, json, time
+          from pathlib import Path
+          ROOT = Path(".")
+          out = ROOT / "_ci_logs" / os.environ.get("GITHUB_RUN_ID","0") / "repo_core"
+          out.mkdir(parents=True, exist_ok=True)
+          def cat(s):
+            if s.startswith(".github/workflows._quarantine/") and s.endswith((".yml",".yaml")): return "workflow-quarantine"
+            if s.startswith(".github/workflows._maintenance/") and s.endswith((".yml",".yaml")): return "workflow-maintenance"
+            if s.startswith(".github/workflows/") and s.endswith((".yml",".yaml")): return "workflow-active"
+            if s.startswith("wp-content/mu-plugins/"): return "mu-plugin"
+            if s.startswith("wp-content/plugins/"): return "plugin"
+            if s.startswith("wp-content/themes/"): return "theme"
+            if s.startswith(".wtp/"): return "wtp"
+            return "other"
+          files=[]
+          for dp,_,fn in os.walk(ROOT):
+            if "/.git" in dp or "/_ci_logs" in dp: continue
+            for n in fn:
+              rel = (Path(dp)/n).relative_to(ROOT).as_posix()
+              files.append({"path": rel, "category": cat(rel)})
+          snap = {
+            "run_id": os.environ.get("GITHUB_RUN_ID"),
+            "run_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "counts": {
+              "workflows_active": sum(1 for f in files if f["category"]=="workflow-active"),
+              "workflows_maintenance": sum(1 for f in files if f["category"]=="workflow-maintenance"),
+              "workflows_quarantine": sum(1 for f in files if f["category"]=="workflow-quarantine"),
+              "mu": sum(1 for f in files if f["category"]=="mu-plugin"),
+              "plugins": sum(1 for f in files if f["category"]=="plugin"),
+              "themes": sum(1 for f in files if f["category"]=="theme"),
+              "wtp": sum(1 for f in files if f["category"]=="wtp"),
+            }
+          }
+          out.joinpath("repo-core.json").write_text(json.dumps(snap, indent=2), encoding="utf-8")
+          out.joinpath("REPO_CORE.md").write_text(
+            f"# REPO CORE\n- Run ID: {snap['run_id']}\n- Run TS (UTC): {snap['run_ts']}\n"
+            f"- Workflows: active={snap['counts']['workflows_active']} maintenance={snap['counts']['workflows_maintenance']} quarantine={snap['counts']['workflows_quarantine']}\n",
+            encoding="utf-8"
+          )
+          PY
+      - name: Publish core snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          RO_DIR=".wtp/state/ro/public/${GITHUB_RUN_ID}/repo"
+          RO_LATEST=".wtp/state/ro/public/latest/repo"
+          mkdir -p "$RO_DIR" "$RO_LATEST"
+          cp -a "_ci_logs/${GITHUB_RUN_ID}/repo_core/." "$RO_DIR/"
+          cp -a "_ci_logs/${GITHUB_RUN_ID}/repo_core/." "$RO_LATEST/"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$RO_DIR" "$RO_LATEST"
+          git commit -m "repo_snapshot_core via maintenance task" || true
+          git push || true
+
+  # --- Audyt na bazie snapshotu ---
   repo_audit:
     if: ${{ github.event.inputs.task == 'repo_audit' }}
     runs-on: ubuntu-latest
@@ -150,9 +218,8 @@ jobs:
           IN  = Path(".wtp/state/ro/public/latest/repo/repo-snapshot.json")
           OUT = Path(f"_ci_logs/{RUN_ID}/repo_audit/REPO_AUDIT.md")
           OUT.parent.mkdir(parents=True, exist_ok=True)
-          data  = json.load(IN.open())
-          files = data.get("files",[])
-          bycat = data.get("counts",{}).get("by_category",{})
+          data=json.load(IN.open())
+          files=data.get("files",[]); by=data.get("counts",{}).get("by_category",{})
           def human(n):
             for u in ["B","KB","MB","GB","TB"]:
               if n<1024: return f"{n:.1f} {u}"
@@ -164,25 +231,19 @@ jobs:
           large=sorted([f for f in files if (f.get("size") or 0)>10*1024*1024], key=lambda x:x.get("size") or 0, reverse=True)[:50]
           L=[]
           L.append("# REPO AUDIT (v2)")
-          L.append(f"- Run ID: {data.get('run_id')}")
-          L.append(f"- Run TS (UTC): {data.get('run_ts')}")
-          L.append("")
-          L.append("## Summary")
-          L.append(f"- Files total: {data.get('counts',{}).get('files')}")
-          for k in sorted(bycat): v=bycat[k]; L.append(f"- {k}: {v['count']} • {human(v['size'])}")
-          L.append("")
-          L.append(f"**Workflows** → active: {len(wfA)} • maintenance: {len(wfM)} • quarantine: {len(wfQ)}")
+          L.append(f"- Run ID: {data.get('run_id')}"); L.append(f"- Run TS (UTC): {data.get('run_ts')}"); L.append("")
+          L.append("## Summary"); L.append(f"- Files total: {data.get('counts',{}).get('files')}")
+          for k in sorted(by): v=by[k]; L.append(f"- {k}: {v['count']} • {human(v['size'])}")
+          L.append(""); L.append(f"**Workflows** → active: {len(wfA)} • maintenance: {len(wfM)} • quarantine: {len(wfQ)}")
           def table(title, arr):
             L.append(f"### {title}")
             if not arr: L.append("_none_"); L.append(""); return
             L.append("| File | Size |"); L.append("|---|---:|")
             for f in sorted(arr, key=lambda x:x['path']): L.append(f"| {f['path']} | {human(f.get('size') or 0)} |")
             L.append("")
-          table("Workflows (active)", wfA)
-          table("Workflows (maintenance)", wfM)
-          table("Workflows (quarantine)", wfQ)
-          L.append("## Biggest files (>10MB)")
-          if large:
+          table("Workflows (active)", wfA); table("Workflows (maintenance)", wfM); table("Workflows (quarantine)", wfQ)
+          L.append("## Biggest files (>10MB)"); 
+          if large: 
             L.append("| File | Size |"); L.append("|---|---:|")
             for f in large: L.append(f"| {f['path']} | {human(f['size'] or 0)} |")
           else: L.append("_none_")
@@ -203,6 +264,7 @@ jobs:
           git commit -m "repo_audit via maintenance task" || true
           git push || true
 
+  # --- Porządki RO ---
   repo_housekeeping:
     if: ${{ github.event.inputs.task == 'repo_housekeeping' }}
     runs-on: ubuntu-latest
@@ -215,7 +277,6 @@ jobs:
           set -euo pipefail
           BASE=".wtp/state/ro/public"
           cd "$BASE" || exit 0
-          # zostaw latest i 3 najnowsze numeryczne
           keep=("latest" $(ls -1d [0-9]* 2>/dev/null | sort -n | tail -n 3))
           for d in *; do
             [[ -d "$d" ]] || continue
@@ -229,6 +290,7 @@ jobs:
           git commit -m "housekeeping: prune old RO runs" || true
           git push || true
 
+  # --- Sprzątanie artefaktów lokalnych ---
   prune_wtp:
     if: ${{ github.event.inputs.task == 'prune_wtp' }}
     runs-on: ubuntu-latest
