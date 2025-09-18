@@ -1,0 +1,53 @@
+name: 00_move_maintenance_to_active
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  move:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Move selected workflows back to active
+        shell: bash
+        run: |
+          set -euo pipefail
+          WF_DIR=".github/workflows"
+          WF_M_DIR=".github/workflows._maintenance"
+          mkdir -p "$WF_DIR" "$WF_M_DIR"
+
+          echo "Updating local branch…"
+          git pull --rebase --autostash origin "${GITHUB_REF_NAME:-main}" || true
+
+          move() {
+            src="$WF_M_DIR/$1"
+            dst="$WF_DIR/$1"
+            if [ -f "$src" ]; then
+              echo "move: $src -> $dst"
+              git mv -f "$src" "$dst"
+            else
+              echo "skip (not found in maintenance): $1"
+            fi
+          }
+
+          # <<< KONKRETNE PLIKI >>>
+          move "03_repo_snapshot.yml"
+          move "03_repo_audit.yml"
+          move "03_snapshot_core.yml"
+          move "00_repo_housekeeping.yml"
+          move "00_prune_wtp.yml"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: move maintenance workflows back to active" || { echo "Nothing to commit"; exit 0; }
+          git push
+
+      - name: Summary
+        run: echo "::notice::Przeniesione. Odśwież Actions – powinny wrócić: 03_repo_snapshot, 03_repo_audit, 03_snapshot_core, 00_repo_housekeeping, 00_prune_wtp."
