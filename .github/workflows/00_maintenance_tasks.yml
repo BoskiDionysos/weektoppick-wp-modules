@@ -22,14 +22,17 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # --- Pełny snapshot repo (szczegółowy) ---
   repo_snapshot:
     if: ${{ github.event.inputs.task == 'repo_snapshot' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.x"
       - name: Build inventory (files → JSON + REPO_ARCHITECTURE.md)
@@ -44,7 +47,6 @@ jobs:
           out.mkdir(parents=True, exist_ok=True)
 
           def sha(p):
-              import hashlib
               h=hashlib.sha256()
               try:
                   with open(p,'rb') as f:
@@ -58,10 +60,12 @@ jobs:
               except: return None
 
           def cat(s: str) -> str:
+              s = s.replace("\\", "/")
               if s.startswith(".git/"): return "git"
-              if "/.github/workflows._quarantine/" in s and s.endswith((".yml",".yaml")): return "workflow-quarantine"
-              if "/.github/workflows._maintenance/" in s and s.endswith((".yml",".yaml")): return "workflow-maintenance"
-              if "/.github/workflows/" in s and s.endswith((".yml",".yaml")): return "workflow-active"
+              # <<< KLUCZOWA ZMIANA: używamy startswith zamiast `in "/.github/.../"`
+              if s.startswith(".github/workflows._quarantine/") and s.endswith((".yml",".yaml")): return "workflow-quarantine"
+              if s.startswith(".github/workflows._maintenance/") and s.endswith((".yml",".yaml")): return "workflow-maintenance"
+              if s.startswith(".github/workflows/") and s.endswith((".yml",".yaml")): return "workflow-active"
               if s.startswith("wp-content/mu-plugins/"): return "mu-plugin"
               if s.startswith("wp-content/plugins/"): return "plugin"
               if s.startswith("wp-content/themes/"): return "theme"
@@ -133,6 +137,7 @@ jobs:
 
           out.joinpath("REPO_ARCHITECTURE.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
           PY
+
       - name: Publish to .wtp/state (RO + latest)
         shell: bash
         run: |
@@ -148,6 +153,7 @@ jobs:
           git commit -m "repo_snapshot via maintenance task" || true
           git push || true
 
+  # --- Lekki snapshot (core) ---
   repo_snapshot_core:
     if: ${{ github.event.inputs.task == 'repo_snapshot_core' }}
     runs-on: ubuntu-latest
@@ -168,9 +174,10 @@ jobs:
           out.mkdir(parents=True, exist_ok=True)
 
           def cat(s: str) -> str:
-              if "/.github/workflows._quarantine/" in s and s.endswith((".yml",".yaml")): return "workflow-quarantine"
-              if "/.github/workflows._maintenance/" in s and s.endswith((".yml",".yaml")): return "workflow-maintenance"
-              if "/.github/workflows/" in s and s.endswith((".yml",".yaml")): return "workflow-active"
+              s = s.replace("\\", "/")
+              if s.startswith(".github/workflows._quarantine/") and s.endswith((".yml",".yaml")): return "workflow-quarantine"
+              if s.startswith(".github/workflows._maintenance/") and s.endswith((".yml",".yaml")): return "workflow-maintenance"
+              if s.startswith(".github/workflows/") and s.endswith((".yml",".yaml")): return "workflow-active"
               if s.startswith("wp-content/mu-plugins/"): return "mu-plugin"
               if s.startswith("wp-content/plugins/"): return "plugin"
               if s.startswith("wp-content/themes/"): return "theme"
@@ -221,6 +228,7 @@ jobs:
           git commit -m "repo_snapshot_core via maintenance task" || true
           git push || true
 
+  # --- Audyt na bazie snapshotu ---
   repo_audit:
     if: ${{ github.event.inputs.task == 'repo_audit' }}
     runs-on: ubuntu-latest
@@ -296,6 +304,7 @@ jobs:
           git commit -m "repo_audit via maintenance task" || true
           git push || true
 
+  # --- Porządki RO ---
   repo_housekeeping:
     if: ${{ github.event.inputs.task == 'repo_housekeeping' }}
     runs-on: ubuntu-latest
@@ -322,6 +331,7 @@ jobs:
           git commit -m "housekeeping: prune old RO runs" || true
           git push || true
 
+  # --- Sprzątanie artefaktów lokalnych ---
   prune_wtp:
     if: ${{ github.event.inputs.task == 'prune_wtp' }}
     runs-on: ubuntu-latest
