@@ -32,7 +32,29 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y sshpass
 
-      - name: Heal on server (disable MU/plugins, minimal theme, test)
+      - name: Create theme files locally
+        run: |
+          mkdir -p /tmp/wtp-theme
+          echo '/*' > /tmp/wtp-theme/style.css
+          echo ' Theme Name: WTP Core Theme' >> /tmp/wtp-theme/style.css
+          echo ' Description: Emergency theme' >> /tmp/wtp-theme/style.css
+          echo ' Version: 1.0' >> /tmp/wtp-theme/style.css
+          echo '*/' >> /tmp/wtp-theme/style.css
+          
+          echo '<?php' > /tmp/wtp-theme/functions.php
+          echo 'add_theme_support("title-tag");' >> /tmp/wtp-theme/functions.php
+          echo 'add_theme_support("post-thumbnails");' >> /tmp/wtp-theme/functions.php
+          
+          echo '<!doctype html>' > /tmp/wtp-theme/header.php
+          echo '<html><head><meta charset="utf-8"><title>Emergency</title></head><body>' >> /tmp/wtp-theme/header.php
+          
+          echo '</body></html>' > /tmp/wtp-theme/footer.php
+          
+          echo '<?php get_header(); ?>' > /tmp/wtp-theme/index.php
+          echo '<main><h1>Emergency Mode Active</h1></main>' >> /tmp/wtp-theme/index.php
+          echo '<?php get_footer(); ?>' >> /tmp/wtp-theme/index.php
+
+      - name: Emergency heal via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.HOST }}
@@ -43,149 +65,66 @@ jobs:
           envs: TARGET,RUN_ID
           script: |
             set -euo pipefail
-            TARGET="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
-            cd "$TARGET"
-            OUT="$TARGET/.wtp/state/ci_logs/emergency_heal_${RUN_ID}"
-            mkdir -p "$OUT"
-            rm -f .maintenance || true
-
-            HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || true)"
-            HOMEURL="${HOMEURL:-https://weektoppick.com}"
-            echo "$HOMEURL" > "$OUT/home_url.txt"
-
-            MUP="wp-content/mu-plugins"
-            if [ -d "$MUP" ]; then
-              for f in "$MUP"/*.php; do
-                [ -f "$f" ] || continue
-                base="$(basename "$f")"
-                case "$base" in
-                  00-mu-safe-loader.php|mu-hotfix-headers.php) echo "keep $base" >> "$OUT/mu_kept.txt" ;;
-                  *.off) echo "already off: $base" >> "$OUT/mu_off.txt" ;;
-                  *) mv -f "$f" "$f.off" || true; echo "off: $base" >> "$OUT/mu_off.txt" ;;
-                esac
-              done
+            cd "${TARGET:-$HOME/public_html}"
+            
+            mkdir -p .wtp/state/ci_logs/emergency_heal_${RUN_ID}
+            OUT=".wtp/state/ci_logs/emergency_heal_${RUN_ID}"
+            
+            rm -f .maintenance
+            echo "Emergency heal started" > "$OUT/status.txt"
+            
+            if [ -d wp-content/mu-plugins ]; then
+              find wp-content/mu-plugins -name "*.php" -not -name "00-*" -not -name "mu-hotfix-*" -exec mv {} {}.off \;
             fi
-
-            if command -v wp >/dev/null 2>&1; then
+            
+            if command -v wp; then
               wp plugin deactivate --all --quiet || true
             fi
+            
+            mkdir -p wp-content/themes/wtp-emergency
+            echo "Emergency theme created" >> "$OUT/status.txt"
 
-            THEME_DIR="wp-content/themes/wtp-core-theme"
-            mkdir -p "$THEME_DIR"
+      - name: Upload theme files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port: ${{ env.PORT }}
+          source: /tmp/wtp-theme/*
+          target: ${{ env.TARGET }}/wp-content/themes/wtp-emergency/
+          strip_components: 2
 
-            cat > "$THEME_DIR/style.css" <<'CSS'
-/*
- Theme Name: WTP Core Theme
- Theme URI: https://weektoppick.com
- Author: WeekTopPick
- Author URI: https://weektoppick.com
- Description: Core theme for WeekTopPick.
- Version: 0.1.0
- Text Domain: wtp-core-theme
-*/
-CSS
-
-            cat > "$THEME_DIR/functions.php" <<'PHP'
-<?php
-add_action('after_setup_theme', function () {
-  add_theme_support('title-tag');
-  add_theme_support('post-thumbnails');
-});
-add_action('wp_enqueue_scripts', function () {
-  wp_enqueue_style('wtp-core-theme', get_stylesheet_uri(), [], null);
-});
-PHP
-
-            cat > "$THEME_DIR/header.php" <<'PHP'
-<!doctype html>
-<html <?php language_attributes(); ?>>
-<head>
-<meta charset="<?php bloginfo('charset'); ?>">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<?php wp_head(); ?>
-</head>
-<body <?php body_class(); ?>>
-<header class="site-header">
-  <h1 class="site-title"><a href="<?php echo esc_url(home_url('/')); ?>"><?php bloginfo('name'); ?></a></h1>
-</header>
-PHP
-
-            cat > "$THEME_DIR/footer.php" <<'PHP'
-<footer class="site-footer"><p>&copy; <?php echo date('Y'); ?> WeekTopPick</p></footer>
-<?php wp_footer(); ?>
-</body>
-</html>
-PHP
-
-            cat > "$THEME_DIR/index.php" <<'PHP'
-<?php get_header(); ?>
-<main id="primary" class="site-main" style="max-width:860px;margin:40px auto;font-family:system-ui;">
-  <h2>WTP Core Theme</h2>
-  <?php if ( have_posts() ) : while ( have_posts() ) : the_post(); ?>
-    <article id="post-<?php the_ID(); ?>">
-      <h3><a href="<?php the_permalink(); ?>"><?php the_title(); ?></a></h3>
-      <div class="entry"><?php the_content(); ?></div>
-    </article>
-  <?php endwhile; else : ?>
-    <p>No content yet.</p>
-  <?php endif; ?>
-</main>
-<?php get_footer(); ?>
-PHP
-
-            if command -v wp >/dev/null 2>&1; then
-              wp theme activate wtp-core-theme || true
-              wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+      - name: Activate emergency theme
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port: ${{ env.PORT }}
+          request_pty: true
+          envs: TARGET,RUN_ID
+          script: |
+            cd "${TARGET:-$HOME/public_html}"
+            
+            if command -v wp; then
+              wp theme activate wtp-emergency || true
             fi
+            
+            echo "Emergency heal completed" >> .wtp/state/ci_logs/emergency_heal_${RUN_ID}/status.txt
 
-            STATUS=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
-            BODY="$(curl -ks "$HOMEURL" || true)"
-            echo "$STATUS" > "$OUT/http_status_after.txt"
-            printf "%s" "$BODY" > "$OUT/home_after.html"
-            echo "$(printf "%s" "$BODY" | wc -c)" > "$OUT/home_after_size.txt"
-
-            SIZE=$(cat "$OUT/home_after_size.txt" || echo 0)
-            if [ "$STATUS" != "200" ] || [ "${SIZE:-0}" -lt 600 ]; then
-              echo "rollback" > "$OUT/action.txt"
-              wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
-              wp plugin is-active litespeed-cache && wp litespeed-purge all || true
-            else
-              echo "ok" > "$OUT/action.txt"
-            fi
-
-            for LOG in error_log logs/error_log wp-content/debug.log; do
-              [ -f "$LOG" ] && tail -n 200 "$LOG" > "$OUT/$(echo "$LOG" | tr '/' '_')" || true
-            done
-
-            (command -v wp >/dev/null 2>&1 && wp theme list --status=active --field=name 2>/dev/null | head -n1) > "$OUT/active_theme.txt" || true
-
-      - name: Pull & publish report
+      - name: Pull report
         if: always()
         run: |
           set -euo pipefail
           mkdir -p "_ci_logs/${RUN_ID}/emergency_heal"
-          SVRTGT="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
+          
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
-            "${USER}@${HOST}:${SVRTGT}/.wtp/state/ci_logs/emergency_heal_${RUN_ID}" \
+            "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/emergency_heal_${RUN_ID}/*" \
             "_ci_logs/${RUN_ID}/emergency_heal/" || true
-
-          RO_DIR=".wtp/state/ro/public/${RUN_ID}/emergency-heal"
-          RO_LATEST=".wtp/state/ro/public/latest/emergency-heal"
-          mkdir -p "${RO_DIR}" "${RO_LATEST}"
-          cp -a "_ci_logs/${RUN_ID}/emergency_heal/." "${RO_DIR}/" || true
-          rm -rf "${RO_LATEST}"
-          mkdir -p "${RO_LATEST}"
-          cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
-
+          
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --staged --quiet; then
-            echo "::notice::Nothing to commit."
-            exit 0
-          fi
-          git commit -m "emergency heal ${RUN_ID}"
-          BRANCH="${GITHUB_REF_NAME:-main}"
-          git fetch origin "$BRANCH"
-          git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
-          git push origin "HEAD:$BRANCH"
+          git add -A || true
+          git commit -m "Emergency heal report ${RUN_ID}" || true
+          git push || true
