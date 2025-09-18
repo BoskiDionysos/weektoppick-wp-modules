@@ -1,8 +1,11 @@
 name: 00_fix_workflows_layout
+
 on:
   workflow_dispatch: {}
+
 permissions:
   contents: write
+
 concurrency:
   group: fix-workflows-layout
   cancel-in-progress: true
@@ -10,12 +13,15 @@ concurrency:
 jobs:
   fix:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+        with:
+          fetch-depth: 0
 
       - name: Keep 6 core, move tools to _maintenance, rest to _quarantine
+        shell: bash
         run: |
           set -euo pipefail
           WF_DIR=".github/workflows"
@@ -23,7 +29,7 @@ jobs:
           M_DIR=".github/workflows._maintenance"
           mkdir -p "$WF_DIR" "$Q_DIR" "$M_DIR"
 
-          # === SZÓSTKA CORE (mają zostać aktywne) ===
+          # === 6 CORE (zostają aktywne) ===
           readarray -t CORE <<'EOF'
 01_deploy.yml
 02_wpcli.yml
@@ -33,7 +39,7 @@ apply-inbox-patch.yml
 gsc-collector.yml
 EOF
 
-          # === NARZĘDZIOWE (schowek, nieaktywne, ale pod ręką) ===
+          # === 5 NARZĘDZIOWYCH (do _maintenance) ===
           readarray -t TOOLS <<'EOF'
 00_repo_housekeeping.yml
 00_prune_wtp.yml
@@ -51,9 +57,13 @@ EOF
             if in_list "$base" "${CORE[@]}"; then
               echo "[KEEP] $base"
             elif in_list "$base" "${TOOLS[@]}"; then
-              mv -f "$f" "$M_DIR/$base"; echo "[TOOL -> _maintenance] $base"; CHANGED=1
+              mv -f "$f" "$M_DIR/$base"
+              echo "[TOOL -> _maintenance] $base"
+              CHANGED=1
             else
-              mv -f "$f" "$Q_DIR/$base"; echo "[MOVE -> _quarantine] $base"; CHANGED=1
+              mv -f "$f" "$Q_DIR/$base"
+              echo "[MOVE -> _quarantine] $base"
+              CHANGED=1
             fi
           done
           shopt -u nullglob
@@ -68,21 +78,25 @@ EOF
             echo "::notice::No changes needed."
           fi
 
-      - name: Rebuild repo inventory after move
+      - name: Setup Python
         uses: actions/setup-python@v5
-        with: { python-version: "3.x" }
+        with:
+          python-version: "3.x"
 
       - name: Snapshot repo → latest/repo
+        shell: bash
         run: |
           set -euo pipefail
           python - << 'PY'
           import os, json, time
           from pathlib import Path
-          ROOT = Path("."); out = ROOT / "_ci_logs" / os.environ.get("GITHUB_RUN_ID","0") / "repo"
+
+          ROOT = Path(".")
+          out = ROOT / "_ci_logs" / os.environ.get("GITHUB_RUN_ID","0") / "repo"
           out.mkdir(parents=True, exist_ok=True)
 
           def cat(p: Path):
-              s=p.as_posix()
+              s = p.as_posix()
               if s.startswith(".git/"): return "git"
               if s.startswith(".github/workflows._quarantine/") and s.endswith((".yml",".yaml")): return "workflow-quarantine"
               if s.startswith(".github/workflows._maintenance/") and s.endswith((".yml",".yaml")): return "workflow-maintenance"
@@ -101,27 +115,34 @@ EOF
               if "/_ci_logs" in dp: continue
               for n in fn:
                   rel = Path(dp).joinpath(n).relative_to(ROOT)
-                  p = ROOT/rel
-                  try: sz=p.stat().st_size
-                  except: sz=None
+                  p = ROOT / rel
+                  try: sz = p.stat().st_size
+                  except Exception: sz = None
                   rec.append({"path": rel.as_posix(), "category": cat(rel), "size": sz})
 
           from collections import defaultdict
           by = defaultdict(lambda: {"count":0,"size":0})
           for r in rec:
-              by[r["category"]]["count"]+=1; by[r["category"]]["size"]+=(r["size"] or 0)
+              by[r["category"]]["count"] += 1
+              by[r["category"]]["size"]  += (r["size"] or 0)
 
-          snap = {"run_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                  "counts":{"files":len(rec), "by_category":by}, "files":rec}
+          snap = {
+              "run_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+              "counts": {"files": len(rec), "by_category": by},
+              "files": rec
+          }
 
-          (out/"repo-snapshot.json").write_text(json.dumps(snap, indent=2), encoding="utf-8")
+          (out / "repo-snapshot.json").write_text(json.dumps(snap, indent=2), encoding="utf-8")
+          (out / "REPO_ARCHITECTURE.md").write_text("# Repo updated after workflow layout\n", encoding="utf-8")
           PY
 
           RO_DIR=".wtp/state/ro/public/${GITHUB_RUN_ID}/repo"
           RO_LATEST=".wtp/state/ro/public/latest/repo"
           mkdir -p "$RO_DIR" "$RO_LATEST"
           cp -a "_ci_logs/${GITHUB_RUN_ID}/repo/." "$RO_DIR/"
-          rm -rf "$RO_LATEST" && mkdir -p "$RO_LATEST" && cp -a "$RO_DIR/." "$RO_LATEST/"
+          rm -rf "$RO_LATEST"
+          mkdir -p "$RO_LATEST"
+          cp -a "$RO_DIR/." "$RO_LATEST/"
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
