@@ -1,0 +1,1 @@
+<?php // Use homepage template to show Top-3 (tag: wtp-top3) get_header(); echo do_shortcode('[wtp_top3]'); get_footer();
