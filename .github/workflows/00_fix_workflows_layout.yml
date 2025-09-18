@@ -13,6 +13,7 @@ concurrency:
 jobs:
   fix:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -24,29 +25,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           WF_DIR=".github/workflows"
           Q_DIR=".github/workflows._quarantine"
           M_DIR=".github/workflows._maintenance"
           mkdir -p "$WF_DIR" "$Q_DIR" "$M_DIR"
 
-          # === 6 CORE (zostają aktywne) ===
-          readarray -t CORE <<'EOF'
-01_deploy.yml
-02_wpcli.yml
-03_snapshot_full.yml
-ai-upsert-file.yml
-apply-inbox-patch.yml
-gsc-collector.yml
-EOF
-
-          # === 5 NARZĘDZIOWYCH (do _maintenance) ===
-          readarray -t TOOLS <<'EOF'
-00_repo_housekeeping.yml
-00_prune_wtp.yml
-03_repo_snapshot.yml
-03_repo_audit.yml
-03_snapshot_core.yml
-EOF
+          # 6 aktywnych (zostają)
+          CORE=("01_deploy.yml" "02_wpcli.yml" "03_snapshot_full.yml" "ai-upsert-file.yml" "apply-inbox-patch.yml" "gsc-collector.yml")
+          # 5 narzędziowych (do _maintenance)
+          TOOLS=("00_repo_housekeeping.yml" "00_prune_wtp.yml" "03_repo_snapshot.yml" "03_repo_audit.yml" "03_snapshot_core.yml")
 
           in_list() { local x="$1"; shift; for a in "$@"; do [[ "$x" == "$a" ]] && return 0; done; return 1; }
 
@@ -68,12 +56,12 @@ EOF
           done
           shopt -u nullglob
 
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if [[ $CHANGED -eq 1 ]]; then
             git add "$WF_DIR" "$Q_DIR" "$M_DIR"
-            git commit -m "layout: keep 6 core; tools -> _maintenance; rest -> _quarantine"
-            git push
+            git commit -m "layout: keep 6 core; tools -> _maintenance; rest -> _quarantine" || true
+            git push || true
           else
             echo "::notice::No changes needed."
           fi
@@ -87,6 +75,7 @@ EOF
         shell: bash
         run: |
           set -euo pipefail
+
           python - << 'PY'
           import os, json, time
           from pathlib import Path
@@ -116,8 +105,10 @@ EOF
               for n in fn:
                   rel = Path(dp).joinpath(n).relative_to(ROOT)
                   p = ROOT / rel
-                  try: sz = p.stat().st_size
-                  except Exception: sz = None
+                  try:
+                      sz = p.stat().st_size
+                  except Exception:
+                      sz = None
                   rec.append({"path": rel.as_posix(), "category": cat(rel), "size": sz})
 
           from collections import defaultdict
@@ -144,8 +135,11 @@ EOF
           mkdir -p "$RO_LATEST"
           cp -a "$RO_DIR/." "$RO_LATEST/"
 
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$RO_DIR" "$RO_LATEST"
           git commit -m "update repo snapshot after workflow layout" || true
           git push || true
+
+      - name: Done
+        run: echo "::notice::workflows layout fixed"
