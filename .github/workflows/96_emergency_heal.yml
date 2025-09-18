@@ -1,8 +1,11 @@
 name: 96_emergency_heal
+
 on:
   workflow_dispatch: {}
+
 permissions:
   contents: write
+
 concurrency:
   group: emergency-heal
   cancel-in-progress: true
@@ -11,11 +14,12 @@ jobs:
   heal:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
     env:
-      HOST:   ${{ secrets.DEPLOY_HOST }}
-      PORT:   ${{ secrets.DEPLOY_PORT }}
-      USER:   ${{ secrets.DEPLOY_USER }}
-      PASS:   ${{ secrets.DEPLOY_PASS }}
+      HOST: ${{ secrets.DEPLOY_HOST }}
+      PORT: ${{ secrets.DEPLOY_PORT }}
+      USER: ${{ secrets.DEPLOY_USER }}
+      PASS: ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
       RUN_ID: ${{ github.run_id }}
 
@@ -32,10 +36,10 @@ jobs:
       - name: Heal site (disable MU & plugins, provision minimal theme, activate, test)
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host:     ${{ env.HOST }}
+          host: ${{ env.HOST }}
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
-          port:     ${{ env.PORT }}
+          port: ${{ env.PORT }}
           request_pty: true
           envs: TARGET,RUN_ID
           script: |
@@ -49,7 +53,7 @@ jobs:
             rm -f .maintenance || true
 
             # Base URL
-            HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || true)"
+            HOMEURL="$(php -r 'include \"wp-config.php\"; include \"wp-load.php\"; echo get_option(\"home\");' 2>/dev/null || true)"
             HOMEURL="${HOMEURL:-https://weektoppick.com}"
             echo "$HOMEURL" > "$OUT/home_url.txt"
 
@@ -178,7 +182,7 @@ PHP
 
             # Collect logs
             for LOG in error_log logs/error_log wp-content/debug.log; do
-              [ -f "$LOG" ] && tail -n 200 "$LOG" > "$OUT/$(echo "$LOG" | tr '/' '_')"
+              [ -f "$LOG" ] && tail -n 200 "$LOG" > "$OUT/$(echo "$LOG" | tr '/' '_')" || true
             done
 
             # Active theme
