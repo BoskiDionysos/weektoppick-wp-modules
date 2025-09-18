@@ -1,0 +1,104 @@
+name: 97_promote_wtp_theme_if_ok
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+concurrency:
+  group: promote-wtp-theme
+  cancel-in-progress: true
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Read latest try-theme verdict from repo
+        id: verdict
+        run: |
+          set -euo pipefail
+          BASE=".wtp/state/ro/public/latest/try-theme"
+          test -f "$BASE/action.txt" || { echo "::error::Brak $BASE/action.txt"; exit 1; }
+          test -f "$BASE/http_status_after.txt" || { echo "::error::Brak $BASE/http_status_after.txt"; exit 1; }
+          test -f "$BASE/home_after_size.txt" || { echo "::error::Brak $BASE/home_after_size.txt"; exit 1; }
+
+          ACTION="$(cat "$BASE/action.txt" || true)"
+          STATUS="$(cat "$BASE/http_status_after.txt" || echo 000)"
+          SIZE="$(cat "$BASE/home_after_size.txt" || echo 0)"
+
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          echo "size=$SIZE"     >> "$GITHUB_OUTPUT"
+
+          echo "::notice::action: $ACTION"
+          echo "::notice::status: $STATUS  size: $SIZE"
+
+          # warunek zdrowia
+          if echo "$ACTION" | grep -q "\[OK\]"; then OKFLAG=1; else OKFLAG=0; fi
+          if [ "$STATUS" = "200" ] && [ "${SIZE:-0}" -ge 600 ] && [ $OKFLAG -eq 1 ]; then
+            echo "promote=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "promote=no"  >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Promote theme on server (with safety + rollback)
+        if: steps.verdict.outputs.promote == 'yes'
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          request_pty: true
+          envs: TARGET
+          script: |
+            set -euo pipefail
+            TARGET="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
+            cd "$TARGET"
+            echo "[INFO] Promoting wtp-core-theme…"
+
+            # upewnij się, że katalog motywu istnieje i nie jest .off
+            if [ -d "wp-content/themes/wtp-core-theme.off" ] && [ ! -d "wp-content/themes/wtp-core-theme" ]; then
+              mv wp-content/themes/wtp-core-theme.off wp-content/themes/wtp-core-theme
+            fi
+
+            # aktywacja motywu
+            if command -v wp >/dev/null 2>&1; then
+              wp theme is-installed wtp-core-theme || { echo "::error::Motyw wtp-core-theme nie jest zainstalowany"; exit 2; }
+              wp theme activate wtp-core-theme
+            else
+              echo "::error::Brak WP-CLI na PATH"; exit 3
+            fi
+
+            # purge LS cache jeżeli aktywny
+            wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+
+            # szybki test frontu
+            HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || true)"
+            HOMEURL="${HOMEURL:-https://weektoppick.com}"
+            STATUS=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
+            SIZE=$(curl -ks "$HOMEURL" | wc -c || echo 0)
+            echo "[INFO] After promote: status=$STATUS size=$SIZE"
+
+            # rollback jeśli niezdrowo
+            if [ "$STATUS" != "200" ] || [ "${SIZE:-0}" -lt 600 ]; then
+              echo "[WARN] Unhealthy → rollback to twentytwentyfive"
+              wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
+              wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+              exit 4
+            fi
+            echo "[OK] Promoted successfully."
+
+      - name: Stop if not promoting
+        if: steps.verdict.outputs.promote != 'yes'
+        run: |
+          echo "::warning::Nie promuję motywu — ostatni try-theme nie spełnia warunków (OK+200+size>=600)."
