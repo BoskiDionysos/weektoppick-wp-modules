@@ -1,6 +1,6 @@
 {
-  "run_id": "17835465570",
-  "run_ts": "2025-09-18T16:42:40Z",
+  "run_id": "17836225968",
+  "run_ts": "2025-09-18T17:14:29Z",
   "site": {
     "home": "https://weektoppick.com",
     "siteurl": "https://weektoppick.com",
@@ -11,10 +11,10 @@
     "wp_version": "6.8.2",
     "php_version": "8.3.22",
     "hostname": "de-fra-web2061.main-hosting.eu",
-    "timestamp_utc": "2025-09-18T16:42:22Z"
+    "timestamp_utc": "2025-09-18T17:14:17Z"
   },
   "active_theme": {
-    "active": ""
+    "active": "twentytwentyfive"
   },
   "plugins": [
     {
@@ -130,7 +130,16 @@
       "auto_update": "off"
     }
   ],
-  "themes": [],
+  "themes": [
+    {
+      "name": "twentytwentyfive",
+      "status": "active",
+      "update": "none",
+      "version": "1.3",
+      "update_version": "",
+      "auto_update": "off"
+    }
+  ],
   "mu_plugins": [
     {
       "file": "00-mu-safe-loader.php",
@@ -818,8 +827,8 @@
     "blogdescription": "Your Weekly Top Picks in Tech, Lifestyle &amp; More",
     "timezone_string": "",
     "permalink_structure": "/%postname%/",
-    "template": "wtp-core-theme",
-    "stylesheet": "wtp-core-theme"
+    "template": "twentytwentyfive",
+    "stylesheet": "twentytwentyfive"
   },
   "files": {
     "www": [
@@ -1772,6 +1781,266 @@
         "path": "wp-content/uploads/2025/08/cropped-logo_black_bg.png",
         "size": 13870,
         "md5": "7ca1caeba7df898615aed385dc9f948a"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/home.html",
+        "size": 471,
+        "md5": "b048f307ae5e2145b9cab7a5096dd604"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/index.html",
+        "size": 471,
+        "md5": "b048f307ae5e2145b9cab7a5096dd604"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/404.html",
+        "size": 621,
+        "md5": "5877e599020832df6c6e8ac002e0cb8b"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/single.html",
+        "size": 1502,
+        "md5": "d148deef805d62d64b4556b4b6d061b1"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/page-no-title.html",
+        "size": 347,
+        "md5": "0690adeae46f8e81541e5be41b751a05"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/archive.html",
+        "size": 478,
+        "md5": "148470ac39bce982d5f216748811c27f"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/search.html",
+        "size": 570,
+        "md5": "b39a6201f5f1cce2e640574e7fec5504"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/page.html",
+        "size": 879,
+        "md5": "f9912d724c9b98cb37870d67facc0142"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/screenshot.png",
+        "size": 216683,
+        "md5": "0d60746d300aa01c31d9398c6867c87c"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/delphinium-flowers.webp",
+        "size": 42214,
+        "md5": "3d00fe42d8401d3deb3f54fdef700316"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/category-sunflowers.webp",
+        "size": 18558,
+        "md5": "b0a9ca9a76d79fc738ba623d0ad467c1"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/book-image-landing.webp",
+        "size": 19734,
+        "md5": "2cea00c9903be2255dac09b54f64259b"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/coral-square.webp",
+        "size": 27554,
+        "md5": "ee9f2e0211563850c86f75f0b44c7f5b"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/typewriter.webp",
+        "size": 97944,
+        "md5": "8e8c7a312e1ea9a42eea74f9c4d9c4ab"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/malibu-plantlife.webp",
+        "size": 5194,
+        "md5": "eda70b7c8a4d13f22c47c527a43625c2"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/category-cactus.webp",
+        "size": 51878,
+        "md5": "8aa993aa901657c0456ebe91bcc86c90"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/dallas-creek-square.webp",
+        "size": 7768,
+        "md5": "e2658a111f10c10215c636e674e0ee8b"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/marshland-birds-square.webp",
+        "size": 5886,
+        "md5": "05f1806401291ef6c0bd001cdfaaebfa"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/services-subscriber-photo.webp",
+        "size": 52542,
+        "md5": "41170b96734b709609b5bbfb53312862"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/book-image.webp",
+        "size": 20980,
+        "md5": "d0fc01a6110cdc467d245b574036ddc9"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/agenda-img-4.webp",
+        "size": 14542,
+        "md5": "81023f3e91dc9d6507d1f2906757c40b"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/hero-podcast.webp",
+        "size": 60794,
+        "md5": "3b848eb5c14d25be34a4983bb689e100"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/man-in-hat.webp",
+        "size": 35386,
+        "md5": "edad43aaf0a7059ce24b9948139fd770"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/campanula-alliariifolia-flower.webp",
+        "size": 42036,
+        "md5": "41f1308b456fdcb122996460d8fe3140"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/ruins-image.webp",
+        "size": 68384,
+        "md5": "80d1e5a5e6fe99525dfe1824a581dc58"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/northern-buttercups-flowers.webp",
+        "size": 35820,
+        "md5": "fea4b3d66fdfc40f4521ae560b0f52de"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/star-thristle-flower.webp",
+        "size": 21338,
+        "md5": "6565902ddc4e13e7eee2ab89e6ee453d"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/vash-gon-square.webp",
+        "size": 28214,
+        "md5": "d8b32ab460b29012fb976dd28b5fd3c2"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/404-image.webp",
+        "size": 129970,
+        "md5": "189ee7f2a40c13d4a2094d2497929e62"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/grid-flower-2.webp",
+        "size": 82646,
+        "md5": "b918a975ae328f3963f7ea247bcbe591"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/nurse.webp",
+        "size": 21850,
+        "md5": "f91f5f16501274541bc7bc7a6999ac5d"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/botany-flowers.webp",
+        "size": 99800,
+        "md5": "ffb5f9c90dca0ed752e94629a368fcc9"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/link-in-bio-background.webp",
+        "size": 112516,
+        "md5": "e66b9824129232faa34638d26b525910"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/link-in-bio-image.webp",
+        "size": 95598,
+        "md5": "821242d3836517cec62075830b9a442e"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/flower-meadow-square.webp",
+        "size": 29920,
+        "md5": "4a0190b2622efebab9323e2414697029"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/parthenon-square.webp",
+        "size": 36124,
+        "md5": "259500ec8c58940c856861f6912d5fef"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/red-hibiscus-closeup.webp",
+        "size": 56851,
+        "md5": "ef97fed0409311df29afe95e282f8197"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/category-anthuriums.webp",
+        "size": 27472,
+        "md5": "f126372ae2a67109e4156f99c2794e5c"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/coming-soon-bg-image.webp",
+        "size": 88600,
+        "md5": "a8a1516bedca39878f6241c97868dc7f"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/poster-image-background.webp",
+        "size": 222864,
+        "md5": "e196e4dc2d34fc0b2f806cd1cf502250"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/akaka-falls-state-park-flora.webp",
+        "size": 6116,
+        "md5": "200a78a49be62e8af1457005cae76142"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/grid-flower-1.webp",
+        "size": 19654,
+        "md5": "cda8b7e8ca214886cfa9dd47249d5ec5"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/location.webp",
+        "size": 141020,
+        "md5": "c8dda29f86b03fb43bd74a95026baa03"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/woman-splashing-water.webp",
+        "size": 57776,
+        "md5": "b4293dd5b58d97c0e7da79a065755f70"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/botany-flowers-closeup.webp",
+        "size": 60176,
+        "md5": "2a78c17e95f75987edc9b2e4739e5008"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/parts/vertical-header.html",
+        "size": 65,
+        "md5": "93738c867ec4f02f97fd1bf02cf9801d"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/parts/footer-columns.html",
+        "size": 64,
+        "md5": "2f43c9be8afce24bbdb1e0a014497041"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/parts/footer.html",
+        "size": 56,
+        "md5": "608aa5412849fd5d011f9c747573f656"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/parts/footer-newsletter.html",
+        "size": 67,
+        "md5": "7a54076b657425cc93a367bc4a8fbdc4"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/parts/header-large-title.html",
+        "size": 68,
+        "md5": "e9d3575856968972ffc41ae34199c062"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/parts/header.html",
+        "size": 56,
+        "md5": "26e30ce6f9196b918412a75334d46f77"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/parts/sidebar.html",
+        "size": 64,
+        "md5": "2e806c09844d621fc162c1ff6fcf2d93"
       },
       {
         "path": "wp-includes/js/mediaelement/mejs-controls.png",
