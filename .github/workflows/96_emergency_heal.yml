@@ -1,17 +1,11 @@
 name: 96_emergency_heal
 on:
   workflow_dispatch:
-permissions:
-  contents: read
-
-concurrency:
-  group: emergency-heal
-  cancel-in-progress: true
 
 jobs:
   heal:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     env:
       HOST:   ${{ secrets.DEPLOY_HOST }}
       PORT:   ${{ secrets.DEPLOY_PORT }}
@@ -20,124 +14,37 @@ jobs:
       TARGET: ${{ secrets.DEPLOY_TARGET }}
 
     steps:
-      - name: Heal on server (disable MU/plugins, minimal theme, test, rollback if needed)
+      - name: Heal via SSH (MU off → plugins off → theme TT25 → purge → ping)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ env.HOST }}
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
           port:     ${{ env.PORT }}
-          request_pty: true
           envs: TARGET
           script: |
             set -euo pipefail
             TARGET="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
             cd "$TARGET" || exit 1
-
-            echo "[INFO] emergency heal start"
             rm -f .maintenance || true
 
-            # 1) MU-plugins → OFF (poza safety)
+            # 1) MU-plugins OFF (wszystkie)
             if [ -d wp-content/mu-plugins ]; then
               for f in wp-content/mu-plugins/*.php; do
-                [ -f "$f" ] || continue
-                b="$(basename "$f")"
-                case "$b" in
-                  00-mu-safe-loader.php|mu-hotfix-headers.php) : ;;
-                  *.off) : ;;
-                  *) mv -f "$f" "$f.off" || true ;;
-                esac
+                [ -f "$f" ] && mv -f "$f" "$f.off" || true
               done
             fi
 
-            # 2) zwykłe pluginy OFF
+            # 2) Plugins OFF, motyw TT25
             if command -v wp >/dev/null 2>&1; then
               wp plugin deactivate --all --quiet || true
-            fi
-
-            # 3) minimalny motyw WTP (żeby nie było 'Stylesheet is missing')
-            THEME="wp-content/themes/wtp-core-theme"
-            mkdir -p "$THEME"
-
-            cat > "$THEME/style.css" <<'CSS'
-/*
- Theme Name: WTP Core Theme
- Theme URI: https://weektoppick.com
- Author: WeekTopPick
- Author URI: https://weektoppick.com
- Description: Core theme for WeekTopPick.
- Version: 0.1.0
- Text Domain: wtp-core-theme
-*/
-CSS
-
-            cat > "$THEME/functions.php" <<'PHP'
-<?php
-add_action('after_setup_theme', function () {
-  add_theme_support('title-tag');
-  add_theme_support('post-thumbnails');
-});
-add_action('wp_enqueue_scripts', function () {
-  wp_enqueue_style('wtp-core-theme', get_stylesheet_uri(), [], null);
-});
-PHP
-
-            cat > "$THEME/header.php" <<'PHP'
-<!doctype html>
-<html <?php language_attributes(); ?>>
-<head>
-<meta charset="<?php bloginfo('charset'); ?>">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<?php wp_head(); ?>
-</head>
-<body <?php body_class(); ?>>
-<header class="site-header">
-  <h1 class="site-title"><a href="<?php echo esc_url(home_url('/')); ?>"><?php bloginfo('name'); ?></a></h1>
-</header>
-PHP
-
-            cat > "$THEME/footer.php" <<'PHP'
-<footer class="site-footer"><p>&copy; <?php echo date('Y'); ?> WeekTopPick</p></footer>
-<?php wp_footer(); ?>
-</body>
-</html>
-PHP
-
-            cat > "$THEME/index.php" <<'PHP'
-<?php get_header(); ?>
-<main id="primary" class="site-main" style="max-width:860px;margin:40px auto;font-family:system-ui;">
-  <h2>WTP Core Theme</h2>
-  <?php if ( have_posts() ) : while ( have_posts() ) : the_post(); ?>
-    <article id="post-<?php the_ID(); ?>">
-      <h3><a href="<?php the_permalink(); ?>"><?php the_title(); ?></a></h3>
-      <div class="entry"><?php the_content(); ?></div>
-    </article>
-  <?php endwhile; else : ?>
-    <p>No content yet.</p>
-  <?php endif; ?>
-</main>
-<?php get_footer();
-PHP
-
-            # 4) aktywacja + purge cache
-            if command -v wp >/dev/null 2>&1; then
-              wp theme activate wtp-core-theme || true
+              wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
+              wp plugin activate litespeed-cache || true
               wp plugin is-active litespeed-cache && wp litespeed-purge all || true
             fi
 
-            # 5) smoke test + ewentualny rollback
+            # 3) Szybki ping frontu
             HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || true)"
             HOMEURL="${HOMEURL:-https://weektoppick.com}"
             CODE="$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)"
-            SIZE="$(curl -ks "$HOMEURL" | wc -c || echo 0)"
-            echo "[INFO] after activate: code=$CODE size=$SIZE"
-
-            if [ "$CODE" != "200" ] || [ "${SIZE:-0}" -lt 600 ]; then
-              echo "[WARN] unhealthy → rollback to Twenty Twenty-Five"
-              wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
-              wp plugin is-active litespeed-cache && wp litespeed-purge all || true
-              CODE2="$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)"
-              echo "[INFO] after rollback: code=$CODE2"
-            fi
-
-            echo "[INFO] heal done"
+            echo "[INFO] front status: $CODE"
