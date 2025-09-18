@@ -46,20 +46,20 @@ jobs:
           bycat = data.get("counts", {}).get("by_category", {})
           
           def human(n):
-              for u in ["B", "KB", "MB", "GB", "TB"]:
-                  if n < 1024:
+              for u in ["B","KB","MB","GB","TB"]:
+                  if n < 1024: 
                       return f"{n:.1f} {u}"
-                  n /= 1024
+                  n/=1024
               return f"{n:.1f} PB"
           
-          wfA = [f for f in files if f.get("category") == "workflow-active"]
-          wfQ = [f for f in files if f.get("category") == "workflow-quarantine"]
+          wfA = [f for f in files if f.get("category")=="workflow-active"]
+          wfQ = [f for f in files if f.get("category")=="workflow-quarantine"]
           mu = [f for f in files if f["path"].startswith("wp-content/mu-plugins/")]
           plug = [f for f in files if f["path"].startswith("wp-content/plugins/")]
           them = [f for f in files if f["path"].startswith("wp-content/themes/")]
           wtp = [f for f in files if f["path"].startswith(".wtp/")]
           large = sorted([f for f in files if (f.get("size") or 0) > 10*1024*1024],
-                        key=lambda x: x.get("size") or 0, reverse=True)[:50]
+                         key=lambda x: x.get("size") or 0, reverse=True)[:50]
           
           L = []
           L.append("# REPO AUDIT")
@@ -67,7 +67,7 @@ jobs:
           L.append(f"- Run TS (UTC): {data.get('run_ts')}")
           L.append("")
           L.append("## Summary")
-          L.append(f"- Files: {data.get('counts', {}).get('files')}")
+          L.append(f"- Files: {data.get('counts',{}).get('files')}")
           for k in sorted(bycat.keys()):
               v = bycat[k]
               L.append(f"- {k}: {v['count']} • {human(v['size'])}")
@@ -89,7 +89,7 @@ jobs:
           L.append("- Leave all others in `.github/workflows._quarantine/` (restore one-by-one after core is stable).")
           L.append("- Remove big archives from Git (use artifacts).")
           L.append("- In `.wtp/` keep `latest/` + few recent runs; prune old runs periodically.")
-          OUT.write_text("\n".join(L) + "\n", encoding="utf-8")
+          OUT.write_text("\n".join(L)+"\n", encoding="utf-8")
           PY
 
       - name: Publish REPO_AUDIT.md (rebase-safe)
@@ -107,7 +107,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           
-          if git diff --staged --quiet; then
+          if git diff --staged --quiet; then 
             echo "::notice::Nothing to commit."
             exit 0
           fi
@@ -120,7 +120,7 @@ jobs:
           for i in 1 2 3; do
             git fetch origin "$BRANCH"
             git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
-            if git push origin "HEAD:$BRANCH"; then
+            if git push origin "HEAD:$BRANCH"; then 
               echo "::notice::Pushed (attempt $i)"
               exit 0
             fi
