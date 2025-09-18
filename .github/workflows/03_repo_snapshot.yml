@@ -1,220 +1,171 @@
 name: 03_repo_snapshot
-
-on:
-  workflow_dispatch: {}
-
-permissions:
-  contents: write
-
-concurrency:
-  group: repo-snapshot
-  cancel-in-progress: true
+on: { workflow_dispatch: {} }
+permissions: { contents: write }
+concurrency: { group: repo-snapshot, cancel-in-progress: true }
 
 jobs:
   repo_snapshot:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      RUN_ID: ${{ github.run_id }}
-
+    env: { RUN_ID: ${{ github.run_id }} }
     steps:
-      - name: 1) Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
 
-      - name: 2) Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.x" }
 
-      - name: 3) Build inventory (files → JSON) + REPO_ARCHITECTURE.md
+      - name: Build inventory (files → JSON) + REPO_ARCHITECTURE.md
         run: |
           set -euo pipefail
           python - << 'PY'
-          import os, sys, json, hashlib, time
+          import os, json, hashlib, time
           from pathlib import Path
-
           ROOT = Path(".").resolve()
           out_dir = ROOT / "_ci_logs" / os.environ.get("RUN_ID","0") / "repo"
           out_dir.mkdir(parents=True, exist_ok=True)
 
-          # --- helpers ---
           def sha256_file(p: Path, chunk=1024*1024):
             h = hashlib.sha256()
             try:
               with p.open("rb") as f:
-                while True:
-                  b = f.read(chunk)
-                  if not b: break
-                  h.update(b)
+                for b in iter(lambda: f.read(chunk), b""): h.update(b)
               return h.hexdigest()
-            except Exception:
-              return None
+            except Exception: return None
 
-          def count_lines(p: Path, limit=2_000_000):
+          def count_lines(p: Path, limit=5_000_000):
             try:
               with p.open("rb") as f:
-                return sum(1 for _ in f)
-            except Exception:
-              return None
+                n=0
+                for _ in f:
+                  n+=1
+                  if n>limit: return n
+              return n
+            except Exception: return None
 
           def category(path: Path):
             s = path.as_posix()
-            if s.startswith(".git/"):        return "git"
-            if s.startswith(".github/workflows/") and (s.endswith(".yml") or s.endswith(".yaml")): return "workflow"
+            if s.startswith(".git/"): return "git"
+            if s.startswith(".github/workflows._quarantine/") and (s.endswith(".yml") or s.endswith(".yaml")): return "workflow-quarantine"
+            if s.startswith(".github/workflows/") and (s.endswith(".yml") or s.endswith(".yaml")): return "workflow-active"
             if s.startswith("wp-content/mu-plugins/"): return "mu-plugin"
             if s.startswith("wp-content/plugins/"):    return "plugin"
             if s.startswith("wp-content/themes/"):     return "theme"
-            if s.startswith(".wtp/"):        return "wtp"
-            if s.startswith("docs/"):        return "docs"
-            if s.endswith(".md"):            return "docs"
+            if s.startswith(".wtp/"):                  return "wtp"
+            if s.startswith("docs/") or s.endswith(".md"): return "docs"
             if s.endswith((".json",".yml",".yaml",".toml",".ini",".env",".editorconfig",".gitattributes",".gitignore",".htaccess")): return "config"
             return "other"
 
-          def size_of(p: Path):
-            try: return p.stat().st_size
-            except Exception: return None
-
-          # enumerate all files (tracked + untracked but not ignored)
-          # fallback to walking FS to also capture untracked
+          # walk FS (bez .git i bez _ci_logs)
           files=[]
-          for dirpath, dirnames, filenames in os.walk(ROOT):
-            # skip .git
-            if "/.git" in dirpath or dirpath.endswith("/.git"):
-              continue
-            for fn in filenames:
-              p = Path(dirpath) / fn
-              rel = p.relative_to(ROOT)
-              if rel.as_posix().startswith("_ci_logs/"): # exclude our own output
-                continue
+          for dp, dn, fn in os.walk(ROOT):
+            if "/.git" in dp or dp.endswith("/.git"): continue
+            if "/_ci_logs" in dp: continue
+            for name in fn:
+              rel = Path(dp).joinpath(name).relative_to(ROOT)
               files.append(rel)
 
           records=[]
-          total = len(files)
-          for i, rel in enumerate(sorted(files, key=lambda p: p.as_posix())):
+          for rel in sorted(files, key=lambda p: p.as_posix()):
             p = ROOT / rel
             cat = category(rel)
-            sz = size_of(p)
-            # limit hashing of huge files (>25MB) to save time
-            do_hash = (sz is None) or (sz <= 25*1024*1024)
-            digest = sha256_file(p) if do_hash else None
-            # count text lines only for likely-text files
+            try: sz = p.stat().st_size
+            except Exception: sz = None
+            digest = sha256_file(p) if (sz is None or sz <= 25*1024*1024) else None
             is_text = rel.suffix.lower() in {".php",".js",".ts",".css",".scss",".json",".md",".yml",".yaml",".xml",".html",".htm",".txt",".ini",".env",".toml",".py",".sh"}
             lines = count_lines(p) if is_text and (sz is not None and sz <= 5*1024*1024) else None
-            records.append({
-              "path": rel.as_posix(),
-              "category": cat,
-              "size": sz,
-              "sha256": digest,
-              "lines": lines
-            })
+            records.append({"path": rel.as_posix(), "category": cat, "size": sz, "sha256": digest, "lines": lines})
 
           # summary
-          from collections import Counter, defaultdict
+          from collections import defaultdict
           by_cat = defaultdict(lambda: {"count":0,"size":0})
           for r in records:
-            c = r["category"]
-            by_cat[c]["count"] += 1
-            by_cat[c]["size"]  += (r["size"] or 0)
+            by_cat[r["category"]]["count"] += 1
+            by_cat[r["category"]]["size"]  += (r["size"] or 0)
 
-          # group important subtrees
-          def dir_exists(p): return (ROOT / p).exists()
           important = {}
-          for d in ["wp-content/mu-plugins","wp-content/plugins","wp-content/themes",".github/workflows",".wtp","docs"]:
-            if dir_exists(d):
-              important[d] = {
-                "files": sum(1 for r in records if r["path"].startswith(d + "/")),
-                "size":  sum((r["size"] or 0) for r in records if r["path"].startswith(d + "/"))
-              }
+          for d in ["wp-content/mu-plugins","wp-content/plugins","wp-content/themes",".github/workflows",".github/workflows._quarantine",".wtp","docs"]:
+            p = ROOT / d
+            if p.exists():
+              files_d = [r for r in records if r["path"].startswith(d + "/")]
+              important[d] = {"files": len(files_d), "size": sum((r["size"] or 0) for r in files_d)}
 
           snapshot = {
             "run_id": os.environ.get("RUN_ID"),
             "run_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "root": str(ROOT),
-            "counts": {
-              "files": len(records),
-              "by_category": by_cat
-            },
+            "counts": {"files": len(records), "by_category": by_cat},
             "important_dirs": important,
             "files": records
           }
 
-          # write JSON
           (out_dir / "repo-snapshot.json").write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
 
-          # write ARCHITECTURE.md
           def human(n):
             for u in ["B","KB","MB","GB","TB"]:
               if n < 1024: return f"{n:.1f} {u}"
               n/=1024
             return f"{n:.1f} PB"
 
-          lines = []
+          lines=[]
           lines.append("# REPO ARCHITECTURE")
           lines.append(f"- Run ID: {snapshot['run_id']}")
           lines.append(f"- Run TS (UTC): {snapshot['run_ts']}")
           lines.append(f"- Files total: {snapshot['counts']['files']}")
           lines.append("")
           lines.append("## Categories")
-          for k, v in sorted(snapshot["counts"]["by_category"].items()):
+          for k in sorted(snapshot["counts"]["by_category"].keys()):
+            v = snapshot["counts"]["by_category"][k]
             lines.append(f"- **{k}**: {v['count']} files, {human(v['size'])}")
           lines.append("")
           lines.append("## Important directories")
           for d, v in important.items():
             lines.append(f"- `{d}`: {v['files']} files, {human(v['size'])}")
           lines.append("")
-          lines.append("## Workflows")
-          wf = [r for r in records if r["category"]=="workflow"]
-          if wf:
-            lines.append("| File | Size | Lines | SHA256 |")
-            lines.append("|---|---:|---:|---|")
-            for r in wf:
-              lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] if r['lines'] is not None else ''} | {r['sha256'] or ''} |")
+          lines.append("## Workflows (active)")
+          wfA = [r for r in records if r["category"]=="workflow-active"]
+          if wfA:
+            lines.append("| File | Size | Lines |")
+            lines.append("|---|---:|---:|")
+            for r in wfA: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
           else:
-            lines.append("_No workflows found_")
+            lines.append("_none_")
+          lines.append("")
+          lines.append("## Workflows (quarantine)")
+          wfQ = [r for r in records if r["category"]=="workflow-quarantine"]
+          if wfQ:
+            lines.append("| File | Size | Lines |")
+            lines.append("|---|---:|---:|")
+            for r in wfQ: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
+          else:
+            lines.append("_none_")
 
           (out_dir / "REPO_ARCHITECTURE.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
           PY
 
-      - name: 4) Upload artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: repo-snapshot-${{ github.run_id }}
           path: _ci_logs/${{ github.run_id }}/repo/**
           retention-days: 14
 
-      - name: 5) Publish to .wtp/state (RO + latest)
+      - name: Publish to .wtp/state (RO + latest)
         run: |
           set -euo pipefail
           RUN_ID="${RUN_ID}"
           RO_DIR=".wtp/state/ro/public/${RUN_ID}/repo"
           RO_LATEST=".wtp/state/ro/public/latest/repo"
-
           mkdir -p "${RO_DIR}"
-
           cp -a "_ci_logs/${RUN_ID}/repo/." "${RO_DIR}/"
-
-          # refresh latest
           rm -rf "${RO_LATEST}"
           mkdir -p "${RO_LATEST}"
           cp -a "${RO_DIR}/." "${RO_LATEST}/"
-
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "${RO_DIR}" "${RO_LATEST}"
-          if git diff --staged --quiet; then
-            echo "::notice::Nothing to commit."
-          else
-            git commit -m "Publish repo snapshot ${RUN_ID}"
-            git push
-          fi
+          if git diff --staged --quiet; then echo "::notice::Nothing to commit."; else git commit -m "Publish repo snapshot ${RUN_ID}" && git push; fi
 
-      - name: 6) Summary
+      - name: Summary
         if: always()
         run: |
-          set -euo pipefail
-          echo "::group::REPO_ARCHITECTURE.md (head)"
-          sed -n '1,120p' _ci_logs/${RUN_ID}/repo/REPO_ARCHITECTURE.md || true
-          echo "::endgroup::"
           echo "::notice::03_repo_snapshot finished for run ${RUN_ID}"
