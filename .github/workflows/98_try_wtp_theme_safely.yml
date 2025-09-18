@@ -79,7 +79,7 @@ jobs:
 
             (command -v wp >/dev/null 2>&1 && wp theme list --status=active --field=name 2>/dev/null | head -n1) > "$OUT/theme_after.txt" || true
 
-      - name: Pull logs
+      - name: Pull logs (fix path + flatten)
         run: |
           set -euo pipefail
           mkdir -p "_ci_logs/${RUN_ID}/try_theme"
@@ -88,7 +88,21 @@ jobs:
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
             "${USER}@${HOST}:${SVRTGT}/.wtp/state/ci_logs/try_theme_${RUN_ID}" \
             "_ci_logs/${RUN_ID}/try_theme/" || { echo "::error::scp failed"; exit 1; }
-          ls -la "_ci_logs/${RUN_ID}/try_theme" || true
+
+          echo "[INFO] after scp:"
+          ls -la "_ci_logs/${RUN_ID}/try_theme"
+
+          # ⬇️ przenieś zawartość z wewnętrznego katalogu try_theme_${RUN_ID}/* na poziom wyżej
+          if [ -d "_ci_logs/${RUN_ID}/try_theme/try_theme_${RUN_ID}" ]; then
+            shopt -s dotglob || true
+            mv "_ci_logs/${RUN_ID}/try_theme/try_theme_${RUN_ID}/"* "_ci_logs/${RUN_ID}/try_theme/" || true
+            rmdir "_ci_logs/${RUN_ID}/try_theme/try_theme_${RUN_ID}" || true
+          fi
+
+          echo "[INFO] flattened:"
+          ls -la "_ci_logs/${RUN_ID}/try_theme"
+
+          # ✅ poprawny test: teraz pliki są bezpośrednio w try_theme/
           test -s "_ci_logs/${RUN_ID}/try_theme/http_status_after.txt" || { echo "::error::no logs pulled"; exit 2; }
 
       - name: Publish report (RO + latest/try-theme)
