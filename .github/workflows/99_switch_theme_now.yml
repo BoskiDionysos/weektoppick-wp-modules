@@ -2,6 +2,7 @@ name: 99_switch_theme_now
 on: { workflow_dispatch: {} }
 permissions: { contents: write }
 concurrency: { group: hotfix-switch-theme, cancel-in-progress: true }
+
 jobs:
   fix:
     runs-on: ubuntu-latest
@@ -11,10 +12,13 @@ jobs:
       PORT:   ${{ secrets.DEPLOY_PORT }}
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
+      # Jeśli masz DEPLOY_TARGET, to zostanie użyty. Jeśli nie — zadziała fallback w skrypcie.
       TARGET: ${{ secrets.DEPLOY_TARGET }}
       RUN_ID: ${{ github.run_id }}
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Switch theme to twentytwentyfive + purge cache
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -22,12 +26,22 @@ jobs:
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
           port:     ${{ env.PORT }}
+          # PRZEKAZUJEMY TARGET do sesji SSH:
+          envs: TARGET
           script: |
             set -euo pipefail
-            cd "${TARGET}"
+            # Fallback jeśli TARGET nieprzekazany w secrets:
+            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+            echo "[INFO] TARGET=$TARGET"
+            cd "$TARGET"
+
             rm -f .maintenance || true
+
             if command -v wp >/dev/null 2>&1; then
               wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
               wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+            else
+              echo "[WARN] WP-CLI not found on PATH; theme switch skipped"
             fi
+
             echo "OK"
