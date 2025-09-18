@@ -1,6 +1,6 @@
 {
-  "run_id": "17825527987",
-  "run_ts": "2025-09-18T10:18:06Z",
+  "run_id": "17827345100",
+  "run_ts": "2025-09-18T11:34:43Z",
   "site": {
     "home": "https://weektoppick.com",
     "siteurl": "https://weektoppick.com",
@@ -11,10 +11,10 @@
     "wp_version": "6.8.2",
     "php_version": "8.3.22",
     "hostname": "de-fra-web2061.main-hosting.eu",
-    "timestamp_utc": "2025-09-18T10:17:49Z"
+    "timestamp_utc": "2025-09-18T11:34:25Z"
   },
   "active_theme": {
-    "active": "wtp-core-theme"
+    "active": ""
   },
   "plugins": [
     {
@@ -70,14 +70,6 @@
       "status": "must-use",
       "update": false,
       "version": "",
-      "update_version": "",
-      "auto_update": "off"
-    },
-    {
-      "name": "hostinger-auto-updates",
-      "status": "must-use",
-      "update": false,
-      "version": "1.0.7",
       "update_version": "",
       "auto_update": "off"
     },
@@ -138,31 +130,12 @@
       "auto_update": "off"
     }
   ],
-  "themes": [
-    {
-      "name": "wtp-core-theme",
-      "status": "active",
-      "update": "none",
-      "version": "1.6.4",
-      "update_version": "",
-      "auto_update": "off"
-    }
-  ],
+  "themes": [],
   "mu_plugins": [
     {
       "file": "00-mu-safe-loader.php",
-      "size": 125,
-      "md5": "d7174371ece55f187d15340734a09c00"
-    },
-    {
-      "file": "00-mu-safe-loader.php.wtp.bak",
-      "size": 125,
-      "md5": "d7174371ece55f187d15340734a09c00"
-    },
-    {
-      "file": "hostinger-auto-updates.php",
-      "size": 3477,
-      "md5": "94a75eae585aa761fb96a65db401b9cc"
+      "size": 1063,
+      "md5": "5c8e9f5ef6757e581b09da35e79632b2"
     },
     {
       "file": "wtp-canonical-redirects.php",
@@ -170,22 +143,7 @@
       "md5": "d5cba3f4548d24f6eefdd77d84758c6f"
     },
     {
-      "file": "wtp-canonical-redirects.php.wtp.bak",
-      "size": 712,
-      "md5": "d5cba3f4548d24f6eefdd77d84758c6f"
-    },
-    {
       "file": "wtp-canonical.php",
-      "size": 1962,
-      "md5": "1704c0d3dbd5e61ce3b2a7676378d749"
-    },
-    {
-      "file": "wtp-canonical.php.wtp.bak",
-      "size": 1947,
-      "md5": "c77b945405d699534dcf29b38bdaf23d"
-    },
-    {
-      "file": "wtp-canonical.php.wtp.bak2",
       "size": 1947,
       "md5": "c77b945405d699534dcf29b38bdaf23d"
     },
@@ -195,17 +153,7 @@
       "md5": "467aeaaf3fc793e1cac4b5d831455966"
     },
     {
-      "file": "wtp-deploy-guard.php.wtp.bak",
-      "size": 3525,
-      "md5": "467aeaaf3fc793e1cac4b5d831455966"
-    },
-    {
       "file": "wtp-dev-bridge.php",
-      "size": 20183,
-      "md5": "d4936ab30c4ef2f1e29591fe0df54886"
-    },
-    {
-      "file": "wtp-dev-bridge.php.wtp.bak",
       "size": 20183,
       "md5": "d4936ab30c4ef2f1e29591fe0df54886"
     },
@@ -226,11 +174,6 @@
     },
     {
       "file": "wtp-patch-safe-loader-log.php",
-      "size": 732,
-      "md5": "27600b743f03337a72211e85406f9f99"
-    },
-    {
-      "file": "wtp-patch-safe-loader-log.php.wtp.bak",
       "size": 732,
       "md5": "27600b743f03337a72211e85406f9f99"
     },
@@ -260,11 +203,6 @@
       "md5": "d1b3083c5e73884ec342476d7c518b50"
     },
     {
-      "file": "wtp-ro-exporter.php.wtp.bak",
-      "size": 10108,
-      "md5": "d1b3083c5e73884ec342476d7c518b50"
-    },
-    {
       "file": "wtp-seo.php.off",
       "size": 15120,
       "md5": "18b188e2fa7f46229cad9dc48fc142c7"
@@ -276,11 +214,6 @@
     },
     {
       "file": "wtp-theme-guardian.php",
-      "size": 1284,
-      "md5": "a25090d55e76f55705188f299e7a5a26"
-    },
-    {
-      "file": "wtp-theme-guardian.php.wtp.bak",
       "size": 1284,
       "md5": "a25090d55e76f55705188f299e7a5a26"
     },
