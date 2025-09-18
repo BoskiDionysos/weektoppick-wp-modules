@@ -22,7 +22,7 @@ concurrency:
 jobs:
   run_maintenance:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     steps:
       - name: Checkout
@@ -45,14 +45,14 @@ jobs:
           echo "src_dir=${WF_M_DIR}"       >> "$GITHUB_OUTPUT"
           echo "dst_dir=${WF_DIR}"         >> "$GITHUB_OUTPUT"
 
-      - name: Move to active
+      - name: Move to active + backup original
         shell: bash
         run: |
           set -euo pipefail
           src="${{ steps.val.outputs.src }}"
           dst="${{ steps.val.outputs.dst }}"
           mkdir -p "$(dirname "$dst")"
-          cp -f "$src" /tmp/original.yml             # zachowaj oryginał
+          cp -f "$src" /tmp/original.yml
           mv -f "$src" "$dst"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -60,45 +60,47 @@ jobs:
           git commit -m "maintenance-runner: activate $(basename "$dst") temporarily" || true
           git push || true
 
-      - name: Ensure workflow_dispatch (temporary patch)
+      - name: Force-add workflow_dispatch (robust patch)
         shell: bash
         run: |
           set -euo pipefail
           dst="${{ steps.val.outputs.dst }}"
-          NEED_PATCH=0
-          if ! grep -q 'workflow_dispatch' "$dst"; then
-            NEED_PATCH=1
-            # przypadek 1: jest linia 'on:' solo -> wstrzykuj pod nią
-            if grep -qE '^on:\s*$' "$dst"; then
+          # jeżeli jest 'on:' inline — zamień na blok
+          if grep -qE '^on:[[:space:]]*{.*}$' "$dst"; then
+            awk 'BEGIN{done=0}{
+              if(!done && $0 ~ /^on:[[:space:]]*{.*}$/){
+                print "on:"; print "  workflow_dispatch: {}"; done=1
+              } else { print }
+            }' "$dst" > "$dst.tmp" && mv "$dst.tmp" "$dst"
+          fi
+          # jeżeli brak 'on:' bloku — dolej na górę
+          if ! grep -qE '^on:[[:space:]]*$' "$dst"; then
+            { echo "on:"; echo "  workflow_dispatch: {}"; echo ""; cat "$dst"; } > "$dst.tmp" && mv "$dst.tmp" "$dst"
+          else
+            # jest 'on:' w bloku, dolej 'workflow_dispatch' jeśli brak
+            if ! grep -qE '^[[:space:]]+workflow_dispatch:' "$dst"; then
               awk '{
                 print;
                 if ($0 ~ /^on:[[:space:]]*$/ && !ins){ print "  workflow_dispatch: {}"; ins=1 }
               }' "$dst" > "$dst.tmp" && mv "$dst.tmp" "$dst"
-            # przypadek 2: inline 'on: { ... }' -> zamień na blok z workflow_dispatch
-            elif grep -qE '^on:[[:space:]]*{.*}$' "$dst"; then
-              awk 'BEGIN{repl=0}{
-                if (!repl && $0 ~ /^on:[[:space:]]*{.*}$/) {
-                  print "on:"
-                  print "  workflow_dispatch: {}"
-                  repl=1
-                } else { print }
-              }' "$dst" > "$dst.tmp" && mv "$dst.tmp" "$dst"
-            # przypadek 3: brak 'on:' -> dolej cały blok na początek
-            else
-              { echo -e "on:\n  workflow_dispatch: {}\n"; cat "$dst"; } > "$dst.tmp" && mv "$dst.tmp" "$dst"
             fi
           fi
 
-          if [[ $NEED_PATCH -eq 1 ]]; then
-            git config user.name  "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add "$dst"
-            git commit -m "maintenance-runner: temp add workflow_dispatch" || true
-            git push || true
-            sleep 3
+          echo "===== PATCHED FILE BEGIN ====="
+          sed -n '1,120p' "$dst"
+          echo "===== PATCHED FILE END ====="
+
+          if ! grep -qE '^[[:space:]]+workflow_dispatch:' "$dst"; then
+            echo "::error::Patch failed – brak workflow_dispatch w ${dst}"; exit 1
           fi
 
-      - name: Trigger via GitHub API
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$dst"
+          git commit -m "maintenance-runner: ensure workflow_dispatch" || true
+          git push || true
+
+      - name: Trigger via API with retries
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
@@ -107,17 +109,35 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          RESP=$(mktemp)
-          CODE=$(curl -sS -w "%{http_code}" -o "$RESP" -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${REPO}/actions/workflows/${WF_FILE}/dispatches" \
-            -d "{\"ref\":\"${BRANCH}\"}")
-          echo "HTTP $CODE"; cat "$RESP" || true
-          if [ "$CODE" -ne 204 ]; then
-            echo "::error::Workflow dispatch failed (HTTP $CODE)"; exit 1
-          fi
-          echo "::notice::Triggered ${WF_FILE} on ${BRANCH}"
+          # poczekaj dłużej aż GitHub zindeksuje workflowa
+          for i in {1..10}; do
+            echo "[INFO] Attempt $i: checking workflow visibility..."
+            # GET workflow meta (powinno zwrócić 200 i id)
+            curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/workflows/${WF_FILE}" | tee /tmp/wf.json
+            if jq -e '.id' /tmp/wf.json >/dev/null 2>&1; then
+              echo "[OK] workflow is indexed (id=$(jq -r .id /tmp/wf.json))"
+            else
+              echo "[WAIT] not indexed yet, sleeping 5s"; sleep 5; continue
+            fi
+
+            echo "[INFO] Dispatching..."
+            RESP=$(mktemp)
+            CODE=$(curl -sS -w "%{http_code}" -o "$RESP" -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${REPO}/actions/workflows/${WF_FILE}/dispatches" \
+              -d "{\"ref\":\"${BRANCH}\"}")
+            echo "HTTP $CODE"; cat "$RESP" || true
+            if [ "$CODE" -eq 204 ]; then
+              echo "::notice::Triggered ${WF_FILE}"
+              exit 0
+            fi
+
+            echo "[WARN] dispatch failed (HTTP $CODE) – retry in 8s"
+            sleep 8
+          done
+          echo "::error::Giving up after 10 attempts"; exit 1
 
       - name: Move back to _maintenance
         if: ${{ github.event.inputs.keep_active != 'yes' }}
@@ -136,7 +156,7 @@ jobs:
             git push || true
           fi
 
-      - name: Restore original content in _maintenance
+      - name: Restore original content
         shell: bash
         run: |
           set -euo pipefail
