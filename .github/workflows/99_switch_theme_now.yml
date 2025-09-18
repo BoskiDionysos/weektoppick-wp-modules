@@ -12,36 +12,49 @@ jobs:
       PORT:   ${{ secrets.DEPLOY_PORT }}
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
-      # Jeśli masz DEPLOY_TARGET, to zostanie użyty. Jeśli nie — zadziała fallback w skrypcie.
+      # Jeśli masz DEPLOY_TARGET, to zostanie użyty. Jeśli nie — fallback w skrypcie
       TARGET: ${{ secrets.DEPLOY_TARGET }}
       RUN_ID: ${{ github.run_id }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Switch theme to twentytwentyfive + purge cache
+      - name: Switch theme to twentytwentyfive + purge cache + disable plugins
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ env.HOST }}
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
           port:     ${{ env.PORT }}
-          # PRZEKAZUJEMY TARGET do sesji SSH:
           envs: TARGET
           script: |
             set -euo pipefail
-            # Fallback jeśli TARGET nieprzekazany w secrets:
             TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
             echo "[INFO] TARGET=$TARGET"
             cd "$TARGET"
 
             rm -f .maintenance || true
 
+            # 0) wyłącz MU-plugins (zmień rozszerzenia, żeby nie ładowały się w WP)
+            if [ -d wp-content/mu-plugins ]; then
+              for f in wp-content/mu-plugins/*.php; do
+                [ -f "$f" ] && mv -f "$f" "$f.off" || true
+              done
+            fi
+
             if command -v wp >/dev/null 2>&1; then
+              # 1) dezaktywuj wszystkie zwykłe wtyczki
+              wp plugin deactivate --all --quiet || true
+
+              # 2) przełącz na TT25 i wyczyść cache (jeśli jest Litespeed)
               wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
               wp plugin is-active litespeed-cache && wp litespeed-purge all || true
             else
               echo "[WARN] WP-CLI not found on PATH; theme switch skipped"
             fi
+
+            # 3) sprawdź front (status HTTP)
+            HOMEURL="$(php -r 'include \"wp-config.php\"; include \"wp-load.php\"; echo get_option(\"home\");' 2>/dev/null || echo https://weektoppick.com)"
+            curl -ks -o /dev/null -w "STATUS:%{http_code}\n" "$HOMEURL" || true
 
             echo "OK"
