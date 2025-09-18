@@ -1,6 +1,6 @@
 {
-  "run_id": "17820560011",
-  "run_ts": "2025-09-18T06:52:46Z",
+  "run_id": "17825527987",
+  "run_ts": "2025-09-18T10:18:06Z",
   "site": {
     "home": "https://weektoppick.com",
     "siteurl": "https://weektoppick.com",
@@ -11,7 +11,7 @@
     "wp_version": "6.8.2",
     "php_version": "8.3.22",
     "hostname": "de-fra-web2061.main-hosting.eu",
-    "timestamp_utc": "2025-09-18T06:52:34Z"
+    "timestamp_utc": "2025-09-18T10:17:49Z"
   },
   "active_theme": {
     "active": "wtp-core-theme"
@@ -70,6 +70,14 @@
       "status": "must-use",
       "update": false,
       "version": "",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "hostinger-auto-updates",
+      "status": "must-use",
+      "update": false,
+      "version": "1.0.7",
       "update_version": "",
       "auto_update": "off"
     },
@@ -150,6 +158,11 @@
       "file": "00-mu-safe-loader.php.wtp.bak",
       "size": 125,
       "md5": "d7174371ece55f187d15340734a09c00"
+    },
+    {
+      "file": "hostinger-auto-updates.php",
+      "size": 3477,
+      "md5": "94a75eae585aa761fb96a65db401b9cc"
     },
     {
       "file": "wtp-canonical-redirects.php",
