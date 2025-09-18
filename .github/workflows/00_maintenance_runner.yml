@@ -13,7 +13,7 @@ on:
 
 permissions:
   contents: write
-  actions: write   # wymagane do API: workflow dispatch
+  actions: write
 
 concurrency:
   group: maintenance-runner
@@ -22,7 +22,7 @@ concurrency:
 jobs:
   run_maintenance:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -32,6 +32,7 @@ jobs:
 
       - name: Validate & paths
         id: val
+        shell: bash
         run: |
           set -euo pipefail
           WF_M_DIR=".github/workflows._maintenance"
@@ -39,22 +40,63 @@ jobs:
           NAME="${{ github.event.inputs.workflow_file }}"
           test -n "$NAME" || { echo "::error::Empty workflow_file"; exit 1; }
           test -f "${WF_M_DIR}/${NAME}" || { echo "::error::Brak ${WF_M_DIR}/${NAME}"; exit 1; }
-          echo "src=${WF_M_DIR}/${NAME}" >> "$GITHUB_OUTPUT"
-          echo "dst=${WF_DIR}/${NAME}" >> "$GITHUB_OUTPUT"
+          echo "src=${WF_M_DIR}/${NAME}"   >> "$GITHUB_OUTPUT"
+          echo "dst=${WF_DIR}/${NAME}"     >> "$GITHUB_OUTPUT"
+          echo "src_dir=${WF_M_DIR}"       >> "$GITHUB_OUTPUT"
+          echo "dst_dir=${WF_DIR}"         >> "$GITHUB_OUTPUT"
 
       - name: Move to active
+        shell: bash
         run: |
           set -euo pipefail
           src="${{ steps.val.outputs.src }}"
           dst="${{ steps.val.outputs.dst }}"
           mkdir -p "$(dirname "$dst")"
+          cp -f "$src" /tmp/original.yml             # zachowaj oryginał
           mv -f "$src" "$dst"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "$dst"
           git commit -m "maintenance-runner: activate $(basename "$dst") temporarily" || true
           git push || true
-          sleep 3
+
+      - name: Ensure workflow_dispatch (temporary patch)
+        shell: bash
+        run: |
+          set -euo pipefail
+          dst="${{ steps.val.outputs.dst }}"
+          NEED_PATCH=0
+          if ! grep -q 'workflow_dispatch' "$dst"; then
+            NEED_PATCH=1
+            # przypadek 1: jest linia 'on:' solo -> wstrzykuj pod nią
+            if grep -qE '^on:\s*$' "$dst"; then
+              awk '{
+                print;
+                if ($0 ~ /^on:[[:space:]]*$/ && !ins){ print "  workflow_dispatch: {}"; ins=1 }
+              }' "$dst" > "$dst.tmp" && mv "$dst.tmp" "$dst"
+            # przypadek 2: inline 'on: { ... }' -> zamień na blok z workflow_dispatch
+            elif grep -qE '^on:[[:space:]]*{.*}$' "$dst"; then
+              awk 'BEGIN{repl=0}{
+                if (!repl && $0 ~ /^on:[[:space:]]*{.*}$/) {
+                  print "on:"
+                  print "  workflow_dispatch: {}"
+                  repl=1
+                } else { print }
+              }' "$dst" > "$dst.tmp" && mv "$dst.tmp" "$dst"
+            # przypadek 3: brak 'on:' -> dolej cały blok na początek
+            else
+              { echo -e "on:\n  workflow_dispatch: {}\n"; cat "$dst"; } > "$dst.tmp" && mv "$dst.tmp" "$dst"
+            fi
+          fi
+
+          if [[ $NEED_PATCH -eq 1 ]]; then
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add "$dst"
+            git commit -m "maintenance-runner: temp add workflow_dispatch" || true
+            git push || true
+            sleep 3
+          fi
 
       - name: Trigger via GitHub API
         env:
@@ -62,6 +104,7 @@ jobs:
           REPO: ${{ github.repository }}
           BRANCH: ${{ github.ref_name }}
           WF_FILE: ${{ github.event.inputs.workflow_file }}
+        shell: bash
         run: |
           set -euo pipefail
           RESP=$(mktemp)
@@ -76,12 +119,13 @@ jobs:
           fi
           echo "::notice::Triggered ${WF_FILE} on ${BRANCH}"
 
-      - name: Move back to _maintenance (unless keep_active=yes)
+      - name: Move back to _maintenance
         if: ${{ github.event.inputs.keep_active != 'yes' }}
+        shell: bash
         run: |
           set -euo pipefail
-          WF_DIR=".github/workflows"
-          WF_M_DIR=".github/workflows._maintenance"
+          WF_DIR="${{ steps.val.outputs.dst_dir }}"
+          WF_M_DIR="${{ steps.val.outputs.src_dir }}"
           NAME="${{ github.event.inputs.workflow_file }}"
           if [ -f "${WF_DIR}/${NAME}" ]; then
             mv -f "${WF_DIR}/${NAME}" "${WF_M_DIR}/${NAME}"
@@ -89,6 +133,21 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add "${WF_M_DIR}/${NAME}" "${WF_DIR}" || true
             git commit -m "maintenance-runner: move back ${NAME} to _maintenance" || true
+            git push || true
+          fi
+
+      - name: Restore original content in _maintenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME="${{ github.event.inputs.workflow_file }}"
+          M_PATH=".github/workflows._maintenance/${NAME}"
+          if [ -f /tmp/original.yml ] && [ -f "$M_PATH" ]; then
+            cp -f /tmp/original.yml "$M_PATH"
+            git config user.name  "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add "$M_PATH"
+            git commit -m "maintenance-runner: restore original ${NAME}" || true
             git push || true
           fi
 
