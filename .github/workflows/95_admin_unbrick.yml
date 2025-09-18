@@ -1,0 +1,38 @@
+name: 95_admin_unbrick
+on: { workflow_dispatch: {} }
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH: switch to TT25, wyłącz MU i pluginy (minimum)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASS }}
+          port: ${{ secrets.DEPLOY_PORT }}
+          script: |
+            set -euo pipefail
+            TARGET="${{ secrets.DEPLOY_TARGET }}"
+            TARGET="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
+            cd "$TARGET" || exit 1
+            rm -f .maintenance || true
+
+            # MU -> off (wszystko)
+            if [ -d wp-content/mu-plugins ]; then
+              for f in wp-content/mu-plugins/*.php; do
+                [ -f "$f" ] && mv -f "$f" "$f.off" || true
+              done
+            fi
+
+            # zwykłe pluginy off + motyw TT25
+            if command -v wp >/dev/null 2>&1; then
+              wp plugin deactivate --all --quiet || true
+              wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
+              wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+            fi
+
+            # szybki ping
+            HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || echo https://weektoppick.com)"
+            curl -ks -o /dev/null -w "STATUS:%{http_code}\n" "$HOMEURL" || true
