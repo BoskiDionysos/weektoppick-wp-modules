@@ -1,7 +1,11 @@
 name: 98_try_wtp_theme_safely
-on: { workflow_dispatch: {} }
-permissions: { contents: write }
-concurrency: { group: try-wtp-theme, cancel-in-progress: true }
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: write
+concurrency:
+  group: try-wtp-theme
+  cancel-in-progress: true
 
 jobs:
   try_theme:
@@ -16,12 +20,12 @@ jobs:
       RUN_ID: ${{ github.run_id }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Activate wtp-core-theme (safe) → curl check → rollback if broken
         id: remote
         uses: appleboy/ssh-action@v1.0.3
-        env: { RUN_ID: ${{ github.run_id }} }
         with:
           host:     ${{ env.HOST }}
           username: ${{ env.USER }}
@@ -31,7 +35,7 @@ jobs:
           envs: TARGET,RUN_ID
           script: |
             set -euo pipefail
-            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+            TARGET="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
             cd "$TARGET"
             OUT="$TARGET/.wtp/state/ci_logs/try_theme_${RUN_ID}"
             mkdir -p "$OUT"
@@ -79,38 +83,34 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "_ci_logs/${RUN_ID}/try_theme"
-          # ✅ poprawka: fallback po STRONIE SERWERA, nie runnera:
           SVRTGT="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
           echo "[INFO] pulling from ${SVRTGT}"
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
             "${USER}@${HOST}:${SVRTGT}/.wtp/state/ci_logs/try_theme_${RUN_ID}" \
-            "_ci_logs/${RUN_ID}/try_theme/" || { echo "[WARN] scp failed"; exit 1; }
+            "_ci_logs/${RUN_ID}/try_theme/" || { echo "::error::scp failed"; exit 1; }
           ls -la "_ci_logs/${RUN_ID}/try_theme" || true
           test -s "_ci_logs/${RUN_ID}/try_theme/http_status_after.txt" || { echo "::error::no logs pulled"; exit 2; }
 
-      - name: Publish report (RO + latest/try-theme) — rebase-safe push
+      - name: Publish report (RO + latest/try-theme)
         run: |
           set -euo pipefail
           RO_DIR=".wtp/state/ro/public/${RUN_ID}/try-theme"
           RO_LATEST=".wtp/state/ro/public/latest/try-theme"
           mkdir -p "${RO_DIR}"
           cp -a "_ci_logs/${RUN_ID}/try_theme/." "${RO_DIR}/"
-          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"
+          rm -rf "${RO_LATEST}"
+          mkdir -p "${RO_LATEST}"
           cp -a "${RO_DIR}/." "${RO_LATEST}/"
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if git diff --staged --quiet; then
-            echo "::notice::Nothing to commit."; exit 0
+            echo "::notice::Nothing to commit."
+            exit 0
           fi
           git commit -m "try wtp-core-theme ${RUN_ID}"
           BRANCH="${GITHUB_REF_NAME:-main}"
-          git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
-          for i in 1 2 3; do
-            git fetch origin "$BRANCH"
-            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
-            if git push origin "HEAD:$BRANCH"; then echo "::notice::Pushed (attempt $i)"; exit 0; fi
-            sleep 2
-          done
-          echo "::error::Push failed after 3 attempts"; exit 1
+          git fetch origin "$BRANCH"
+          git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+          git push origin "HEAD:$BRANCH"
