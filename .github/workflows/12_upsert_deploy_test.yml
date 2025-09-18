@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       target_path:
-        description: "Ścieżka w repo i na serwerze (np. wp-content/themes/wtp-core-theme/functions.php)"
+        description: "Ścieżka w repo i na serwerze (np. wp-content/themes/wtp-core-theme/style.css)"
         required: true
         type: string
       commit_message:
@@ -38,15 +38,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Write file content into repo (safe JSON→file)
+      # ✅ BEZ JSON.parse — toJson daje już gotowy literal JS z \n
+      - name: Write file content into repo (safe)
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
             const path = require('path');
-            const filePath = `${{ toJson(inputs.target_path) }}`;
-            const contentJson = ${{ toJson(inputs.content_plain) }}; // JSON string, zachowuje newlines
-            const content = JSON.parse(contentJson);
+            const filePath = ${{ toJson(inputs.target_path) }};      // np. "wp-content/.../style.css"
+            const content  = ${{ toJson(inputs.content_plain) }};    // np. "/* Theme ... */\n..."
             fs.mkdirSync(path.dirname(filePath), { recursive: true });
             fs.writeFileSync(filePath, content, { encoding: 'utf8' });
 
@@ -119,17 +119,14 @@ jobs:
             OUT="${TARGET}/.wtp/state/ci_logs/auto_upsert_${RUN_ID}"
             mkdir -p "${OUT}"
 
-            # Lint (jeśli PHP)
             case "$FILE_ABS" in
               *.php) php -l "${FILE_ABS}" > "${OUT}/php_lint_after.txt" 2>&1 || true ;;
             esac
 
-            # Purge LS cache (jeśli plugin aktywny)
             if command -v wp >/dev/null 2>&1; then
               wp plugin is-active litespeed-cache && wp litespeed-purge all || true
             fi
 
-            # Health-check frontu
             HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || true)"
             HOMEURL="${HOMEURL:-https://weektoppick.com}"
             STATUS=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
@@ -144,7 +141,6 @@ jobs:
               if [ -f "${FILE_ABS}.bak.${RUN_ID}" ]; then
                 cp -a "${FILE_ABS}.bak.${RUN_ID}" "${FILE_ABS}"
                 echo "rolled_back" >> "${OUT}/action.txt"
-                # drugi curl po rollbacku
                 STATUS2=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
                 echo "$STATUS2" > "${OUT}/http_status_after_rollback.txt"
               else
@@ -154,12 +150,9 @@ jobs:
               echo "[OK] healthy after upsert (status=$STATUS size=$SIZE)" | tee "${OUT}/action.txt"
             fi
 
-            # Logi błędów (ostatnie 200 linii)
             for LOG in error_log logs/error_log wp-content/debug.log; do
               [ -f "$LOG" ] && tail -n 200 "$LOG" > "${OUT}/$(echo "$LOG" | tr '/' '_')"
             done
-
-            # Metadane
             echo "${FILE_REL}" > "${OUT}/target_path.txt"
 
       - name: Pull & publish report (RO + latest/auto-upsert)
