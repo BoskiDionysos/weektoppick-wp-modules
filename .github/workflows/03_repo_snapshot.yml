@@ -1,19 +1,32 @@
 name: 03_repo_snapshot
-on: { workflow_dispatch: {} }
-permissions: { contents: write }
-concurrency: { group: repo-snapshot, cancel-in-progress: true }
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repo-snapshot
+  cancel-in-progress: true
 
 jobs:
   repo_snapshot:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env: { RUN_ID: ${{ github.run_id }} }
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+    env:
+      RUN_ID: ${{ github.run_id }}
 
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.x" }
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
 
       - name: Build inventory (files → JSON) + REPO_ARCHITECTURE.md
         run: |
@@ -21,6 +34,7 @@ jobs:
           python - << 'PY'
           import os, json, hashlib, time
           from pathlib import Path
+
           ROOT = Path(".").resolve()
           out_dir = ROOT / "_ci_logs" / os.environ.get("RUN_ID","0") / "repo"
           out_dir.mkdir(parents=True, exist_ok=True)
@@ -29,9 +43,11 @@ jobs:
             h = hashlib.sha256()
             try:
               with p.open("rb") as f:
-                for b in iter(lambda: f.read(chunk), b""): h.update(b)
+                for b in iter(lambda: f.read(chunk), b""):
+                  h.update(b)
               return h.hexdigest()
-            except Exception: return None
+            except Exception:
+              return None
 
           def count_lines(p: Path, limit=5_000_000):
             try:
@@ -39,28 +55,40 @@ jobs:
                 n=0
                 for _ in f:
                   n+=1
-                  if n>limit: return n
+                  if n>limit:
+                    return n
               return n
-            except Exception: return None
+            except Exception:
+              return None
 
           def category(path: Path):
             s = path.as_posix()
-            if s.startswith(".git/"): return "git"
-            if s.startswith(".github/workflows._quarantine/") and (s.endswith(".yml") or s.endswith(".yaml")): return "workflow-quarantine"
-            if s.startswith(".github/workflows/") and (s.endswith(".yml") or s.endswith(".yaml")): return "workflow-active"
-            if s.startswith("wp-content/mu-plugins/"): return "mu-plugin"
-            if s.startswith("wp-content/plugins/"):    return "plugin"
-            if s.startswith("wp-content/themes/"):     return "theme"
-            if s.startswith(".wtp/"):                  return "wtp"
-            if s.startswith("docs/") or s.endswith(".md"): return "docs"
-            if s.endswith((".json",".yml",".yaml",".toml",".ini",".env",".editorconfig",".gitattributes",".gitignore",".htaccess")): return "config"
+            if s.startswith(".git/"):
+              return "git"
+            if s.startswith(".github/workflows._quarantine/") and (s.endswith(".yml") or s.endswith(".yaml")):
+              return "workflow-quarantine"
+            if s.startswith(".github/workflows/") and (s.endswith(".yml") or s.endswith(".yaml")):
+              return "workflow-active"
+            if s.startswith("wp-content/mu-plugins/"):
+              return "mu-plugin"
+            if s.startswith("wp-content/plugins/"):
+              return "plugin"
+            if s.startswith("wp-content/themes/"):
+              return "theme"
+            if s.startswith(".wtp/"):
+              return "wtp"
+            if s.startswith("docs/") or s.endswith(".md"):
+              return "docs"
+            if s.endswith((".json",".yml",".yaml",".toml",".ini",".env",".editorconfig",".gitattributes",".gitignore",".htaccess")):
+              return "config"
             return "other"
 
-          # walk FS (bez .git i bez _ci_logs)
           files=[]
           for dp, dn, fn in os.walk(ROOT):
-            if "/.git" in dp or dp.endswith("/.git"): continue
-            if "/_ci_logs" in dp: continue
+            if "/.git" in dp or dp.endswith("/.git"):
+              continue
+            if "/_ci_logs" in dp:
+              continue
             for name in fn:
               rel = Path(dp).joinpath(name).relative_to(ROOT)
               files.append(rel)
@@ -69,14 +97,21 @@ jobs:
           for rel in sorted(files, key=lambda p: p.as_posix()):
             p = ROOT / rel
             cat = category(rel)
-            try: sz = p.stat().st_size
-            except Exception: sz = None
+            try:
+              sz = p.stat().st_size
+            except Exception:
+              sz = None
             digest = sha256_file(p) if (sz is None or sz <= 25*1024*1024) else None
             is_text = rel.suffix.lower() in {".php",".js",".ts",".css",".scss",".json",".md",".yml",".yaml",".xml",".html",".htm",".txt",".ini",".env",".toml",".py",".sh"}
             lines = count_lines(p) if is_text and (sz is not None and sz <= 5*1024*1024) else None
-            records.append({"path": rel.as_posix(), "category": cat, "size": sz, "sha256": digest, "lines": lines})
+            records.append({
+              "path": rel.as_posix(),
+              "category": cat,
+              "size": sz,
+              "sha256": digest,
+              "lines": lines
+            })
 
-          # summary
           from collections import defaultdict
           by_cat = defaultdict(lambda: {"count":0,"size":0})
           for r in records:
@@ -102,7 +137,8 @@ jobs:
 
           def human(n):
             for u in ["B","KB","MB","GB","TB"]:
-              if n < 1024: return f"{n:.1f} {u}"
+              if n < 1024:
+                return f"{n:.1f} {u}"
               n/=1024
             return f"{n:.1f} PB"
 
@@ -126,7 +162,8 @@ jobs:
           if wfA:
             lines.append("| File | Size | Lines |")
             lines.append("|---|---:|---:|")
-            for r in wfA: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
+            for r in wfA:
+              lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
           else:
             lines.append("_none_")
           lines.append("")
@@ -135,7 +172,8 @@ jobs:
           if wfQ:
             lines.append("| File | Size | Lines |")
             lines.append("|---|---:|---:|")
-            for r in wfQ: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
+            for r in wfQ:
+              lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
           else:
             lines.append("_none_")
 
@@ -159,11 +197,16 @@ jobs:
           cp -a "_ci_logs/${RUN_ID}/repo/." "${RO_DIR}/"
           rm -rf "${RO_LATEST}"
           mkdir -p "${RO_LATEST}"
-          cp -a "${RO_DIR}/." "${RO_LATEST}/"
+          cp -a "${RO_DIR}/." "${RO_LEST}/" || cp -a "${RO_DIR}/." "${RO_LATEST}/"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add "${RO_DIR}" "${RO_LATEST}"
-          if git diff --staged --quiet; then echo "::notice::Nothing to commit."; else git commit -m "Publish repo snapshot ${RUN_ID}" && git push; fi
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."
+          else
+            git commit -m "Publish repo snapshot ${RUN_ID}"
+            git push
+          fi
 
       - name: Summary
         if: always()
