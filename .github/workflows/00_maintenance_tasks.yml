@@ -1,0 +1,248 @@
+name: 00_maintenance_tasks
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "Co uruchomić?"
+        required: true
+        type: choice
+        options:
+          - repo_snapshot
+          - repo_audit
+          - repo_housekeeping
+          - prune_wtp
+
+permissions:
+  contents: write
+
+concurrency:
+  group: maintenance-tasks
+  cancel-in-progress: true
+
+jobs:
+  repo_snapshot:
+    if: ${{ github.event.inputs.task == 'repo_snapshot' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with: { python-version: "3.x" }
+
+      - name: Build inventory (files → JSON + REPO_ARCHITECTURE.md)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - << 'PY'
+          import os, json, hashlib, time
+          from pathlib import Path
+          ROOT = Path(".").resolve()
+          out = ROOT / "_ci_logs" / os.environ.get("GITHUB_RUN_ID","0") / "repo"
+          out.mkdir(parents=True, exist_ok=True)
+
+          def sha(p):
+            h=hashlib.sha256()
+            try:
+              with open(p,'rb') as f:
+                for b in iter(lambda:f.read(1024*1024), b''): h.update(b)
+              return h.hexdigest()
+            except: return None
+
+          def lines_cnt(p):
+            try:
+              with open(p,'rb') as f: return sum(1 for _ in f)
+            except: return None
+
+          def cat(s):
+            if s.startswith(".git/"): return "git"
+            if s.startswith(".github/workflows._quarantine/") and s.endswith((".yml",".yaml")): return "workflow-quarantine"
+            if s.startswith(".github/workflows._maintenance/") and s.endswith((".yml",".yaml")): return "workflow-maintenance"
+            if s.startswith(".github/workflows/") and s.endswith((".yml",".yaml")): return "workflow-active"
+            if s.startswith("wp-content/mu-plugins/"): return "mu-plugin"
+            if s.startswith("wp-content/plugins/"): return "plugin"
+            if s.startswith("wp-content/themes/"): return "theme"
+            if s.startswith(".wtp/"): return "wtp"
+            if s.startswith("docs/") or s.endswith(".md"): return "docs"
+            if s.endswith((".json",".yml",".yaml",".toml",".ini",".env",".editorconfig",".gitattributes",".gitignore",".htaccess")): return "config"
+            return "other"
+
+          rec=[]
+          for dp,_,fn in os.walk(ROOT):
+            if "/.git" in dp or dp.endswith("/.git") or "/_ci_logs" in dp: continue
+            for n in fn:
+              rel = Path(dp).joinpath(n).relative_to(ROOT).as_posix()
+              p = ROOT / rel
+              try: sz = p.stat().st_size
+              except: sz = None
+              rec.append({
+                "path": rel,
+                "category": cat(rel),
+                "size": sz,
+                "sha256": sha(p) if (sz or 0) <= 25*1024*1024 else None,
+                "lines": lines_cnt(p) if rel.split(".")[-1].lower() in {"php","js","ts","css","scss","json","md","yml","yaml","xml","html","htm","txt","ini","env","toml","py","sh"} and (sz or 0) <= 5*1024*1024 else None
+              })
+
+          from collections import defaultdict
+          by = defaultdict(lambda: {"count":0,"size":0})
+          for r in rec:
+            by[r["category"]]["count"]+=1; by[r["category"]]["size"]+=(r["size"] or 0)
+
+          snap = {
+            "run_id": os.environ.get("GITHUB_RUN_ID"),
+            "run_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "counts": {"files": len(rec), "by_category": by},
+            "files": rec
+          }
+          out.joinpath("repo-snapshot.json").write_text(json.dumps(snap, indent=2), encoding="utf-8")
+
+          def human(n):
+            for u in ["B","KB","MB","GB","TB"]:
+              if n<1024: return f"{n:.1f} {u}"
+              n/=1024
+            return f"{n:.1f} PB"
+
+          lines=[]
+          lines+=["# REPO ARCHITECTURE", f"- Run ID: {snap['run_id']}", f"- Run TS (UTC): {snap['run_ts']}", f"- Files total: {snap['counts']['files']}", "", "## Categories"]
+          for k in sorted(by): lines.append(f"- **{k}**: {by[k]['count']} files, {human(by[k]['size'])}")
+          lines+=["", "## Workflows (active)", "| File | Size | Lines |","|---|---:|---:|"]
+          for r in [x for x in rec if x["category"]=="workflow-active"]: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
+          lines+=["", "## Workflows (maintenance)", "| File | Size | Lines |","|---|---:|---:|"]
+          for r in [x for x in rec if x["category"]=="workflow-maintenance"]: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
+          lines+=["", "## Workflows (quarantine)", "| File | Size | Lines |","|---|---:|---:|"]
+          for r in [x for x in rec if x["category"]=="workflow-quarantine"]: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
+          out.joinpath("REPO_ARCHITECTURE.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
+          PY
+
+      - name: Publish to .wtp/state (RO + latest)
+        shell: bash
+        run: |
+          set -euo pipefail
+          RO_DIR=".wtp/state/ro/public/${GITHUB_RUN_ID}/repo"
+          RO_LATEST=".wtp/state/ro/public/latest/repo"
+          mkdir -p "$RO_DIR" "$RO_LATEST"
+          cp -a "_ci_logs/${GITHUB_RUN_ID}/repo/." "$RO_DIR/"
+          rm -rf "$RO_LATEST" && mkdir -p "$RO_LATEST" && cp -a "$RO_DIR/." "$RO_LATEST/"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$RO_DIR" "$RO_LATEST"
+          git commit -m "repo_snapshot via maintenance task" || true
+          git push || true
+
+  repo_audit:
+    if: ${{ github.event.inputs.task == 'repo_audit' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build REPO_AUDIT.md (v2)
+        shell: bash
+        run: |
+          set -euo pipefail
+          IN=".wtp/state/ro/public/latest/repo/repo-snapshot.json"
+          test -f "$IN" || { echo "::error::Brak $IN (uruchom najpierw repo_snapshot)"; exit 1; }
+          python - << 'PY'
+          import json, os
+          from pathlib import Path
+          RUN_ID = os.environ["GITHUB_RUN_ID"]
+          IN  = Path(".wtp/state/ro/public/latest/repo/repo-snapshot.json")
+          OUT = Path(f"_ci_logs/{RUN_ID}/repo_audit/REPO_AUDIT.md")
+          OUT.parent.mkdir(parents=True, exist_ok=True)
+          data  = json.load(IN.open())
+          files = data.get("files",[])
+          bycat = data.get("counts",{}).get("by_category",{})
+          def human(n):
+            for u in ["B","KB","MB","GB","TB"]:
+              if n<1024: return f"{n:.1f} {u}"
+              n/=1024
+            return f"{n:.1f} PB"
+          wfA=[f for f in files if f.get("category")=="workflow-active"]
+          wfM=[f for f in files if f.get("category")=="workflow-maintenance"]
+          wfQ=[f for f in files if f.get("category")=="workflow-quarantine"]
+          large=sorted([f for f in files if (f.get("size") or 0)>10*1024*1024], key=lambda x:x.get("size") or 0, reverse=True)[:50]
+          L=[]
+          L.append("# REPO AUDIT (v2)")
+          L.append(f"- Run ID: {data.get('run_id')}")
+          L.append(f"- Run TS (UTC): {data.get('run_ts')}")
+          L.append("")
+          L.append("## Summary")
+          L.append(f"- Files total: {data.get('counts',{}).get('files')}")
+          for k in sorted(bycat): v=bycat[k]; L.append(f"- {k}: {v['count']} • {human(v['size'])}")
+          L.append("")
+          L.append(f"**Workflows** → active: {len(wfA)} • maintenance: {len(wfM)} • quarantine: {len(wfQ)}")
+          def table(title, arr):
+            L.append(f"### {title}")
+            if not arr: L.append("_none_"); L.append(""); return
+            L.append("| File | Size |"); L.append("|---|---:|")
+            for f in sorted(arr, key=lambda x:x['path']): L.append(f"| {f['path']} | {human(f.get('size') or 0)} |")
+            L.append("")
+          table("Workflows (active)", wfA)
+          table("Workflows (maintenance)", wfM)
+          table("Workflows (quarantine)", wfQ)
+          L.append("## Biggest files (>10MB)")
+          if large:
+            L.append("| File | Size |"); L.append("|---|---:|")
+            for f in large: L.append(f"| {f['path']} | {human(f['size'] or 0)} |")
+          else: L.append("_none_")
+          OUT.write_text("\n".join(L)+"\n", encoding="utf-8")
+          PY
+      - name: Publish REPO_AUDIT.md
+        shell: bash
+        run: |
+          set -euo pipefail
+          RO_DIR=".wtp/state/ro/public/${GITHUB_RUN_ID}/repo"
+          RO_LATEST=".wtp/state/ro/public/latest/repo"
+          mkdir -p "$RO_DIR" "$RO_LATEST"
+          cp -f "_ci_logs/${GITHUB_RUN_ID}/repo_audit/REPO_AUDIT.md" "$RO_DIR/"
+          cp -f "_ci_logs/${GITHUB_RUN_ID}/repo_audit/REPO_AUDIT.md" "$RO_LATEST/"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$RO_DIR/REPO_AUDIT.md" "$RO_LATEST/REPO_AUDIT.md"
+          git commit -m "repo_audit via maintenance task" || true
+          git push || true
+
+  repo_housekeeping:
+    if: ${{ github.event.inputs.task == 'repo_housekeeping' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Cleanup old RO runs (keep last 3 + latest)
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE=".wtp/state/ro/public"
+          cd "$BASE" || exit 0
+          # zostaw latest i 3 najnowsze numeryczne
+          keep=("latest" $(ls -1d [0-9]* 2>/dev/null | sort -n | tail -n 3))
+          for d in *; do
+            [[ -d "$d" ]] || continue
+            in_keep=0; for k in "${keep[@]}"; do [[ "$d" == "$k" ]] && in_keep=1; done
+            [[ $in_keep -eq 1 ]] || { echo "remove $d"; rm -rf "$d"; }
+          done
+          cd - >/dev/null
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ".wtp/state/ro/public"
+          git commit -m "housekeeping: prune old RO runs" || true
+          git push || true
+
+  prune_wtp:
+    if: ${{ github.event.inputs.task == 'prune_wtp' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Prune .wtp tmp/artifacts (light)
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf _ci_logs/* || true
+          find .wtp -type f -name "*.tar.gz" -delete || true
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "prune_wtp: cleanup local artifacts" || true
+          git push || true
