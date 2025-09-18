@@ -34,173 +34,128 @@ jobs:
           import os, json, hashlib, time
           from pathlib import Path
           ROOT = Path(".").resolve()
-
-          out_dir = ROOT / "_ci_logs" / os.environ.get("RUN_ID", "0") / "repo"
+          out_dir = ROOT / "_ci_logs" / os.environ.get("RUN_ID","0") / "repo"
           out_dir.mkdir(parents=True, exist_ok=True)
-
-          # ---------- helpers ----------
-          def sha256_file(p: Path, chunk=1 << 20):
-              h = hashlib.sha256()
-              try:
-                  with p.open("rb") as f:
-                      for b in iter(lambda: f.read(chunk), b""):
-                          h.update(b)
-                  return h.hexdigest()
-              except Exception:
-                  return None
-
+          def sha256_file(p: Path, chunk=1024*1024):
+            h = hashlib.sha256()
+            try:
+              with p.open("rb") as f:
+                for b in iter(lambda: f.read(chunk), b""): h.update(b)
+              return h.hexdigest()
+            except Exception: return None
           def count_lines(p: Path, limit=5_000_000):
-              try:
-                  with p.open("rb") as f:
-                      for i, _ in enumerate(f, 1):
-                          if i > limit:
-                              return i
-                      return i
-              except Exception:
-                  return None
-
+            try:
+              with p.open("rb") as f:
+                n=0
+                for _ in f:
+                  n+=1
+                  if n>limit: return n
+              return n
+            except Exception: return None
           def category(path: Path):
-              s = path.as_posix()
-              if s.startswith(".git/"):
-                  return "git"
-              if s.startswith(".github/workflows._quarantine/") and s.endswith((".yml", ".yaml")):
-                  return "workflow-quarantine"
-              if s.startswith(".github/workflows/") and s.endswith((".yml", ".yaml")):
-                  return "workflow-active"
-              if s.startswith("wp-content/mu-plugins/"):
-                  return "mu-plugin"
-              if s.startswith("wp-content/plugins/"):
-                  return "plugin"
-              if s.startswith("wp-content/themes/"):
-                  return "theme"
-              if s.startswith(".wtp/"):
-                  return "wtp"
-              if s.startswith("docs/") or s.endswith(".md"):
-                  return "docs"
-              if s.endswith((".json", ".yml", ".yaml", ".toml", ".ini", ".env",
-                             ".editorconfig", ".gitattributes", ".gitignore", ".htaccess")):
-                  return "config"
-              return "other"
-
-          # ---------- scan ----------
-          records = []
-          for dp, _, fn in os.walk(ROOT):
-              dp = Path(dp)
-              if dp.match("*/.git*") or "_ci_logs" in dp.parts:
-                  continue
-              for name in fn:
-                  rel = dp.joinpath(name).relative_to(ROOT)
-                  cat = category(rel)
-                  try:
-                      sz = rel.stat().st_size
-                  except Exception:
-                      sz = None
-                  digest = sha256_file(rel) if (sz is None or sz <= 25 * 1024 * 1024) else None
-                  is_text = rel.suffix.lower() in {
-                      ".php", ".js", ".ts", ".css", ".scss", ".json", ".md", ".yml",
-                      ".yaml", ".xml", ".html", ".htm", ".txt", ".ini", ".env", ".toml",
-                      ".py", ".sh"
-                  }
-                  lines = count_lines(rel) if is_text and (sz and sz <= 5 * 1024 * 1024) else None
-                  records.append({
-                      "path": rel.as_posix(),
-                      "category": cat,
-                      "size": sz,
-                      "sha256": digest,
-                      "lines": lines
-                  })
-
-          # ---------- aggregates ----------
+            s = path.as_posix()
+            if s.startswith(".git/"): return "git"
+            if s.startswith(".github/workflows._quarantine/") and (s.endswith(".yml") or s.endswith(".yaml")): return "workflow-quarantine"
+            if s.startswith(".github/workflows/") and (s.endswith(".yml") or s.endswith(".yaml")): return "workflow-active"
+            if s.startswith("wp-content/mu-plugins/"): return "mu-plugin"
+            if s.startswith("wp-content/plugins/"):    return "plugin"
+            if s.startswith("wp-content/themes/"):     return "theme"
+            if s.startswith(".wtp/"):                  return "wtp"
+            if s.startswith("docs/") or s.endswith(".md"): return "docs"
+            if s.endswith((".json",".yml",".yaml",".toml",".ini",".env",".editorconfig",".gitattributes",".gitignore",".htaccess")): return "config"
+            return "other"
+          files=[]
+          for dp, dn, fn in os.walk(ROOT):
+            if "/.git" in dp or dp.endswith("/.git"): continue
+            if "/_ci_logs" in dp: continue
+            for name in fn:
+              rel = Path(dp).joinpath(name).relative_to(ROOT)
+              files.append(rel)
+          records=[]
+          for rel in sorted(files, key=lambda p: p.as_posix()):
+            p = ROOT / rel
+            cat = category(rel)
+            try: sz = p.stat().st_size
+            except Exception: sz = None
+            digest = sha256_file(p) if (sz is None or sz <= 25*1024*1024) else None
+            is_text = rel.suffix.lower() in {".php",".js",".ts",".css",".scss",".json",".md",".yml",".yaml",".xml",".html",".htm",".txt",".ini",".env",".toml",".py",".sh"}
+            lines = count_lines(p) if is_text and (sz is not None and sz <= 5*1024*1024) else None
+            records.append({"path": rel.as_posix(), "category": cat, "size": sz, "sha256": digest, "lines": lines})
           from collections import defaultdict
-          by_cat = defaultdict(lambda: {"count": 0, "size": 0})
+          by_cat = defaultdict(lambda: {"count":0,"size":0})
           for r in records:
-              by_cat[r["category"]]["count"] += 1
-              by_cat[r["category"]]["size"] += r["size"] or 0
-
+            by_cat[r["category"]]["count"] += 1
+            by_cat[r["category"]]["size"]  += (r["size"] or 0)
           important = {}
-          for d in [
-              "wp-content/mu-plugins", "wp-content/plugins", "wp-content/themes",
-              ".github/workflows", ".github/workflows._quarantine", ".wtp", "docs"
-          ]:
-              p = ROOT / d
-              if p.exists():
-                  files_d = [r for r in records if r["path"].startswith(f"{d}/")]
-                  important[d] = {
-                      "files": len(files_d),
-                      "size": sum(r["size"] or 0 for r in files_d)
-                  }
-
+          for d in ["wp-content/mu-plugins","wp-content/plugins","wp-content/themes",".github/workflows",".github/workflows._quarantine",".wtp","docs"]:
+            p = ROOT / d
+            if p.exists():
+              files_d = [r for r in records if r["path"].startswith(d + "/")]
+              important[d] = {"files": len(files_d), "size": sum((r["size"] or 0) for r in files_d)}
           snapshot = {
-              "run_id": os.environ.get("RUN_ID"),
-              "run_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-              "counts": {"files": len(records), "by_category": by_cat},
-              "important_dirs": important,
-              "files": records
+            "run_id": os.environ.get("RUN_ID"),
+            "run_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "counts": {"files": len(records), "by_category": by_cat},
+            "important_dirs": important,
+            "files": records
           }
-          (out_dir / "repo-snapshot.json").write_text(
-              json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8"
-          )
-
-          # ---------- markdown ----------
+          (out_dir / "repo-snapshot.json").write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
           def human(n):
-              for u in ["B", "KB", "MB", "GB", "TB"]:
-                  if n < 1024:
-                      return f"{n:.1f} {u}"
-                  n /= 1024
-              return f"{n:.1f} PB"
-
-          md = []
-          md += [
-              "# REPO ARCHITECTURE",
-              f"- Run ID: {snapshot['run_id']}",
-              f"- Run TS (UTC): {snapshot['run_ts']}",
-              f"- Files total: {snapshot['counts']['files']}",
-              ""
-          ]
-          md.append("## Categories")
-          for k in sorted(by_cat):
-              v = by_cat[k]
-              md.append(f"- **{k}**: {v['count']} files, {human(v['size'])}")
-          md.append("")
-          (out_dir / "REPO_ARCHITECTURE.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+            for u in ["B","KB","MB","GB","TB"]:
+              if n < 1024: return f"{n:.1f} {u}"
+              n/=1024
+            return f"{n:.1f} PB"
+          lines=[]
+          lines.append("# REPO ARCHITECTURE")
+          lines.append(f"- Run ID: {snapshot['run_id']}")
+          lines.append(f"- Run TS (UTC): {snapshot['run_ts']}")
+          lines.append(f"- Files total: {snapshot['counts']['files']}")
+          lines.append("")
+          lines.append("## Categories")
+          for k in sorted(snapshot["counts"]["by_category"].keys()):
+            v = snapshot["counts"]["by_category"][k]
+            lines.append(f"- **{k}**: {v['count']} files, {human(v['size'])}")
+          lines.append("")
+          lines.append("## Workflows (active)")
+          wfA = [r for r in records if r["category"]=="workflow-active"]
+          if wfA:
+            lines.append("| File | Size | Lines |")
+            lines.append("|---|---:|---:|")
+            for r in wfA: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
+          else:
+            lines.append("_none_")
+          lines.append("")
+          lines.append("## Workflows (quarantine)")
+          wfQ = [r for r in records if r["category"]=="workflow-quarantine"]
+          if wfQ:
+            lines.append("| File | Size | Lines |")
+            lines.append("|---|---:|---:|")
+            for r in wfQ: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
+          else:
+            lines.append("_none_")
+          (out_dir / "REPO_ARCHITECTURE.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
           PY
 
       - name: Publish to .wtp/state (RO + latest) with rebase-safe push
         run: |
           set -euo pipefail
+          RUN_ID="${RUN_ID}"
           RO_DIR=".wtp/state/ro/public/${RUN_ID}/repo"
           RO_LATEST=".wtp/state/ro/public/latest/repo"
-
           mkdir -p "${RO_DIR}"
           cp -a "_ci_logs/${RUN_ID}/repo/." "${RO_DIR}/"
-
-          rm -rf "${RO_LATEST}"
-          mkdir -p "${RO_LATEST}"
-          cp -a "${RO_DIR}/." "${RO_LATEST}/"
-
+          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"; cp -a "${RO_DIR}/." "${RO_LATEST}/"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-
-          if git diff --staged --quiet; then
-            echo "::notice::Nothing to commit."
-            exit 0
-          fi
-
+          if git diff --staged --quiet; then echo "::notice::Nothing to commit."; exit 0; fi
           git commit -m "Publish repo snapshot ${RUN_ID}"
-
           BRANCH="${GITHUB_REF_NAME:-main}"
           git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
-
           for i in 1 2 3; do
             git fetch origin "$BRANCH"
             git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
-            if git push origin "HEAD:$BRANCH"; then
-              echo "::notice::Pushed (attempt $i)"
-              exit 0
-            fi
+            if git push origin "HEAD:$BRANCH"; then echo "::notice::Pushed (attempt $i)"; exit 0; fi
             sleep 2
           done
-
-          echo "::error::Push failed after 3 attempts"
-          exit 1
+          echo "::error::Push failed after 3 attempts"; exit 1
