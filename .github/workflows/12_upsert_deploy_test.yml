@@ -1,0 +1,170 @@
+name: 12_upsert_deploy_test
+on:
+  workflow_dispatch:
+    inputs:
+      target_path:
+        description: "Ścieżka w repo i na serwerze (np. wp-content/themes/wtp-core-theme/functions.php)"
+        required: true
+        type: string
+      commit_message:
+        description: "Commit message"
+        required: true
+        type: string
+      content_plain:
+        description: "Nowa treść pliku (PLAIN)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: upsert-deploy-test
+  cancel-in-progress: true
+
+jobs:
+  upsert_deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      RUN_ID: ${{ github.run_id }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # 1) UPSERT do repo (commit + push rebase-safe)
+      - name: Upsert file in repo
+        run: |
+          set -euo pipefail
+          PATH_IN_REPO="${{ inputs.target_path }}"
+          mkdir -p "$(dirname "$PATH_IN_REPO")"
+          cat > "$PATH_IN_REPO" <<'PLAIN_EOF'
+${{ inputs.content_plain }}
+PLAIN_EOF
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$PATH_IN_REPO"
+          if git diff --staged --quiet; then
+            echo "::notice::No repo changes for $PATH_IN_REPO"
+          else
+            git commit -m "${{ inputs.commit_message }}"
+            BRANCH="${GITHUB_REF_NAME:-main}"
+            git fetch origin "$BRANCH"
+            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+            git push origin "HEAD:$BRANCH"
+          fi
+
+      # 2) DEPLOY + TEST na serwerze (backup → wgranie → lint → curl → ewentualny rollback)
+      - name: Deploy to server + smoke test (auto-rollback if broken)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          request_pty: true
+          envs: TARGET,RUN_ID
+          script: |
+            set -euo pipefail
+            TARGET="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
+            FILE_REL="${{ inputs.target_path }}"
+            FILE_ABS="${TARGET}/${FILE_REL}"
+            OUT="${TARGET}/.wtp/state/ci_logs/auto_upsert_${RUN_ID}"
+            mkdir -p "${OUT}" "$(dirname "${FILE_ABS}")"
+
+            # treść do pliku (base64 żeby nie popsuć quoting)
+            cat > "${OUT}/payload.b64" <<'B64'
+$(printf %s "${{ inputs.content_plain }}" | base64 -w0)
+B64
+            base64 -d "${OUT}/payload.b64" > "${OUT}/payload.plain"
+
+            # backup oryginału (jeśli istnieje)
+            if [ -f "${FILE_ABS}" ]; then
+              cp -a "${FILE_ABS}" "${FILE_ABS}.bak.${RUN_ID}"
+              echo "${FILE_ABS}.bak.${RUN_ID}" > "${OUT}/backup_path.txt"
+            fi
+
+            # wgraj i lintuj jeśli to PHP
+            cp -a "${OUT}/payload.plain" "${FILE_ABS}"
+            EXT="${FILE_ABS##*.}"
+            if [ "${EXT}" = "php" ]; then
+              php -l "${FILE_ABS}" > "${OUT}/php_lint_after.txt" 2>&1 || true
+            fi
+
+            # podstawowe sanity strony
+            HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || true)"
+            HOMEURL="${HOMEURL:-https://weektoppick.com}"
+
+            # purge LS cache jeżeli aktywny
+            if command -v wp >/dev/null 2>&1; then
+              wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+            fi
+
+            STATUS=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
+            BODY="$(curl -ks "$HOMEURL" || true)"
+            echo "$STATUS" > "${OUT}/http_status_after.txt"
+            printf "%s" "$BODY" > "${OUT}/home_after.html"
+            echo "$(printf "%s" "$BODY" | wc -c)" > "${OUT}/home_after_size.txt"
+
+            SIZE=$(cat "${OUT}/home_after_size.txt" || echo 0)
+
+            # reguła zdrowia: 200 i min. 600 bajtów
+            if [ "$STATUS" != "200" ] || [ "${SIZE:-0}" -lt 600 ]; then
+              echo "[WARN] unhealthy after upsert (status=$STATUS size=$SIZE) -> rollback" | tee "${OUT}/action.txt"
+              if [ -f "${FILE_ABS}.bak.${RUN_ID}" ]; then
+                cp -a "${FILE_ABS}.bak.${RUN_ID}" "${FILE_ABS}"
+                echo "rolled_back" >> "${OUT}/action.txt"
+              else
+                echo "no_backup_to_restore" >> "${OUT}/action.txt"
+              fi
+              # szybki drugi curl po rollbacku
+              STATUS2=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
+              echo "$STATUS2" > "${OUT}/http_status_after_rollback.txt"
+            else
+              echo "[OK] healthy after upsert (status=$STATUS size=$SIZE)" | tee "${OUT}/action.txt"
+            fi
+
+            # logi błędów (ostatnie 200 linii)
+            for LOG in error_log logs/error_log wp-content/debug.log; do
+              [ -f "$LOG" ] && tail -n 200 "$LOG" > "${OUT}/$(echo "$LOG" | tr '/' '_')"
+            done
+
+            # metadane
+            echo "${FILE_REL}" > "${OUT}/target_path.txt"
+
+      # 3) Zbierz raport i opublikuj do latest/
+      - name: Pull & publish report (RO + latest/auto-upsert)
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${RUN_ID}/auto_upsert"
+          SVRTGT="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
+            "${USER}@${HOST}:${SVRTGT}/.wtp/state/ci_logs/auto_upsert_${RUN_ID}" \
+            "_ci_logs/${RUN_ID}/auto_upsert/" || true
+
+          RO_DIR=".wtp/state/ro/public/${RUN_ID}/auto-upsert"
+          RO_LATEST=".wtp/state/ro/public/latest/auto-upsert"
+          mkdir -p "${RO_DIR}" "${RO_LATEST}"
+          cp -a "_ci_logs/${RUN_ID}/auto_upsert/." "${RO_DIR}/" || true
+          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"
+          cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."; exit 0
+          fi
+          git commit -m "auto-upsert report ${RUN_ID}"
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git fetch origin "$BRANCH"
+          git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+          git push origin "HEAD:$BRANCH"
