@@ -1,0 +1,211 @@
+name: 96_emergency_heal
+on: { workflow_dispatch: {} }
+permissions: { contents: write }
+concurrency:
+  group: emergency-heal
+  cancel-in-progress: true
+
+jobs:
+  heal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      RUN_ID: ${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Heal site (disable MU+plugins, provision theme skeleton, activate, test)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          request_pty: true
+          envs: TARGET,RUN_ID
+          script: |
+            set -euo pipefail
+            TARGET="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
+            cd "$TARGET"
+            OUT="$TARGET/.wtp/state/ci_logs/emergency_heal_${RUN_ID}"
+            mkdir -p "$OUT"
+
+            echo "[INFO] emergency heal starting…"
+
+            # 0) podstawowy URL
+            HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || true)"
+            HOMEURL="${HOMEURL:-https://weektoppick.com}"
+            echo "$HOMEURL" > "$OUT/home_url.txt"
+
+            # 1) wyłącz maintenance
+            rm -f .maintenance || true
+
+            # 2) tymczasowo wyłącz WSZYSTKIE MU-plugins (zostaw tylko bezpiecznik)
+            MUP="wp-content/mu-plugins"
+            if [ -d "$MUP" ]; then
+              for f in "$MUP"/*.php; do
+                [ -f "$f" ] || continue
+                base="$(basename "$f")"
+                case "$base" in
+                  00-mu-safe-loader.php|mu-hotfix-headers.php) # zostawiamy te dwa
+                    echo "keeping MU: $base" >> "$OUT/mu_kept.txt"
+                    ;;
+                  *.off)
+                    echo "already off: $base" >> "$OUT/mu_off.txt"
+                    ;;
+                  *)
+                    mv -f "$f" "$f.off" || true
+                    echo "disabled MU: $base" >> "$OUT/mu_off.txt"
+                    ;;
+                esac
+              done
+            fi
+
+            # 3) deaktywuj wszystkie zwykłe pluginy (niech nic nie miesza)
+            if command -v wp >/dev/null 2>&1; then
+              wp plugin deactivate --all --quiet || true
+            fi
+
+            # 4) przygotuj minimalny, zdrowy szkielet motywu
+            THEME_DIR="wp-content/themes/wtp-core-theme"
+            mkdir -p "$THEME_DIR"
+
+            cat > "$THEME_DIR/style.css" <<'CSS'
+/*
+ Theme Name: WTP Core Theme
+ Theme URI: https://weektoppick.com
+ Author: WeekTopPick
+ Author URI: https://weektoppick.com
+ Description: Core theme for WeekTopPick.
+ Version: 0.1.0
+ Text Domain: wtp-core-theme
+*/
+CSS
+
+            cat > "$THEME_DIR/functions.php" <<'PHP'
+<?php
+// minimal, bez echa/BOM, bez zamykającego znacznika
+add_action('after_setup_theme', function () {
+  add_theme_support('title-tag');
+  add_theme_support('post-thumbnails');
+});
+add_action('wp_enqueue_scripts', function () {
+  wp_enqueue_style('wtp-core-theme', get_stylesheet_uri(), [], null);
+});
+add_action('wp_head', function(){ echo "<!-- WTP head hook alive -->"; }, 0);
+PHP
+
+            cat > "$THEME_DIR/header.php" <<'PHP'
+<!doctype html>
+<html <?php language_attributes(); ?>>
+<head>
+<meta charset="<?php bloginfo('charset'); ?>">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<?php wp_head(); ?>
+</head>
+<body <?php body_class(); ?>>
+<header class="site-header"><h1 class="site-title"><a href="<?php echo esc_url(home_url('/')); ?>"><?php bloginfo('name'); ?></a></h1></header>
+PHP
+
+            cat > "$THEME_DIR/footer.php" <<'PHP'
+<footer class="site-footer"><p>&copy; <?php echo date('Y'); ?> WeekTopPick</p></footer>
+<?php wp_footer(); ?>
+</body>
+</html>
+PHP
+
+            cat > "$THEME_DIR/index.php" <<'PHP'
+<?php get_header(); ?>
+<main id="primary" class="site-main" style="max-width:860px;margin:40px auto;font-family:system-ui;">
+  <h2>WTP Core Theme</h2>
+  <?php if ( have_posts() ) : while ( have_posts() ) : the_post(); ?>
+    <article id="post-<?php the_ID(); ?>">
+      <h3><a href="<?php the_permalink(); ?>"><?php the_title(); ?></a></h3>
+      <div class="entry"><?php the_content(); ?></div>
+    </article>
+  <?php endwhile; else : ?>
+    <p>No content yet.</p>
+  <?php endif; ?>
+</main>
+<?php get_footer();
+PHP
+
+            # 5) aktywuj motyw i wyczyść cache
+            if command -v wp >/dev/null 2>&1; then
+              wp theme activate wtp-core-theme
+              # wyczyść cache (jeśli LS aktywny – może być nieaktywny, więc try/catch)
+              wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+            fi
+
+            # 6) smoke test frontu
+            STATUS=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
+            BODY="$(curl -ks "$HOMEURL" || true)"
+            echo "$STATUS" > "$OUT/http_status_after.txt"
+            printf "%s" "$BODY" > "$OUT/home_after.html"
+            echo "$(printf "%s" "$BODY" | wc -c)" > "$OUT/home_after_size.txt"
+
+            SIZE=$(cat "$OUT/home_after_size.txt" || echo 0)
+            echo "[INFO] after activate: status=$STATUS size=$SIZE"
+
+            # 7) jeśli strony dalej nie ma → awaryjny rollback na motyw TT25
+            if [ "$STATUS" != "200" ] || [ "${SIZE:-0}" -lt 600 ]; then
+              echo "[WARN] unhealthy after theme activate → rollback to twentytwentyfive" | tee "$OUT/action.txt"
+              wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
+              wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+              STATUS2=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
+              echo "$STATUS2" > "$OUT/http_status_after_rollback.txt"
+            else
+              echo "[OK] WTP theme skeleton healthy" | tee "$OUT/action.txt"
+              # 8) przywróć podstawowe pluginy (biała lista), reszta off
+              if command -v wp >/dev/null 2>&1; then
+                for p in litespeed-cache seo-by-rank-math; do
+                  wp plugin activate "$p" || true
+                done
+                wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+              fi
+            fi
+
+            # 9) zbierz logi
+            for LOG in error_log logs/error_log wp-content/debug.log; do
+              [ -f "$LOG" ] && tail -n 200 "$LOG" > "$OUT/$(echo "$LOG" | tr '/' '_')"
+            done
+
+            # 10) aktywny motyw
+            (command -v wp >/dev/null 2>&1 && wp theme list --status=active --field=name 2>/dev/null | head -n1) > "$OUT/active_theme.txt" || true
+
+            echo "[INFO] DONE"
+
+      - name: Pull & publish report
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${RUN_ID}/emergency_heal"
+          SVRTGT="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
+            "${USER}@${HOST}:${SVRTGT}/.wtp/state/ci_logs/emergency_heal_${RUN_ID}" \
+            "_ci_logs/${RUN_ID}/emergency_heal/" || true
+
+          RO_DIR=".wtp/state/ro/public/${RUN_ID}/emergency-heal"
+          RO_LATEST=".wtp/state/ro/public/latest/emergency-heal"
+          mkdir -p "${RO_DIR}" "${RO_LATEST}"
+          cp -a "_ci_logs/${RUN_ID}/emergency_heal/." "${RO_DIR}/" || true
+          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"
+          cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."; exit 0
+          fi
+          git commit -m "emergency heal ${RUN_ID}"
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git fetch origin "$BRANCH"
+          git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+          git push origin "HEAD:$BRANCH"
