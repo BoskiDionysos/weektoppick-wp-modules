@@ -20,16 +20,18 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
     env:
-      HOST:   ${{ secrets.DEPLOY_HOST }}
-      PORT:   ${{ secrets.DEPLOY_PORT }}
-      USER:   ${{ secrets.DEPLOY_USER }}
-      PASS:   ${{ secrets.DEPLOY_PASS }}
+      HOST: ${{ secrets.DEPLOY_HOST }}
+      PORT: ${{ secrets.DEPLOY_PORT }}
+      USER: ${{ secrets.DEPLOY_USER }}
+      PASS: ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
       RUN_ID: ${{ github.run_id }}
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup tools
         run: |
           set -euo pipefail
@@ -39,12 +41,12 @@ jobs:
       - name: Remote collect (CORE)
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host:     ${{ env.HOST }}
+          host: ${{ env.HOST }}
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
-          port:     ${{ env.PORT }}
+          port: ${{ env.PORT }}
           request_pty: true
-          envs: TARGET
+          env: TARGET
           script: |
             set -euo pipefail
             cd "${TARGET}" || exit 0
@@ -60,7 +62,13 @@ jobs:
             (command -v wp >/dev/null 2>&1 && wp theme list --status=active --field=name 2>/dev/null | head -n1 > "${OUT}/active_theme.txt") || : > "${OUT}/active_theme.txt"
             php -r '
               $d="wp-content/mu-plugins"; $o=[];
-              if (is_dir($d)) { foreach (scandir($d) as $f) { if($f==="."||$f==="..") continue; $p="$d/$f"; if (is_file($p)) $o[]=["file"=>$f,"size"=>@filesize($p),"md5"=>@md5_file($p)]; } }
+              if (is_dir($d)) { 
+                foreach (scandir($d) as $f) { 
+                  if($f==="."||$f==="..") continue; 
+                  $p="$d/$f"; 
+                  if (is_file($p)) $o[]=["file"=>$f,"size"=>@filesize($p),"md5"=>@md5_file($p)]; 
+                } 
+              }
               echo json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
             ' > "${OUT}/mu_plugins.json" 2>/dev/null || echo "[]" > "${OUT}/mu_plugins.json"
             hostname > "${OUT}/hostname.txt" 2>/dev/null || echo unknown > "${OUT}/hostname.txt"
@@ -80,8 +88,12 @@ jobs:
           set -euo pipefail
           RAW="_ci_logs/${RUN_ID}/snapshot_core"
           mkdir -p "${RAW}"
-          for f in plugins themes mu_plugins admins; do [ -f "${RAW}/${f}.json" ] || echo '[]' > "${RAW}/${f}.json"; done
-          for f in home siteurl wp_version php_version hostname ts_utc active_theme; do [ -f "${RAW}/${f}.txt" ] || : > "${RAW}/${f}.txt"; done
+          for f in plugins themes mu_plugins admins; do 
+            [ -f "${RAW}/${f}.json" ] || echo '[]' > "${RAW}/${f}.json"
+          done
+          for f in home siteurl wp_version php_version hostname ts_utc active_theme; do 
+            [ -f "${RAW}/${f}.txt" ] || : > "${RAW}/${f}.txt"
+          done
           SNAP="${RAW}/snapshot-core.json"
           jq -n \
             --arg run_id "${RUN_ID}" \
@@ -114,18 +126,24 @@ jobs:
           mkdir -p "${RO_DIR}" "${RO_LATEST}"
           cp -a "_ci_logs/${RUN_ID}/snapshot_core/." "${RO_DIR}/"
           cp -a "${RO_DIR}/." "${RO_LATEST}/"
-
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          if git diff --staged --quiet; then echo "::notice::Nothing to commit."; exit 0; fi
+          if git diff --staged --quiet; then 
+            echo "::notice::Nothing to commit."
+            exit 0
+          fi
           git commit -m "snapshot core ${RUN_ID}"
           BRANCH="${GITHUB_REF_NAME:-main}"
           git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
           for i in 1 2 3; do
             git fetch origin "$BRANCH"
             git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
-            if git push origin "HEAD:$BRANCH"; then echo "::notice::Pushed (attempt $i)"; exit 0; fi
+            if git push origin "HEAD:$BRANCH"; then 
+              echo "::notice::Pushed (attempt $i)"
+              exit 0
+            fi
             sleep 2
           done
-          echo "::error::Push failed after 3 attempts"; exit 1
+          echo "::error::Push failed after 3 attempts"
+          exit 1
