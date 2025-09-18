@@ -40,7 +40,7 @@ jobs:
           envs: TARGET,RUN_ID
           script: |
             set -euo pipefail
-            TARGET="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
+            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
             cd "$TARGET"
             OUT="$TARGET/.wtp/state/ci_logs/emergency_heal_${RUN_ID}"
             mkdir -p "$OUT"
@@ -49,7 +49,7 @@ jobs:
             rm -f .maintenance || true
 
             # Base URL
-            HOMEURL="$(php -r 'include \"wp-config.php\"; include \"wp-load.php\"; echo get_option(\"home\");' 2>/dev/null || true)"
+            HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || true)"
             HOMEURL="${HOMEURL:-https://weektoppick.com}"
             echo "$HOMEURL" > "$OUT/home_url.txt"
 
@@ -190,8 +190,7 @@ PHP
         run: |
           set -euo pipefail
           mkdir -p "_ci_logs/${RUN_ID}/emergency_heal"
-          SERVER_USER="${{ env.USER }}"
-          SVRTGT="${TARGET:-/home/${SERVER_USER}/domains/weektoppick.com/public_html}"
+          SVRTGT="${TARGET:-/home/${{ env.USER }}/domains/weektoppick.com/public_html}"
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
             "${USER}@${HOST}:${SVRTGT}/.wtp/state/ci_logs/emergency_heal_${RUN_ID}" \
             "_ci_logs/${RUN_ID}/emergency_heal/" || true
@@ -200,14 +199,16 @@ PHP
           RO_LATEST=".wtp/state/ro/public/latest/emergency-heal"
           mkdir -p "${RO_DIR}" "${RO_LATEST}"
           cp -a "_ci_logs/${RUN_ID}/emergency_heal/." "${RO_DIR}/" || true
-          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"
+          rm -rf "${RO_LATEST}"
+          mkdir -p "${RO_LATEST}"
           cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if git diff --staged --quiet; then
-            echo "::notice::Nothing to commit."; exit 0
+            echo "::notice::Nothing to commit."
+            exit 0
           fi
           git commit -m "emergency heal ${RUN_ID}"
           BRANCH="${GITHUB_REF_NAME:-main}"
