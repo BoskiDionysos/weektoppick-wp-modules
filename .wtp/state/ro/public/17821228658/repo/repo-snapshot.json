@@ -1,0 +1,2266 @@
+{
+  "run_ts": "2025-09-18T07:21:25Z",
+  "counts": {
+    "files": 448,
+    "by_category": {
+      "config": {
+        "count": 65,
+        "size": 91800306
+      },
+      "other": {
+        "count": 87,
+        "size": 6073736
+      },
+      "docs": {
+        "count": 4,
+        "size": 7634
+      },
+      "wtp": {
+        "count": 292,
+        "size": 4476646
+      }
+    }
+  },
+  "files": [
+    {
+      "path": "plugins-bundle_004.json",
+      "category": "config",
+      "size": 4481853
+    },
+    {
+      "path": "plugins-bundle_010.json",
+      "category": "config",
+      "size": 4500406
+    },
+    {
+      "path": "theme-bundle.json",
+      "category": "config",
+      "size": 26464
+    },
+    {
+      "path": "plugins-bundle_000.json",
+      "category": "config",
+      "size": 4497331
+    },
+    {
+      "path": "plugins-bundle_008.json",
+      "category": "config",
+      "size": 4500108
+    },
+    {
+      "path": "plugins-bundle_006.json",
+      "category": "config",
+      "size": 4257752
+    },
+    {
+      "path": "manifest.json",
+      "category": "config",
+      "size": 20
+    },
+    {
+      "path": "plugins-bundle_011.json",
+      "category": "config",
+      "size": 357745
+    },
+    {
+      "path": "plugins-bundle_003.json",
+      "category": "config",
+      "size": 4261529
+    },
+    {
+      "path": "plugins-bundle_002.json",
+      "category": "config",
+      "size": 4490148
+    },
+    {
+      "path": "plugins-bundle_005.json",
+      "category": "config",
+      "size": 4318646
+    },
+    {
+      "path": "plugins-bundle_007.json",
+      "category": "config",
+      "size": 4482545
+    },
+    {
+      "path": "plugins-bundle_001.json",
+      "category": "config",
+      "size": 3883980
+    },
+    {
+      "path": ".gitattributes",
+      "category": "config",
+      "size": 166
+    },
+    {
+      "path": "plugins-bundle_009.json",
+      "category": "config",
+      "size": 4063712
+    },
+    {
+      "path": ".gitignore",
+      "category": "config",
+      "size": 109
+    },
+    {
+      "path": "plugins-index.json",
+      "category": "config",
+      "size": 3481
+    },
+    {
+      "path": "scripts/wtp_snapshot.sh",
+      "category": "other",
+      "size": 13115
+    },
+    {
+      "path": "scripts/rsync-sync-plugins.sh",
+      "category": "other",
+      "size": 1400
+    },
+    {
+      "path": "sandbox/ai-upsert-test.txt",
+      "category": "other",
+      "size": 31
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_002.json",
+      "category": "config",
+      "size": 2092389
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_008.json",
+      "category": "config",
+      "size": 2095951
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_019.json",
+      "category": "config",
+      "size": 2095423
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/gh-digest.json",
+      "category": "config",
+      "size": 114
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/ls.json",
+      "category": "config",
+      "size": 2116
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_000.json",
+      "category": "config",
+      "size": 2057429
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_012.json",
+      "category": "config",
+      "size": 2095298
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_003.json",
+      "category": "config",
+      "size": 2087855
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_020.json",
+      "category": "config",
+      "size": 2066492
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/selftest.json",
+      "category": "config",
+      "size": 282292
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/manifest.json",
+      "category": "config",
+      "size": 114
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_016.json",
+      "category": "config",
+      "size": 2011450
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/logs.old",
+      "category": "other",
+      "size": 2
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/_files.txt",
+      "category": "other",
+      "size": 14
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_011.json",
+      "category": "config",
+      "size": 2082680
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_004.json",
+      "category": "config",
+      "size": 2096691
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_005.json",
+      "category": "config",
+      "size": 2082222
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/index.json",
+      "category": "config",
+      "size": 580
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_018.json",
+      "category": "config",
+      "size": 2096805
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_015.json",
+      "category": "config",
+      "size": 1923528
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_014.json",
+      "category": "config",
+      "size": 2093982
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_001.json",
+      "category": "config",
+      "size": 2010838
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_017.json",
+      "category": "config",
+      "size": 1957906
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_007.json",
+      "category": "config",
+      "size": 2086706
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/wp-debug-meta.json",
+      "category": "config",
+      "size": 201
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_006.json",
+      "category": "config",
+      "size": 2097143
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/wp-debug-latest.txt",
+      "category": "other",
+      "size": 30955
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_010.json",
+      "category": "config",
+      "size": 2094642
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_009.json",
+      "category": "config",
+      "size": 2095389
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/php_errors-latest.txt",
+      "category": "other",
+      "size": 9083
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_013.json",
+      "category": "config",
+      "size": 2054610
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/options.json",
+      "category": "config",
+      "size": 978
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/bundle.json",
+      "category": "config",
+      "size": 71
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files.list",
+      "category": "other",
+      "size": 428
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/config/config_dump.json",
+      "category": "config",
+      "size": 246
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/logs/mu-loader-latest.txt",
+      "category": "other",
+      "size": 650907
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/logs/wp-debug-meta.json",
+      "category": "config",
+      "size": 256
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/logs/wp-debug-latest.txt",
+      "category": "other",
+      "size": 2528928
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/logs/errors-tail.txt",
+      "category": "other",
+      "size": 113524
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/logs/php_errors-latest.txt",
+      "category": "other",
+      "size": 2528928
+    },
+    {
+      "path": "docs/locks/WeekTopPick_LOCKS_v3.0.md",
+      "category": "docs",
+      "size": 4463
+    },
+    {
+      "path": "docs/locks/index.json",
+      "category": "docs",
+      "size": 1515
+    },
+    {
+      "path": "themes/wtp-core-theme/selftest.txt",
+      "category": "other",
+      "size": 59
+    },
+    {
+      "path": "themes/wtp-core-theme/test-agent.txt",
+      "category": "other",
+      "size": 8
+    },
+    {
+      "path": "themes/wtp-core-theme/style.css",
+      "category": "other",
+      "size": 2060
+    },
+    {
+      "path": "themes/wtp-core-theme/.wtp_check.txt",
+      "category": "other",
+      "size": 13
+    },
+    {
+      "path": "themes/wtp-core-theme/.gitkeep",
+      "category": "other",
+      "size": 1
+    },
+    {
+      "path": "themes/wtp-core-theme/footer.php",
+      "category": "other",
+      "size": 175
+    },
+    {
+      "path": "themes/wtp-core-theme/header.php",
+      "category": "other",
+      "size": 434
+    },
+    {
+      "path": "themes/wtp-core-theme/CHANGELOG.md",
+      "category": "docs",
+      "size": 562
+    },
+    {
+      "path": "themes/wtp-core-theme/index.php",
+      "category": "other",
+      "size": 383
+    },
+    {
+      "path": "themes/wtp-core-theme/functions.php",
+      "category": "other",
+      "size": 4679
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/js/wtp.js",
+      "category": "other",
+      "size": 1654
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/css/wtp.css",
+      "category": "other",
+      "size": 0
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/travel-outdoor.svg",
+      "category": "other",
+      "size": 136
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/electronics.svg",
+      "category": "other",
+      "size": 136
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/pets.svg",
+      "category": "other",
+      "size": 136
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/sports-fitness.svg",
+      "category": "other",
+      "size": 136
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/default.svg",
+      "category": "other",
+      "size": 136
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/beauty-health.svg",
+      "category": "other",
+      "size": 136
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/fashion.svg",
+      "category": "other",
+      "size": 136
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/hobby-entertainment.svg",
+      "category": "other",
+      "size": 136
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/kids-toys.svg",
+      "category": "other",
+      "size": 136
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/home-garden.svg",
+      "category": "other",
+      "size": 136
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.cs.json",
+      "category": "config",
+      "size": 461
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.es.json",
+      "category": "config",
+      "size": 482
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.pl.json",
+      "category": "config",
+      "size": 479
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.en.json",
+      "category": "config",
+      "size": 463
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.de.json",
+      "category": "config",
+      "size": 477
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.sk.json",
+      "category": "config",
+      "size": 456
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.pt.json",
+      "category": "config",
+      "size": 489
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.fr.json",
+      "category": "config",
+      "size": 496
+    },
+    {
+      "path": "themes/wtp-core-theme/templates/parts/category-chips.php",
+      "category": "other",
+      "size": 1823
+    },
+    {
+      "path": "themes/wtp-core-theme/templates/parts/charity-banner.php",
+      "category": "other",
+      "size": 608
+    },
+    {
+      "path": "themes/wtp-core-theme/templates/parts/lang-switcher.php",
+      "category": "other",
+      "size": 461
+    },
+    {
+      "path": "mu-plugins/wtp-canonical-redirects.php",
+      "category": "other",
+      "size": 712
+    },
+    {
+      "path": "mu-plugins/wtp-patcher-theme.php.off",
+      "category": "other",
+      "size": 5228
+    },
+    {
+      "path": "mu-plugins/wtp-logs-export.php.off",
+      "category": "other",
+      "size": 2959
+    },
+    {
+      "path": "mu-plugins/wtp-seo.php.off",
+      "category": "other",
+      "size": 15120
+    },
+    {
+      "path": "mu-plugins/wtp-canonical.php",
+      "category": "other",
+      "size": 1947
+    },
+    {
+      "path": "mu-plugins/wtp-dev-bridge.php",
+      "category": "other",
+      "size": 20183
+    },
+    {
+      "path": "mu-plugins/wtp-log-mirror.php.off",
+      "category": "other",
+      "size": 2456
+    },
+    {
+      "path": "mu-plugins/wtp-tax-i18n-seo.php.off",
+      "category": "other",
+      "size": 16625
+    },
+    {
+      "path": "mu-plugins/wtp-theme-guardian.php",
+      "category": "other",
+      "size": 1284
+    },
+    {
+      "path": "mu-plugins/wtp-translate.php.off",
+      "category": "other",
+      "size": 6543
+    },
+    {
+      "path": "mu-plugins/wtp-patcher-plugins.php.off",
+      "category": "other",
+      "size": 8668
+    },
+    {
+      "path": "mu-plugins/wtp-exporter-chunked.php.off",
+      "category": "other",
+      "size": 11518
+    },
+    {
+      "path": "mu-plugins/wtp-ro-exporter.php",
+      "category": "other",
+      "size": 10108
+    },
+    {
+      "path": "mu-plugins/wtp-push-runner-cron.php.off",
+      "category": "other",
+      "size": 4618
+    },
+    {
+      "path": "mu-plugins/00-mu-safe-loader.php",
+      "category": "other",
+      "size": 1063
+    },
+    {
+      "path": "mu-plugins/wtp-theme-seo-bridge.php.off",
+      "category": "other",
+      "size": 2749
+    },
+    {
+      "path": "mu-plugins/wtp-deploy-guard.php",
+      "category": "other",
+      "size": 3525
+    },
+    {
+      "path": "mu-plugins/wtp-plugins-manifest.php.off",
+      "category": "other",
+      "size": 1460
+    },
+    {
+      "path": "mu-plugins/wtp-patch-safe-loader-log.php",
+      "category": "other",
+      "size": 732
+    },
+    {
+      "path": "runner/runner_health.json",
+      "category": "config",
+      "size": 201
+    },
+    {
+      "path": "runner/inventory.json",
+      "category": "config",
+      "size": 251
+    },
+    {
+      "path": "runner/runner_response.json",
+      "category": "config",
+      "size": 190
+    },
+    {
+      "path": "runner/runner_logs.json",
+      "category": "config",
+      "size": 111
+    },
+    {
+      "path": "runner/logs/selftest.json",
+      "category": "config",
+      "size": 3
+    },
+    {
+      "path": "releases/README.md",
+      "category": "docs",
+      "size": 1094
+    },
+    {
+      "path": "ssot/state.json",
+      "category": "config",
+      "size": 3637
+    },
+    {
+      "path": "plugins/manifest.json",
+      "category": "config",
+      "size": 444
+    },
+    {
+      "path": "plugins/.gitkeep",
+      "category": "other",
+      "size": 1
+    },
+    {
+      "path": "plugins/wtp-site-snapshot.zip",
+      "category": "other",
+      "size": 607
+    },
+    {
+      "path": ".wtp/allowed-themes.txt",
+      "category": "wtp",
+      "size": 15
+    },
+    {
+      "path": ".wtp/ai-upsert-smoke.txt",
+      "category": "wtp",
+      "size": 25
+    },
+    {
+      "path": ".wtp/allowed-plugins.txt",
+      "category": "wtp",
+      "size": 209
+    },
+    {
+      "path": ".wtp/ssot.yml",
+      "category": "wtp",
+      "size": 364
+    },
+    {
+      "path": ".wtp/protected-plugins.txt",
+      "category": "wtp",
+      "size": 1
+    },
+    {
+      "path": ".wtp/next.json",
+      "category": "wtp",
+      "size": 1963
+    },
+    {
+      "path": ".wtp/wp-config.tpl.php",
+      "category": "wtp",
+      "size": 1436
+    },
+    {
+      "path": ".wtp/ai-upsert-file-fix-inputs.patch",
+      "category": "wtp",
+      "size": 4386
+    },
+    {
+      "path": ".wtp/vendor/plugins/.gitkeep",
+      "category": "wtp",
+      "size": 1
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17741122047.json",
+      "category": "wtp",
+      "size": 4070
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17766936598.json",
+      "category": "wtp",
+      "size": 223996
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17794262710.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17744704140.json",
+      "category": "wtp",
+      "size": 4069
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17803728609.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17742088398.json",
+      "category": "wtp",
+      "size": 4069
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17804260157.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17775331454.json",
+      "category": "wtp",
+      "size": 224832
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17820560011.json",
+      "category": "wtp",
+      "size": 61727
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17748419159.json",
+      "category": "wtp",
+      "size": 9213
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17762350545.json",
+      "category": "wtp",
+      "size": 1387
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17807058656.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17765401373.json",
+      "category": "wtp",
+      "size": 53513
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17742296614.json",
+      "category": "wtp",
+      "size": 4069
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17755518414.json",
+      "category": "wtp",
+      "size": 9336
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17748062425.json",
+      "category": "wtp",
+      "size": 645
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17808674002.json",
+      "category": "wtp",
+      "size": 375
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17767758043.json",
+      "category": "wtp",
+      "size": 223996
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17737493251.json",
+      "category": "wtp",
+      "size": 1026
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17747607002.json",
+      "category": "wtp",
+      "size": 5475
+    },
+    {
+      "path": ".wtp/snapshots/filelist-17809130594.txt",
+      "category": "wtp",
+      "size": 3564
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17796504661.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17796885945.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17793922765.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17771085850.json",
+      "category": "wtp",
+      "size": 222359
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17793697650.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17802019555.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17800674400.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17776432917.json",
+      "category": "wtp",
+      "size": 225773
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17773393330.json",
+      "category": "wtp",
+      "size": 224832
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17748364595.json",
+      "category": "wtp",
+      "size": 9213
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17746591130.json",
+      "category": "wtp",
+      "size": 4561
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-latest.json",
+      "category": "wtp",
+      "size": 61727
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17743092853.json",
+      "category": "wtp",
+      "size": 4069
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17771796554.json",
+      "category": "wtp",
+      "size": 16761
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17797120770.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17794665188.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17763087802.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17772217424.json",
+      "category": "wtp",
+      "size": 224832
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17765081644.json",
+      "category": "wtp",
+      "size": 53513
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17805399351.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17810899154.json",
+      "category": "wtp",
+      "size": 61727
+    },
+    {
+      "path": ".wtp/snapshots/filelist-latest.txt",
+      "category": "wtp",
+      "size": 3564
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17745969505.json",
+      "category": "wtp",
+      "size": 4561
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17807352397.json",
+      "category": "wtp",
+      "size": 3365
+    },
+    {
+      "path": ".wtp/snapshots/snapshot-17792850010.json",
+      "category": "wtp",
+      "size": 4476
+    },
+    {
+      "path": ".wtp/processed/004-fix-exporter-regex-and-hardening.20250909T192922Z.patch",
+      "category": "wtp",
+      "size": 8203
+    },
+    {
+      "path": ".wtp/processed/001-hello.patch",
+      "category": "wtp",
+      "size": 155
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T095641Z.patch",
+      "category": "wtp",
+      "size": 9818
+    },
+    {
+      "path": ".wtp/processed/999-fix-patch-from-comment.20250909T233543Z.patch",
+      "category": "wtp",
+      "size": 3784
+    },
+    {
+      "path": ".wtp/processed/999-fix-patch-from-comment.20250910T052216Z.patch",
+      "category": "wtp",
+      "size": 3784
+    },
+    {
+      "path": ".wtp/processed/004-fix-exporter-regex-and-hardening.20250909T171523Z.patch",
+      "category": "wtp",
+      "size": 8203
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T104613Z.patch",
+      "category": "wtp",
+      "size": 9818
+    },
+    {
+      "path": ".wtp/processed/ai-upsert-file-fix2.20250910T095640Z.patch",
+      "category": "wtp",
+      "size": 719
+    },
+    {
+      "path": ".wtp/processed/ai-upsert-file-fix-inputs2.20250910T115051Z.patch",
+      "category": "wtp",
+      "size": 5405
+    },
+    {
+      "path": ".wtp/processed/003-deploy-site-guard-and-readme.patch",
+      "category": "wtp",
+      "size": 4046
+    },
+    {
+      "path": ".wtp/processed/006-add-safe-loader-base.patch",
+      "category": "wtp",
+      "size": 1050
+    },
+    {
+      "path": ".wtp/processed/003-mu-healthcheck.patch",
+      "category": "wtp",
+      "size": 1944
+    },
+    {
+      "path": ".wtp/processed/002-mu-loader-revert-convention.20250910T075148Z.patch",
+      "category": "wtp",
+      "size": 2736
+    },
+    {
+      "path": ".wtp/processed/apply-inbox.20250910T054314Z.patch",
+      "category": "wtp",
+      "size": 1905
+    },
+    {
+      "path": ".wtp/processed/004-fix-exporter-regex-and-hardening.20250909T201825Z.patch",
+      "category": "wtp",
+      "size": 8203
+    },
+    {
+      "path": ".wtp/processed/999-fix-patch-from-comment.20250910T053611Z.patch",
+      "category": "wtp",
+      "size": 3784
+    },
+    {
+      "path": ".wtp/processed/rsync-filters-SSH-Ping.20250910T054314Z.patch",
+      "category": "wtp",
+      "size": 3895
+    },
+    {
+      "path": ".wtp/processed/ai-upsert-file-fix3.20250910T104612Z.patch",
+      "category": "wtp",
+      "size": 5477
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T074453Z.patch",
+      "category": "wtp",
+      "size": 9818
+    },
+    {
+      "path": ".wtp/processed/001-fix-patch-from-comment.20250910T052215Z.patch",
+      "category": "wtp",
+      "size": 3816
+    },
+    {
+      "path": ".wtp/processed/ai-upsert-file-fix-inputs.20250910T112625Z.patch",
+      "category": "wtp",
+      "size": 4386
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T115052Z.patch",
+      "category": "wtp",
+      "size": 9818
+    },
+    {
+      "path": ".wtp/processed/apply-inbox.20250910T053611Z.patch",
+      "category": "wtp",
+      "size": 1905
+    },
+    {
+      "path": ".wtp/processed/004-fix-wtp-ro-exporter-20250909T134650Z.patch",
+      "category": "wtp",
+      "size": 9384
+    },
+    {
+      "path": ".wtp/processed/180880-20250909T203352Z.20250909T224923Z.patch",
+      "category": "wtp",
+      "size": 79
+    },
+    {
+      "path": ".wtp/processed/004-readme-deploy-policy.patch",
+      "category": "wtp",
+      "size": 559
+    },
+    {
+      "path": ".wtp/processed/005-fix-exporter-null.20250909T140733.patch",
+      "category": "wtp",
+      "size": 7218
+    },
+    {
+      "path": ".wtp/processed/004-restore-mu-safe-loader.patch",
+      "category": "wtp",
+      "size": 803
+    },
+    {
+      "path": ".wtp/processed/004-fix-exporter-500.20250909T192921Z.patch",
+      "category": "wtp",
+      "size": 13556
+    },
+    {
+      "path": ".wtp/processed/007-add-safe-loader-final.patch",
+      "category": "wtp",
+      "size": 1050
+    },
+    {
+      "path": ".wtp/processed/004-fix-wtp-ro-exporter.20250909T161552.patch",
+      "category": "wtp",
+      "size": 8358
+    },
+    {
+      "path": ".wtp/processed/007-remove-hostinger-changed-only.yml.patch",
+      "category": "wtp",
+      "size": 92
+    },
+    {
+      "path": ".wtp/processed/001-mu-loader-revert-convention.20250910T074453Z.patch",
+      "category": "wtp",
+      "size": 3533
+    },
+    {
+      "path": ".wtp/processed/999-fix-patch-from-comment.20250909T233134Z.patch",
+      "category": "wtp",
+      "size": 3784
+    },
+    {
+      "path": ".wtp/processed/002-add-mu-log-plugin.patch",
+      "category": "wtp",
+      "size": 1378
+    },
+    {
+      "path": ".wtp/processed/ai-upsert-file-fix.20250910T095512Z.patch",
+      "category": "wtp",
+      "size": 5390
+    },
+    {
+      "path": ".wtp/processed/005-remove-deploy-changed.yml.patch",
+      "category": "wtp",
+      "size": 84
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T112626Z.patch",
+      "category": "wtp",
+      "size": 9818
+    },
+    {
+      "path": ".wtp/processed/006-remove-deploy-to-hostinger.yml.patch",
+      "category": "wtp",
+      "size": 89
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T095512Z.patch",
+      "category": "wtp",
+      "size": 9818
+    },
+    {
+      "path": ".wtp/processed/004-fix-and-disable-exporter.20250909T154203.patch",
+      "category": "wtp",
+      "size": 14025
+    },
+    {
+      "path": ".wtp/processed/169393-20250909T202936Z.20250909T224923Z.patch",
+      "category": "wtp",
+      "size": 46
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T061402Z.patch",
+      "category": "wtp",
+      "size": 9818
+    },
+    {
+      "path": ".wtp/processed/005-restore-base-safe-loader.patch",
+      "category": "wtp",
+      "size": 848
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T075149Z.patch",
+      "category": "wtp",
+      "size": 9818
+    },
+    {
+      "path": ".wtp/processed/rsync-filters-SSH-Ping.20250910T054729Z.patch",
+      "category": "wtp",
+      "size": 3895
+    },
+    {
+      "path": ".wtp/processed/005-snapshot-rsync-only.20250909T154611.patch",
+      "category": "wtp",
+      "size": 4199
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T055022Z.patch",
+      "category": "wtp",
+      "size": 9818
+    },
+    {
+      "path": ".wtp/processed/005-snapshot-ci-404-safe.20250909T161655.patch",
+      "category": "wtp",
+      "size": 2716
+    },
+    {
+      "path": ".wtp/processed/003-add-wtp-ro-exporter.patch",
+      "category": "wtp",
+      "size": 9384
+    },
+    {
+      "path": ".wtp/processed/004-fix-exporter-json.20250909T192922Z.patch",
+      "category": "wtp",
+      "size": 6408
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T054729Z.patch",
+      "category": "wtp",
+      "size": 9818
+    },
+    {
+      "path": ".wtp/deploy/mu-plugins",
+      "category": "wtp",
+      "size": 1
+    },
+    {
+      "path": ".wtp/inbox/ai-upsert-file-v2.yml",
+      "category": "wtp",
+      "size": 5420
+    },
+    {
+      "path": ".wtp/inbox/snapshot-watchdog1.patch",
+      "category": "wtp",
+      "size": 9818
+    },
+    {
+      "path": ".wtp/reports/ci-digest-17673445235.md",
+      "category": "wtp",
+      "size": 55098
+    },
+    {
+      "path": ".wtp/reports/workflows-audit-17672456307.md",
+      "category": "wtp",
+      "size": 3301
+    },
+    {
+      "path": ".wtp/reports/protected-sanity-17674895196.md",
+      "category": "wtp",
+      "size": 146
+    },
+    {
+      "path": ".wtp/state/charity_report.json",
+      "category": "wtp",
+      "size": 123
+    },
+    {
+      "path": ".wtp/state/daily_tech_report.json",
+      "category": "wtp",
+      "size": 176
+    },
+    {
+      "path": ".wtp/state/weekly_business_report.json",
+      "category": "wtp",
+      "size": 152
+    },
+    {
+      "path": ".wtp/state/health/20250912T120556Z.txt",
+      "category": "wtp",
+      "size": 23
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:02:50Z_WP-CLI_install_or_update_allowed_plugins_run-17672561599.txt",
+      "category": "wtp",
+      "size": 36459
+    },
+    {
+      "path": ".wtp/state/ci_logs/server_info.txt",
+      "category": "wtp",
+      "size": 3513
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:48:21Z_AI_Upsert_File_run-17669522469.txt",
+      "category": "wtp",
+      "size": 12631
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:57:50Z_AI_Upsert_File_run-17673736149.txt",
+      "category": "wtp",
+      "size": 12711
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:45:14Z_AI_Upsert_File_run-17674848848.txt",
+      "category": "wtp",
+      "size": 12597
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:50:38Z_AI_Upsert_File_run-17674976105.txt",
+      "category": "wtp",
+      "size": 12597
+    },
+    {
+      "path": ".wtp/state/ci_logs/plugins_installed.txt",
+      "category": "wtp",
+      "size": 0
+    },
+    {
+      "path": ".wtp/state/ci_logs/plugins_updated.txt",
+      "category": "wtp",
+      "size": 0
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:12:14Z_AI_Upsert_File_run-17674062899.txt",
+      "category": "wtp",
+      "size": 12719
+    },
+    {
+      "path": ".wtp/state/ci_logs/plugins_existing.txt",
+      "category": "wtp",
+      "size": 0
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:08:35Z_AI_Upsert_File_run-17669992570.txt",
+      "category": "wtp",
+      "size": 12611
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:27:29Z_WP-CLI_install_or_update_allowed_plugins_run-17673125163.txt",
+      "category": "wtp",
+      "size": 37359
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:01:12Z_AI_Upsert_File_run-17673803992.txt",
+      "category": "wtp",
+      "size": 12723
+    },
+    {
+      "path": ".wtp/state/ci_logs/plugins_active.txt",
+      "category": "wtp",
+      "size": 0
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:33:51Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670594980.txt",
+      "category": "wtp",
+      "size": 37056
+    },
+    {
+      "path": ".wtp/state/ci_logs/wpcli_summary.txt",
+      "category": "wtp",
+      "size": 319
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:29:43Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670491954.txt",
+      "category": "wtp",
+      "size": 37056
+    },
+    {
+      "path": ".wtp/state/ci_logs/active_plugins.txt",
+      "category": "wtp",
+      "size": 23
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:08:07Z_AI_Upsert_File_run-17672691381.txt",
+      "category": "wtp",
+      "size": 12631
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:21:23Z_WP-CLI_install_or_update_allowed_plugins_run-17672989857.txt",
+      "category": "wtp",
+      "size": 36459
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:30:38Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17669116150.txt",
+      "category": "wtp",
+      "size": 37391
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:51:28Z_AI_Upsert_File_run-17671001581.txt",
+      "category": "wtp",
+      "size": 13021
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:12:14Z_AI_Upsert_File_run-17674062899/0_upsert.txt",
+      "category": "wtp",
+      "size": 5768
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:12:14Z_AI_Upsert_File_run-17674062899/upsert/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1683
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:12:14Z_AI_Upsert_File_run-17674062899/upsert/2_Upsert file (UI or repository_dispatch).txt",
+      "category": "wtp",
+      "size": 4030
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:12:14Z_AI_Upsert_File_run-17674062899/upsert/3_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:12:14Z_AI_Upsert_File_run-17674062899/upsert/system.txt",
+      "category": "wtp",
+      "size": 455
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:01:12Z_AI_Upsert_File_run-17673803992/0_upsert.txt",
+      "category": "wtp",
+      "size": 5770
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:01:12Z_AI_Upsert_File_run-17673803992/upsert/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1683
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:01:12Z_AI_Upsert_File_run-17673803992/upsert/2_Upsert file (UI or repository_dispatch).txt",
+      "category": "wtp",
+      "size": 4032
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:01:12Z_AI_Upsert_File_run-17673803992/upsert/3_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:01:12Z_AI_Upsert_File_run-17673803992/upsert/system.txt",
+      "category": "wtp",
+      "size": 455
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:30:38Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17669116150/0_deploy.txt",
+      "category": "wtp",
+      "size": 17749
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:30:38Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17669116150/deploy/3_Tools.txt",
+      "category": "wtp",
+      "size": 5736
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:30:38Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17669116150/deploy/5_Pick protect list (plugins).txt",
+      "category": "wtp",
+      "size": 2282
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:30:38Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17669116150/deploy/28_Post Checkout.txt",
+      "category": "wtp",
+      "size": 1471
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:30:38Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17669116150/deploy/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1677
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:30:38Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17669116150/deploy/4_Verify secrets.txt",
+      "category": "wtp",
+      "size": 714
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:30:38Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17669116150/deploy/29_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:30:38Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17669116150/deploy/2_Checkout.txt",
+      "category": "wtp",
+      "size": 5826
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:30:38Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17669116150/deploy/system.txt",
+      "category": "wtp",
+      "size": 452
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:08:07Z_AI_Upsert_File_run-17672691381/0_upsert.txt",
+      "category": "wtp",
+      "size": 5724
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:08:07Z_AI_Upsert_File_run-17672691381/upsert/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1683
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:08:07Z_AI_Upsert_File_run-17672691381/upsert/2_Upsert file (UI or repository_dispatch).txt",
+      "category": "wtp",
+      "size": 3986
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:08:07Z_AI_Upsert_File_run-17672691381/upsert/3_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:08:07Z_AI_Upsert_File_run-17672691381/upsert/system.txt",
+      "category": "wtp",
+      "size": 455
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:50:38Z_AI_Upsert_File_run-17674976105/0_upsert.txt",
+      "category": "wtp",
+      "size": 5707
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:50:38Z_AI_Upsert_File_run-17674976105/upsert/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1683
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:50:38Z_AI_Upsert_File_run-17674976105/upsert/2_Upsert file (UI or repository_dispatch).txt",
+      "category": "wtp",
+      "size": 3969
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:50:38Z_AI_Upsert_File_run-17674976105/upsert/3_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:50:38Z_AI_Upsert_File_run-17674976105/upsert/system.txt",
+      "category": "wtp",
+      "size": 455
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:21:23Z_WP-CLI_install_or_update_allowed_plugins_run-17672989857/0_wpcli.txt",
+      "category": "wtp",
+      "size": 17195
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:21:23Z_WP-CLI_install_or_update_allowed_plugins_run-17672989857/wpcli/6_Install or update allowed plugins via WP-CLI.txt",
+      "category": "wtp",
+      "size": 3687
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:21:23Z_WP-CLI_install_or_update_allowed_plugins_run-17672989857/wpcli/3_Verify inputs.txt",
+      "category": "wtp",
+      "size": 887
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:21:23Z_WP-CLI_install_or_update_allowed_plugins_run-17672989857/wpcli/5_Upload allowlist and vendor ZIPs.txt",
+      "category": "wtp",
+      "size": 1530
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:21:23Z_WP-CLI_install_or_update_allowed_plugins_run-17672989857/wpcli/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1676
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:21:23Z_WP-CLI_install_or_update_allowed_plugins_run-17672989857/wpcli/4_Install WP-CLI on remote if missing.txt",
+      "category": "wtp",
+      "size": 1504
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:21:23Z_WP-CLI_install_or_update_allowed_plugins_run-17672989857/wpcli/14_Post Checkout.txt",
+      "category": "wtp",
+      "size": 1471
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:21:23Z_WP-CLI_install_or_update_allowed_plugins_run-17672989857/wpcli/2_Checkout.txt",
+      "category": "wtp",
+      "size": 6400
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:21:23Z_WP-CLI_install_or_update_allowed_plugins_run-17672989857/wpcli/15_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:21:23Z_WP-CLI_install_or_update_allowed_plugins_run-17672989857/wpcli/system.txt",
+      "category": "wtp",
+      "size": 462
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:02:50Z_WP-CLI_install_or_update_allowed_plugins_run-17672561599/0_wpcli.txt",
+      "category": "wtp",
+      "size": 17195
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:02:50Z_WP-CLI_install_or_update_allowed_plugins_run-17672561599/wpcli/6_Install or update allowed plugins via WP-CLI.txt",
+      "category": "wtp",
+      "size": 3687
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:02:50Z_WP-CLI_install_or_update_allowed_plugins_run-17672561599/wpcli/3_Verify inputs.txt",
+      "category": "wtp",
+      "size": 887
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:02:50Z_WP-CLI_install_or_update_allowed_plugins_run-17672561599/wpcli/5_Upload allowlist and vendor ZIPs.txt",
+      "category": "wtp",
+      "size": 1530
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:02:50Z_WP-CLI_install_or_update_allowed_plugins_run-17672561599/wpcli/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1676
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:02:50Z_WP-CLI_install_or_update_allowed_plugins_run-17672561599/wpcli/4_Install WP-CLI on remote if missing.txt",
+      "category": "wtp",
+      "size": 1504
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:02:50Z_WP-CLI_install_or_update_allowed_plugins_run-17672561599/wpcli/14_Post Checkout.txt",
+      "category": "wtp",
+      "size": 1471
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:02:50Z_WP-CLI_install_or_update_allowed_plugins_run-17672561599/wpcli/2_Checkout.txt",
+      "category": "wtp",
+      "size": 6400
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:02:50Z_WP-CLI_install_or_update_allowed_plugins_run-17672561599/wpcli/15_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:02:50Z_WP-CLI_install_or_update_allowed_plugins_run-17672561599/wpcli/system.txt",
+      "category": "wtp",
+      "size": 462
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:51:28Z_AI_Upsert_File_run-17671001581/0_upsert.txt",
+      "category": "wtp",
+      "size": 5919
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:51:28Z_AI_Upsert_File_run-17671001581/upsert/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1683
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:51:28Z_AI_Upsert_File_run-17671001581/upsert/2_Upsert file (UI or repository_dispatch).txt",
+      "category": "wtp",
+      "size": 4181
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:51:28Z_AI_Upsert_File_run-17671001581/upsert/3_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:51:28Z_AI_Upsert_File_run-17671001581/upsert/system.txt",
+      "category": "wtp",
+      "size": 455
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:48:21Z_AI_Upsert_File_run-17669522469/0_upsert.txt",
+      "category": "wtp",
+      "size": 5724
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:48:21Z_AI_Upsert_File_run-17669522469/upsert/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1683
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:48:21Z_AI_Upsert_File_run-17669522469/upsert/2_Upsert file (UI or repository_dispatch).txt",
+      "category": "wtp",
+      "size": 3986
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:48:21Z_AI_Upsert_File_run-17669522469/upsert/3_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T08:48:21Z_AI_Upsert_File_run-17669522469/upsert/system.txt",
+      "category": "wtp",
+      "size": 455
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:29:43Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670491954/0_deploy.txt",
+      "category": "wtp",
+      "size": 17730
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:29:43Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670491954/deploy/3_Tools.txt",
+      "category": "wtp",
+      "size": 7981
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:29:43Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670491954/deploy/30_Post Checkout.txt",
+      "category": "wtp",
+      "size": 1471
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:29:43Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670491954/deploy/31_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:29:43Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670491954/deploy/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1677
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:29:43Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670491954/deploy/2_Checkout.txt",
+      "category": "wtp",
+      "size": 6552
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:29:43Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670491954/deploy/system.txt",
+      "category": "wtp",
+      "size": 452
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:57:50Z_AI_Upsert_File_run-17673736149/0_upsert.txt",
+      "category": "wtp",
+      "size": 5764
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:57:50Z_AI_Upsert_File_run-17673736149/upsert/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1683
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:57:50Z_AI_Upsert_File_run-17673736149/upsert/2_Upsert file (UI or repository_dispatch).txt",
+      "category": "wtp",
+      "size": 4026
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:57:50Z_AI_Upsert_File_run-17673736149/upsert/3_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:57:50Z_AI_Upsert_File_run-17673736149/upsert/system.txt",
+      "category": "wtp",
+      "size": 455
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:27:29Z_WP-CLI_install_or_update_allowed_plugins_run-17673125163/0_wpcli.txt",
+      "category": "wtp",
+      "size": 17632
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:27:29Z_WP-CLI_install_or_update_allowed_plugins_run-17673125163/wpcli/3_Verify inputs.txt",
+      "category": "wtp",
+      "size": 887
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:27:29Z_WP-CLI_install_or_update_allowed_plugins_run-17673125163/wpcli/5_Upload allowlist and vendor ZIPs.txt",
+      "category": "wtp",
+      "size": 1530
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:27:29Z_WP-CLI_install_or_update_allowed_plugins_run-17673125163/wpcli/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1676
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:27:29Z_WP-CLI_install_or_update_allowed_plugins_run-17673125163/wpcli/14_Post Checkout.txt",
+      "category": "wtp",
+      "size": 1471
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:27:29Z_WP-CLI_install_or_update_allowed_plugins_run-17673125163/wpcli/6_Install or update allowed plugins via WP-CLI (php ._wp).txt",
+      "category": "wtp",
+      "size": 3948
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:27:29Z_WP-CLI_install_or_update_allowed_plugins_run-17673125163/wpcli/4_Install WP-CLI on remote if missing (use php ._wp).txt",
+      "category": "wtp",
+      "size": 1680
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:27:29Z_WP-CLI_install_or_update_allowed_plugins_run-17673125163/wpcli/2_Checkout.txt",
+      "category": "wtp",
+      "size": 6400
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:27:29Z_WP-CLI_install_or_update_allowed_plugins_run-17673125163/wpcli/15_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T11:27:29Z_WP-CLI_install_or_update_allowed_plugins_run-17673125163/wpcli/system.txt",
+      "category": "wtp",
+      "size": 462
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:08:35Z_AI_Upsert_File_run-17669992570/0_upsert.txt",
+      "category": "wtp",
+      "size": 5714
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:08:35Z_AI_Upsert_File_run-17669992570/upsert/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1683
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:08:35Z_AI_Upsert_File_run-17669992570/upsert/2_Upsert file (UI or repository_dispatch).txt",
+      "category": "wtp",
+      "size": 3976
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:08:35Z_AI_Upsert_File_run-17669992570/upsert/3_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:08:35Z_AI_Upsert_File_run-17669992570/upsert/system.txt",
+      "category": "wtp",
+      "size": 455
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:45:14Z_AI_Upsert_File_run-17674848848/0_upsert.txt",
+      "category": "wtp",
+      "size": 5707
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:45:14Z_AI_Upsert_File_run-17674848848/upsert/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1683
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:45:14Z_AI_Upsert_File_run-17674848848/upsert/2_Upsert file (UI or repository_dispatch).txt",
+      "category": "wtp",
+      "size": 3969
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:45:14Z_AI_Upsert_File_run-17674848848/upsert/3_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T12:45:14Z_AI_Upsert_File_run-17674848848/upsert/system.txt",
+      "category": "wtp",
+      "size": 455
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:33:51Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670594980/0_deploy.txt",
+      "category": "wtp",
+      "size": 17730
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:33:51Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670594980/deploy/3_Tools.txt",
+      "category": "wtp",
+      "size": 7981
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:33:51Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670594980/deploy/30_Post Checkout.txt",
+      "category": "wtp",
+      "size": 1471
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:33:51Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670594980/deploy/31_Complete job.txt",
+      "category": "wtp",
+      "size": 61
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:33:51Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670594980/deploy/1_Set up job.txt",
+      "category": "wtp",
+      "size": 1677
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:33:51Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670594980/deploy/2_Checkout.txt",
+      "category": "wtp",
+      "size": 6552
+    },
+    {
+      "path": ".wtp/state/ci_logs/2025-09-12T09:33:51Z_Deploy_Site_(MU,_plugins,_themes,_wp-config)_run-17670594980/deploy/system.txt",
+      "category": "wtp",
+      "size": 452
+    },
+    {
+      "path": ".wtp/state/ci_errors/workflow_lint.txt",
+      "category": "wtp",
+      "size": 2197
+    },
+    {
+      "path": ".wtp/state/inventory/plugins.json",
+      "category": "wtp",
+      "size": 844
+    },
+    {
+      "path": ".wtp/state/inventory/themes.json",
+      "category": "wtp",
+      "size": 2
+    },
+    {
+      "path": ".wtp/state/ro/public/17820510921/repo/REPO_AUDIT.md",
+      "category": "wtp",
+      "size": 674
+    },
+    {
+      "path": ".wtp/state/ro/public/17820369710/repo/REPO_AUDIT.md",
+      "category": "wtp",
+      "size": 937
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/active_theme.txt",
+      "category": "wtp",
+      "size": 15
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/ts_utc.txt",
+      "category": "wtp",
+      "size": 21
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/errors.txt",
+      "category": "wtp",
+      "size": 0
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/taxonomies_terms.json",
+      "category": "wtp",
+      "size": 5297
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/tz.txt",
+      "category": "wtp",
+      "size": 1
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/permalink.txt",
+      "category": "wtp",
+      "size": 13
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/wp_version.txt",
+      "category": "wtp",
+      "size": 6
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/ARCHITECTURE.md",
+      "category": "wtp",
+      "size": 287
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/plugins.json",
+      "category": "wtp",
+      "size": 1676
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/menus.json",
+      "category": "wtp",
+      "size": 2
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/snapshot.json",
+      "category": "wtp",
+      "size": 61727
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/blogname.txt",
+      "category": "wtp",
+      "size": 12
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/home.txt",
+      "category": "wtp",
+      "size": 24
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/themes.json",
+      "category": "wtp",
+      "size": 119
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/menus_items_merged.json",
+      "category": "wtp",
+      "size": 3
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/mu_plugins.json",
+      "category": "wtp",
+      "size": 2527
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/post_types.json",
+      "category": "wtp",
+      "size": 2297
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/files_manifest.json",
+      "category": "wtp",
+      "size": 30655
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/hostname.txt",
+      "category": "wtp",
+      "size": 31
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/siteurl.txt",
+      "category": "wtp",
+      "size": 24
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/php_version.txt",
+      "category": "wtp",
+      "size": 6
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/admins.json",
+      "category": "wtp",
+      "size": 184
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/options.json",
+      "category": "wtp",
+      "size": 283
+    },
+    {
+      "path": ".wtp/state/ro/public/17820560011/blogdescription.txt",
+      "category": "wtp",
+      "size": 52
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/active_theme.txt",
+      "category": "wtp",
+      "size": 15
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/ts_utc.txt",
+      "category": "wtp",
+      "size": 21
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/errors.txt",
+      "category": "wtp",
+      "size": 0
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/taxonomies_terms.json",
+      "category": "wtp",
+      "size": 5297
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/tz.txt",
+      "category": "wtp",
+      "size": 1
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/permalink.txt",
+      "category": "wtp",
+      "size": 13
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/wp_version.txt",
+      "category": "wtp",
+      "size": 6
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/ARCHITECTURE.md",
+      "category": "wtp",
+      "size": 287
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins.json",
+      "category": "wtp",
+      "size": 1676
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/menus.json",
+      "category": "wtp",
+      "size": 2
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/snapshot.json",
+      "category": "wtp",
+      "size": 61727
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/blogname.txt",
+      "category": "wtp",
+      "size": 12
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/home.txt",
+      "category": "wtp",
+      "size": 24
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/themes.json",
+      "category": "wtp",
+      "size": 119
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/menus_items_merged.json",
+      "category": "wtp",
+      "size": 3
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu_plugins.json",
+      "category": "wtp",
+      "size": 2527
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/post_types.json",
+      "category": "wtp",
+      "size": 2297
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/files_manifest.json",
+      "category": "wtp",
+      "size": 30655
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/hostname.txt",
+      "category": "wtp",
+      "size": 31
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/siteurl.txt",
+      "category": "wtp",
+      "size": 24
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/php_version.txt",
+      "category": "wtp",
+      "size": 6
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/admins.json",
+      "category": "wtp",
+      "size": 184
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/options.json",
+      "category": "wtp",
+      "size": 283
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/blogdescription.txt",
+      "category": "wtp",
+      "size": 52
+    },
+    {
+      "path": ".wtp/state/ro/public/17820491037/repo/repo-snapshot.json",
+      "category": "wtp",
+      "size": 1225596
+    },
+    {
+      "path": ".wtp/state/ro/public/17820491037/repo/REPO_ARCHITECTURE.md",
+      "category": "wtp",
+      "size": 469
+    },
+    {
+      "path": "ops/HELLO.txt",
+      "category": "other",
+      "size": 19
+    },
+    {
+      "path": "ops/manifest.built.json",
+      "category": "config",
+      "size": 20
+    },
+    {
+      "path": "ops-snapshot-sync/candidates.txt",
+      "category": "other",
+      "size": 244
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_006.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_004.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/manifest.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_002.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/options.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_010.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_003.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/gh-digest.json.hdr",
+      "category": "other",
+      "size": 701
+    },
+    {
+      "path": "ops-snapshot-sync/headers/index.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_008.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_007.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_005.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_001.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_000.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_009.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/selftest.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "ops-snapshot-sync/headers/bundle.json.hdr",
+      "category": "other",
+      "size": 690
+    },
+    {
+      "path": "server-sync/wtp-hello-world.zip",
+      "category": "other",
+      "size": 403
+    },
+    {
+      "path": "server-sync/wtp-push-runner-fixed.zip",
+      "category": "other",
+      "size": 8895
+    },
+    {
+      "path": "server-sync/wtp-url-tester.zip",
+      "category": "other",
+      "size": 5622
+    },
+    {
+      "path": "server-sync/wtp-seo-core.off.zip",
+      "category": "other",
+      "size": 13260
+    },
+    {
+      "path": "server-sync/index.json",
+      "category": "config",
+      "size": 3254
+    },
+    {
+      "path": "server-sync/wtp-agent-bridge.zip",
+      "category": "other",
+      "size": 4100
+    },
+    {
+      "path": "server-sync/wtp-agent-tester.zip",
+      "category": "other",
+      "size": 2099
+    },
+    {
+      "path": "server-sync/wtp-autofixer.zip",
+      "category": "other",
+      "size": 4510
+    },
+    {
+      "path": "server-sync/wtp-site-snapshot.zip",
+      "category": "other",
+      "size": 607
+    },
+    {
+      "path": "server-sync/wtp-config-probe.zip",
+      "category": "other",
+      "size": 2250
+    },
+    {
+      "path": "server-sync/wtp-module-manager.zip",
+      "category": "other",
+      "size": 3126
+    },
+    {
+      "path": "server-sync/wtp-health-check.zip",
+      "category": "other",
+      "size": 7721
+    }
+  ]
+}
