@@ -1,6 +1,8 @@
 name: 96_emergency_heal
-on: { workflow_dispatch: {} }
-permissions: { contents: write }
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: write
 concurrency:
   group: emergency-heal
   cancel-in-progress: true
@@ -18,9 +20,10 @@ jobs:
       RUN_ID: ${{ github.run_id }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Heal site (disable MU+plugins, provision theme skeleton, activate, test)
+      - name: Heal site (disable MU & plugins, provision minimal theme, activate, test)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ env.HOST }}
@@ -31,30 +34,28 @@ jobs:
           envs: TARGET,RUN_ID
           script: |
             set -euo pipefail
-            TARGET="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
+            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
             cd "$TARGET"
             OUT="$TARGET/.wtp/state/ci_logs/emergency_heal_${RUN_ID}"
             mkdir -p "$OUT"
 
             echo "[INFO] emergency heal starting…"
+            rm -f .maintenance || true
 
-            # 0) podstawowy URL
+            # Base URL
             HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || true)"
             HOMEURL="${HOMEURL:-https://weektoppick.com}"
             echo "$HOMEURL" > "$OUT/home_url.txt"
 
-            # 1) wyłącz maintenance
-            rm -f .maintenance || true
-
-            # 2) tymczasowo wyłącz WSZYSTKIE MU-plugins (zostaw tylko bezpiecznik)
+            # Disable ALL MU plugins except safety ones
             MUP="wp-content/mu-plugins"
             if [ -d "$MUP" ]; then
               for f in "$MUP"/*.php; do
                 [ -f "$f" ] || continue
                 base="$(basename "$f")"
                 case "$base" in
-                  00-mu-safe-loader.php|mu-hotfix-headers.php) # zostawiamy te dwa
-                    echo "keeping MU: $base" >> "$OUT/mu_kept.txt"
+                  00-mu-safe-loader.php|mu-hotfix-headers.php)
+                    echo "keep MU: $base" >> "$OUT/mu_kept.txt"
                     ;;
                   *.off)
                     echo "already off: $base" >> "$OUT/mu_off.txt"
@@ -67,12 +68,12 @@ jobs:
               done
             fi
 
-            # 3) deaktywuj wszystkie zwykłe pluginy (niech nic nie miesza)
+            # Deactivate all regular plugins
             if command -v wp >/dev/null 2>&1; then
               wp plugin deactivate --all --quiet || true
             fi
 
-            # 4) przygotuj minimalny, zdrowy szkielet motywu
+            # Provision minimal healthy theme
             THEME_DIR="wp-content/themes/wtp-core-theme"
             mkdir -p "$THEME_DIR"
 
@@ -90,7 +91,6 @@ CSS
 
             cat > "$THEME_DIR/functions.php" <<'PHP'
 <?php
-// minimal, bez echa/BOM, bez zamykającego znacznika
 add_action('after_setup_theme', function () {
   add_theme_support('title-tag');
   add_theme_support('post-thumbnails');
@@ -110,7 +110,9 @@ PHP
 <?php wp_head(); ?>
 </head>
 <body <?php body_class(); ?>>
-<header class="site-header"><h1 class="site-title"><a href="<?php echo esc_url(home_url('/')); ?>"><?php bloginfo('name'); ?></a></h1></header>
+<header class="site-header">
+  <h1 class="site-title"><a href="<?php echo esc_url(home_url('/')); ?>"><?php bloginfo('name'); ?></a></h1>
+</header>
 PHP
 
             cat > "$THEME_DIR/footer.php" <<'PHP'
@@ -136,14 +138,13 @@ PHP
 <?php get_footer();
 PHP
 
-            # 5) aktywuj motyw i wyczyść cache
+            # Activate theme & purge cache
             if command -v wp >/dev/null 2>&1; then
               wp theme activate wtp-core-theme
-              # wyczyść cache (jeśli LS aktywny – może być nieaktywny, więc try/catch)
               wp plugin is-active litespeed-cache && wp litespeed-purge all || true
             fi
 
-            # 6) smoke test frontu
+            # Smoke test front
             STATUS=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
             BODY="$(curl -ks "$HOMEURL" || true)"
             echo "$STATUS" > "$OUT/http_status_after.txt"
@@ -153,7 +154,6 @@ PHP
             SIZE=$(cat "$OUT/home_after_size.txt" || echo 0)
             echo "[INFO] after activate: status=$STATUS size=$SIZE"
 
-            # 7) jeśli strony dalej nie ma → awaryjny rollback na motyw TT25
             if [ "$STATUS" != "200" ] || [ "${SIZE:-0}" -lt 600 ]; then
               echo "[WARN] unhealthy after theme activate → rollback to twentytwentyfive" | tee "$OUT/action.txt"
               wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
@@ -162,7 +162,7 @@ PHP
               echo "$STATUS2" > "$OUT/http_status_after_rollback.txt"
             else
               echo "[OK] WTP theme skeleton healthy" | tee "$OUT/action.txt"
-              # 8) przywróć podstawowe pluginy (biała lista), reszta off
+              # Optionally re-enable a small whitelist
               if command -v wp >/dev/null 2>&1; then
                 for p in litespeed-cache seo-by-rank-math; do
                   wp plugin activate "$p" || true
@@ -171,14 +171,13 @@ PHP
               fi
             fi
 
-            # 9) zbierz logi
+            # Collect logs
             for LOG in error_log logs/error_log wp-content/debug.log; do
               [ -f "$LOG" ] && tail -n 200 "$LOG" > "$OUT/$(echo "$LOG" | tr '/' '_')"
             done
 
-            # 10) aktywny motyw
+            # Active theme
             (command -v wp >/dev/null 2>&1 && wp theme list --status=active --field=name 2>/dev/null | head -n1) > "$OUT/active_theme.txt" || true
-
             echo "[INFO] DONE"
 
       - name: Pull & publish report
@@ -186,7 +185,7 @@ PHP
         run: |
           set -euo pipefail
           mkdir -p "_ci_logs/${RUN_ID}/emergency_heal"
-          SVRTGT="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
+          SVRTGT="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
             "${USER}@${HOST}:${SVRTGT}/.wtp/state/ci_logs/emergency_heal_${RUN_ID}" \
             "_ci_logs/${RUN_ID}/emergency_heal/" || true
@@ -196,7 +195,7 @@ PHP
           mkdir -p "${RO_DIR}" "${RO_LATEST}"
           cp -a "_ci_logs/${RUN_ID}/emergency_heal/." "${RO_DIR}/" || true
           rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"
-          cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
+          cp -a "${RO_DIR}/." "${RO_LEST}/" || true
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
