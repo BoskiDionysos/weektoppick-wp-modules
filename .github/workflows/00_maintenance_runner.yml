@@ -13,7 +13,7 @@ on:
 
 permissions:
   contents: write
-  workflows: write   # <— to jest kluczowe, bez tego API nie odpali
+  actions: write   # wymagane do API: workflow dispatch
 
 concurrency:
   group: maintenance-runner
@@ -23,6 +23,7 @@ jobs:
   run_maintenance:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,7 +54,6 @@ jobs:
           git add "$dst"
           git commit -m "maintenance-runner: activate $(basename "$dst") temporarily" || true
           git push || true
-          # daj GitHubowi chwilę na zindeksowanie nowego workflowa
           sleep 3
 
       - name: Trigger via GitHub API
