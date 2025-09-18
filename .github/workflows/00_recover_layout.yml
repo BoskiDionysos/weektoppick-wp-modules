@@ -1,7 +1,7 @@
 name: 00_recover_layout
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -19,7 +19,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore maintenance workflows to active & retire launcher
+      - name: Restore maintenance workflows to active and retire launcher
         shell: bash
         run: |
           set -euo pipefail
@@ -34,9 +34,9 @@ jobs:
           echo "== Move ALL maintenance workflows to active =="
           shopt -s nullglob
           for p in "$WF_M_DIR"/*.yml "$WF_M_DIR"/*.yaml; do
-            [[ -e "$p" ]] || continue
+            [ -e "$p" ] || continue
             b="$(basename "$p")"
-            if [[ -f "$WF_DIR/$b" ]]; then
+            if [ -f "$WF_DIR/$b" ]; then
               echo "skip (exists in active): $b"
               continue
             fi
@@ -49,37 +49,38 @@ jobs:
           echo "== Retire launcher (00_maintenance_tasks.yml) =="
           LAUNCH_SRC="$WF_DIR/00_maintenance_tasks.yml"
           LAUNCH_DST="$WF_M_DIR/00_maintenance_tasks.yml.disabled"
-          if [[ -f "$LAUNCH_SRC" ]]; then
+          if [ -f "$LAUNCH_SRC" ]; then
             echo "move: $LAUNCH_SRC -> $LAUNCH_DST"
             git mv -f "$LAUNCH_SRC" "$LAUNCH_DST"
             moved_any=1
           else
-            echo "launcher not present in active (ok)."
+            echo "launcher not present in active (ok)"
           fi
 
-          if [[ ! -f "$WF_M_DIR/README.md" ]]; then
-            cat > "$WF_M_DIR/README.md" << 'MD'
-# Workflows – maintenance
-Ten katalog przechowuje *wyłączone* lub *okazjonalne* workflowy.
-`00_maintenance_tasks.yml` został wyłączony (sufiks `.disabled`), żeby nie mieszać listy Actions.
-Przywracanie: przenieś z powrotem do `.github/workflows/` i usuń `.disabled`.
-MD
+          # Add simple README if missing
+          if [ ! -f "$WF_M_DIR/README.md" ]; then
+            {
+              echo "# Workflows - maintenance"
+              echo "This folder keeps disabled or occasional workflows."
+              echo "00_maintenance_tasks.yml was retired to reduce Actions list noise."
+              echo "To restore: move file back to .github/workflows/ and remove .disabled suffix."
+            } > "$WF_M_DIR/README.md"
             git add "$WF_M_DIR/README.md"
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if [[ "$moved_any" -eq 1 ]]; then
+          if [ "$moved_any" -eq 1 ]; then
             git add -A
-            git commit -m "recover-layout: move maintenance → active, retire launcher" || true
+            git commit -m "recover-layout: move maintenance to active, retire launcher" || true
             git pull --rebase --autostash origin "${GITHUB_REF_NAME:-main}" || true
             git push || true
           else
-            echo "::notice::Nothing to change."
+            echo "Nothing to change."
           fi
 
       - name: Summary
         if: always()
         run: |
-          echo "::notice::Gotowe. Wejdź w Actions – wszystkie maintenance wróciły do listy. Launcher wyłączony."
+          echo "::notice::Done. Open Actions: maintenance workflows are back in the list; launcher is disabled."
