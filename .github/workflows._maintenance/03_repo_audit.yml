@@ -21,16 +21,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure input exists
+      - name: Ensure input exists (repo-snapshot.json)
         run: |
           set -euo pipefail
           IN=".wtp/state/ro/public/latest/repo/repo-snapshot.json"
           if [ ! -f "$IN" ]; then
-            echo "::error::Missing $IN (run 03_repo_snapshot first)"; exit 1
+            echo "::error::Brak $IN (najpierw uruchom 03_repo_snapshot)"; exit 1
           fi
-          head -n 3 "$IN" || true
 
-      - name: Build REPO_AUDIT.md
+      - name: Build REPO_AUDIT.md (v2)
         run: |
           set -euo pipefail
           python - << 'PY'
@@ -44,59 +43,73 @@ jobs:
 
           data  = json.load(IN.open(encoding="utf-8"))
           files = data.get("files", [])
-          counts= data.get("counts", {})
-          bycat = counts.get("by_category", {})
+          bycat = data.get("counts",{}).get("by_category",{})
 
           def human(n):
-              n = float(n or 0)
-              for u in ["B","KB","MB","GB","TB"]:
-                  if n < 1024: return f"{n:.1f} {u}"
-                  n /= 1024
-              return f"{n:.1f} PB"
+            for u in ["B","KB","MB","GB","TB"]:
+              if n < 1024: return f"{n:.1f} {u}"
+              n/=1024
+            return f"{n:.1f} PB"
 
-          wfA = [f for f in files if f.get("category") == "workflow-active"]
-          wfQ = [f for f in files if f.get("category") == "workflow-quarantine"]
-          mu  = [f for f in files if f.get("path","").startswith("wp-content/mu-plugins/")]
-          plug= [f for f in files if f.get("path","").startswith("wp-content/plugins/")]
-          them= [f for f in files if f.get("path","").startswith("wp-content/themes/")]
-          wtp = [f for f in files if f.get("path","").startswith(".wtp/")]
+          wfA = [f for f in files if f.get("category")=="workflow-active"]
+          wfM = [f for f in files if f.get("category")=="workflow-maintenance"]
+          wfQ = [f for f in files if f.get("category")=="workflow-quarantine"]
+          mu  = [f for f in files if f["path"].startswith("wp-content/mu-plugins/")]
+          plug= [f for f in files if f["path"].startswith("wp-content/plugins/")]
+          them= [f for f in files if f["path"].startswith("wp-content/themes/")]
+          wtp = [f for f in files if f["path"].startswith(".wtp/")]
+
           large = sorted([f for f in files if (f.get("size") or 0) > 10*1024*1024],
                          key=lambda x: x.get("size") or 0, reverse=True)[:50]
 
           L=[]
-          L.append("# REPO AUDIT")
+          L.append("# REPO AUDIT (v2)")
           L.append(f"- Run ID: {data.get('run_id')}")
           L.append(f"- Run TS (UTC): {data.get('run_ts')}")
           L.append("")
           L.append("## Summary")
-          L.append(f"- Files: {counts.get('files')}")
+          L.append(f"- Files total: {data.get('counts',{}).get('files')}")
           for k in sorted(bycat.keys()):
-              v = bycat[k]
-              L.append(f"- {k}: {v['count']} • {human(v['size'])}")
+            v = bycat[k]
+            L.append(f"- {k}: {v['count']} • {human(v['size'])}")
           L.append("")
-          L.append(f"**Workflows active:** {len(wfA)}  |  **quarantine:** {len(wfQ)}")
+          L.append(f"**Workflows** → active: {len(wfA)} • maintenance: {len(wfM)} • quarantine: {len(wfQ)}")
           L.append(f"MU files: {len(mu)} • Plugins files: {len(plug)} • Themes files: {len(them)} • .wtp files: {len(wtp)}")
           L.append("")
+          def table_workflows(title, arr):
+            L.append(f"### {title}")
+            if not arr:
+              L.append("_none_"); L.append(""); return
+            L.append("| File | Size | Lines |")
+            L.append("|---|---:|---:|")
+            for f in sorted(arr, key=lambda x:x["path"]):
+              size = human(f.get("size") or 0)
+              lines = f.get("lines") or ""
+              L.append(f"| {f['path']} | {size} | {lines} |")
+            L.append("")
+          table_workflows("Workflows (active)", wfA)
+          table_workflows("Workflows (maintenance)", wfM)
+          table_workflows("Workflows (quarantine)", wfQ)
+
           L.append("## Biggest files (>10MB)")
           if large:
-              L.append("| File | Size | Category |")
-              L.append("|---|---:|---|")
-              for f in large:
-                  L.append(f"| {f['path']} | {human(f['size'] or 0)} | {f.get('category')} |")
+            L.append("| File | Size | Category |")
+            L.append("|---|---:|---|")
+            for f in large:
+              L.append(f"| {f['path']} | {human(f['size'] or 0)} | {f.get('category')} |")
           else:
-              L.append("_none_")
+            L.append("_none_")
           L.append("")
           L.append("## Recommendations")
-          L.append("- Keep active only 6 workflows (deploy/wpcli/snapshot + ai-upsert/apply-inbox-patch + gsc).")
-          L.append("- Leave others in `.github/workflows._quarantine/`; restore one-by-one after core is stable.")
-          L.append("- Remove big archives from Git (use artifacts).")
-          L.append("- In `.wtp/` keep `latest/` + few recent runs; prune old runs periodically.")
+          L.append("- Aktywne utrzymuj na poziomie 6; reszta narzędziowa w `_maintenance`, historyczne/testowe w `_quarantine`.")
+          L.append("- Duże pliki trzymaj poza Gitem (artefakty Actions).")
+          L.append("- Po większych zmianach: 03_repo_snapshot → 03_repo_audit (v2).")
 
-          OUT.write_text("\n".join(L) + "\n", encoding="utf-8")
+          OUT.write_text("\n".join(L)+"\n", encoding="utf-8")
           print(f"[OK] wrote {OUT}")
           PY
 
-      - name: Publish REPO_AUDIT.md
+      - name: Publish REPO_AUDIT.md (v2)
         run: |
           set -euo pipefail
           SRC="_ci_logs/${RUN_ID}/repo_audit/REPO_AUDIT.md"
@@ -112,6 +125,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "::notice::Nothing to commit."
           else
-            git commit -m "Publish REPO_AUDIT.md ${RUN_ID}"
+            git commit -m "Publish REPO_AUDIT.md (v2) ${RUN_ID}"
             git push
           fi
