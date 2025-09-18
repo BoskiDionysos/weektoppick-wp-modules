@@ -23,6 +23,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup tools (sshpass)
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y sshpass
+
       - name: Heal site (disable MU & plugins, provision minimal theme, activate, test)
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -34,7 +40,7 @@ jobs:
           envs: TARGET,RUN_ID
           script: |
             set -euo pipefail
-            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+            TARGET="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
             cd "$TARGET"
             OUT="$TARGET/.wtp/state/ci_logs/emergency_heal_${RUN_ID}"
             mkdir -p "$OUT"
@@ -43,7 +49,7 @@ jobs:
             rm -f .maintenance || true
 
             # Base URL
-            HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || true)"
+            HOMEURL="$(php -r 'include \"wp-config.php\"; include \"wp-load.php\"; echo get_option(\"home\");' 2>/dev/null || true)"
             HOMEURL="${HOMEURL:-https://weektoppick.com}"
             echo "$HOMEURL" > "$OUT/home_url.txt"
 
@@ -162,7 +168,6 @@ PHP
               echo "$STATUS2" > "$OUT/http_status_after_rollback.txt"
             else
               echo "[OK] WTP theme skeleton healthy" | tee "$OUT/action.txt"
-              # Optionally re-enable a small whitelist
               if command -v wp >/dev/null 2>&1; then
                 for p in litespeed-cache seo-by-rank-math; do
                   wp plugin activate "$p" || true
@@ -185,7 +190,8 @@ PHP
         run: |
           set -euo pipefail
           mkdir -p "_ci_logs/${RUN_ID}/emergency_heal"
-          SVRTGT="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+          SERVER_USER="${{ env.USER }}"
+          SVRTGT="${TARGET:-/home/${SERVER_USER}/domains/weektoppick.com/public_html}"
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
             "${USER}@${HOST}:${SVRTGT}/.wtp/state/ci_logs/emergency_heal_${RUN_ID}" \
             "_ci_logs/${RUN_ID}/emergency_heal/" || true
@@ -195,7 +201,7 @@ PHP
           mkdir -p "${RO_DIR}" "${RO_LATEST}"
           cp -a "_ci_logs/${RUN_ID}/emergency_heal/." "${RO_DIR}/" || true
           rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"
-          cp -a "${RO_DIR}/." "${RO_LEST}/" || true
+          cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
