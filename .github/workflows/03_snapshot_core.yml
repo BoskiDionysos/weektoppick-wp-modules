@@ -106,8 +106,7 @@ jobs:
             }' > "${SNAP}"
           echo "::notice::Built snapshot-core.json"
 
-      - name: Publish (core → latest/core/)
-        if: always()
+      - name: Publish (core → latest/core/) + commit (rebase-safe)
         run: |
           set -euo pipefail
           RO_DIR=".wtp/state/ro/public/${RUN_ID}/core"
@@ -115,7 +114,18 @@ jobs:
           mkdir -p "${RO_DIR}" "${RO_LATEST}"
           cp -a "_ci_logs/${RUN_ID}/snapshot_core/." "${RO_DIR}/"
           cp -a "${RO_DIR}/." "${RO_LATEST}/"
+
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${RO_DIR}" "${RO_LATEST}"
-          if git diff --staged --quiet; then echo "::notice::Nothing to commit."; else git commit -m "snapshot core ${RUN_ID}" && git push; fi
+          git add -A
+          if git diff --staged --quiet; then echo "::notice::Nothing to commit."; exit 0; fi
+          git commit -m "snapshot core ${RUN_ID}"
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
+          for i in 1 2 3; do
+            git fetch origin "$BRANCH"
+            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+            if git push origin "HEAD:$BRANCH"; then echo "::notice::Pushed (attempt $i)"; exit 0; fi
+            sleep 2
+          done
+          echo "::error::Push failed after 3 attempts"; exit 1
