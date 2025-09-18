@@ -1,1 +1,0 @@
-jq not found – JSON aggregation will use minimal fallback.

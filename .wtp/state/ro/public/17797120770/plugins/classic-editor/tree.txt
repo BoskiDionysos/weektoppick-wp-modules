@@ -1,6 +1,0 @@
-classic-editor.php
-js/block-editor-plugin.js
-LICENSE.md
-readme.txt
-scripts/post.js
-scripts/post.min.js

@@ -1,2 +1,0 @@
-active theme directory not found
-wkhtmltoimage not found – screenshots PNG skipped (HTML saved).

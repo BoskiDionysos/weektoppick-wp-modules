@@ -1,7 +1,0 @@
-SITE_URL: https://weektoppick.com
-WP_VERSION: 6.8.2
-PHP_VERSION: 8.3.22
-ACTIVE_THEME:  1.3
-ADMINS_COUNT: 1
-PLUGINS_TOTAL: 6; ACTIVE: 6; MU: 7
-ACTIVE_PLUGINS: classic-editor,cookie-law-info,litespeed-cache,pretty-link,seo-by-rank-math,wordfence

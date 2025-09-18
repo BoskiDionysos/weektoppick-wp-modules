@@ -1,6 +1,0 @@
-wp-content/plugins/classic-editor/classic-editor.php
-wp-content/plugins/classic-editor/js/block-editor-plugin.js
-wp-content/plugins/classic-editor/LICENSE.md
-wp-content/plugins/classic-editor/readme.txt
-wp-content/plugins/classic-editor/scripts/post.js
-wp-content/plugins/classic-editor/scripts/post.min.js

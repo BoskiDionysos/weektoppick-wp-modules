@@ -1,1 +1,0 @@
-wtp-patch-safe-loader-log.php

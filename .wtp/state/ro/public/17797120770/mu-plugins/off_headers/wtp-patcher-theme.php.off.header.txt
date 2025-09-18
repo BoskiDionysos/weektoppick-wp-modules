@@ -1,1 +1,0 @@
- * Plugin Name: WTP Patcher — Theme (GitHub → WP)

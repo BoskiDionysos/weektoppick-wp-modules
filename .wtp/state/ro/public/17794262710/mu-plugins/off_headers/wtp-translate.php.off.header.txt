@@ -1,1 +1,0 @@
- * Plugin Name: WTP Translate (mu-plugin)

@@ -1,1 +1,0 @@
- * Plugin Name: WTP Push Runner (Cron -> GitHub Dispatch)

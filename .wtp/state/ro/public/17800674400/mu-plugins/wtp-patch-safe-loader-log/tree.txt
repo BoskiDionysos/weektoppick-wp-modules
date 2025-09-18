@@ -1,1 +1,0 @@
-/home/u493676300/domains/weektoppick.com/public_html/wp-content/mu-plugins/wtp-patch-safe-loader-log.php
