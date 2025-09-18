@@ -3,7 +3,7 @@ name: 03_snapshot_full
 on:
   workflow_dispatch: {}
   schedule:
-    - cron: "0 0 * * 0"  # niedziela 00:00 UTC ~ 02:00 PL
+    - cron: "0 0 * * 0"  # niedziela 00:00 UTC
   workflow_run:
     workflows: ["02_wpcli (install/update/activate from SSOT, secure SSH)"]
     types: [completed]
@@ -55,7 +55,6 @@ jobs:
             cd "${TARGET}" || exit 0
             OUT="${TARGET}/.wtp/state/ci_logs/snapshot_full"
             mkdir -p "${OUT}" "${OUT}/menus"
-
             WP="$(command -v wp || true)"
             php -r 'echo PHP_VERSION;' > "${OUT}/php_version.txt" 2>/dev/null || echo unknown > "${OUT}/php_version.txt"
             if [ -n "$WP" ]; then
@@ -79,14 +78,11 @@ jobs:
             fi
             hostname > "${OUT}/hostname.txt" 2>/dev/null || echo unknown > "${OUT}/hostname.txt"
             date -u +%FT%TZ > "${OUT}/ts_utc.txt" 2>/dev/null || echo unknown > "${OUT}/ts_utc.txt"
-
             php -r '
               $d="wp-content/mu-plugins"; $o=[];
               if (is_dir($d)) foreach (scandir($d) as $f){ if($f==="."||$f==="..")continue; $p="$d/$f"; if(is_file($p)) $o[]=["file"=>$f,"size"=>@filesize($p),"md5"=>@md5_file($p)];}
               echo json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
             ' > "${OUT}/mu_plugins.json" 2>/dev/null || echo "[]" > "${OUT}/mu_plugins.json"
-
-            # Taxonomies + terms (PHP)
             php -r '
               require_once "wp-load.php";
               $tx = get_taxonomies([], "objects");
@@ -98,8 +94,6 @@ jobs:
               }
               echo json_encode($out, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
             ' > "${OUT}/taxonomies_terms.json" 2>/dev/null || echo '{"taxonomies":[],"terms":{}}' > "${OUT}/taxonomies_terms.json"
-
-            # Menu items per menu (if menus.json available)
             if [ -s "${OUT}/menus.json" ] && [ -n "$WP" ]; then
               php -r '
                 $out = getenv("OUT");
@@ -115,16 +109,12 @@ jobs:
                 }
               ' 2>/dev/null || true
             fi
-
-            # Selected options (JSON)
             php -r '
               require_once "wp-load.php";
               $keys=["siteurl","home","blogname","blogdescription","timezone_string","permalink_structure","template","stylesheet"];
               $o=[]; foreach($keys as $k){ $o[$k]=get_option($k); }
               echo json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
             ' > "${OUT}/options.json" 2>/dev/null || echo "{}" > "${OUT}/options.json"
-
-            # Files manifest (www+uploads, limited)
             php -r '
               function scan($base,$exts,$max){ $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($base,FilesystemIterator::SKIP_DOTS)); $o=[]; $n=0;
                 foreach($it as $f){ if($n>=$max) break; $p=$f->getPathname(); $e=strtolower(pathinfo($p,PATHINFO_EXTENSION));
@@ -135,7 +125,6 @@ jobs:
               $o=["www"=>scan(getcwd(),$ext,3000),"uploads"=>scan("wp-content/uploads",$ext,5000)];
               echo json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
             ' > "${OUT}/files_manifest.json" 2>/dev/null || echo '{"www":[],"uploads":[]}' > "${OUT}/files_manifest.json"
-
             : > "${OUT}/errors.txt" || true
             echo "[INFO] full snapshot written to ${OUT}"
 
@@ -158,7 +147,6 @@ jobs:
           [ -f "${RAW}/options.json" ] || echo '{}' > "${RAW}/options.json"
           [ -f "${RAW}/files_manifest.json" ] || echo '{"www":[],"uploads":[]}' > "${RAW}/files_manifest.json"
           for f in home siteurl blogname blogdescription tz permalink wp_version php_version hostname ts_utc active_theme; do [ -f "${RAW}/${f}.txt" ] || : > "${RAW}/${f}.txt"; done
-
           MENUS_DIR="${RAW}/menus"
           if [ -d "$MENUS_DIR" ]; then
             jq -n 'reduce inputs as $f ({}; . + $f)' $(for x in "$MENUS_DIR"/*.json; do [ -f "$x" ] && echo "$x"; done) 2>/dev/null \
@@ -166,7 +154,6 @@ jobs:
           else
             echo '{}' > "${RAW}/menus_items_merged.json"
           fi
-
           SNAP="${RAW}/snapshot.json"
           jq -n \
             --arg run_id "${RUN_ID}" \
@@ -249,10 +236,10 @@ jobs:
             echo "- Files: www=${WWW}, uploads=${UP}"
           } > "${OUT}"
 
-      - name: Publish (FULL → latest/)
-        if: always()
+      - name: Commit & push (rebase-safe, retry)
         run: |
           set -euo pipefail
+          RUN_ID="${RUN_ID}"
           RO_DIR=".wtp/state/ro/public/${RUN_ID}"
           RO_LATEST=".wtp/state/ro/public/latest"
           SNAP_DIR=".wtp/snapshots"
@@ -261,11 +248,26 @@ jobs:
           cp -f "${RO_DIR}/snapshot.json" "${SNAP_DIR}/snapshot-${RUN_ID}.json" || true
           cp -f "${RO_DIR}/snapshot.json" "${SNAP_DIR}/snapshot-latest.json" || true
           rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"; cp -a "${RO_DIR}/." "${RO_LATEST}/"
+
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${RO_DIR}" "${RO_LATEST}" "${SNAP_DIR}"
-          if git diff --staged --quiet; then echo "::notice::Nothing to commit."; else git commit -m "Publish FULL snapshot ${RUN_ID}" && git push; fi
+          git add -A
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."; exit 0
+          fi
+          git commit -m "Publish FULL snapshot ${RUN_ID}"
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
+          for i in 1 2 3; do
+            git fetch origin "$BRANCH"
+            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+            if git push origin "HEAD:$BRANCH"; then
+              echo "::notice::Pushed after rebase (attempt $i)."; exit 0
+            fi
+            echo "[warn] push failed, retry $i"; sleep 2
+          done
+          echo "::error::Failed to push after rebasing 3 times."; exit 1
 
       - name: Summary
-        if: always()
+        if: always
         run: echo "::notice::03_snapshot_full finished for run ${RUN_ID}"
