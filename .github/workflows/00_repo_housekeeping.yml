@@ -1,0 +1,34 @@
+name: 00_repo_housekeeping
+on: { workflow_dispatch: {} }
+permissions: { contents: write }
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Drop heavy archives + update .gitignore
+        run: |
+          set -euo pipefail
+          # remove tracked heavy files (ignore if missing)
+          git rm -f --ignore-unmatch .wtp/snapshots/*.tar.gz || true
+          git rm -f --ignore-unmatch .wtp/state/ro/public/*/repo-full.tar.gz || true
+          git rm -f --ignore-unmatch plugins-bundle.json || true
+
+          # ensure ignore rules (idempotent)
+          {
+            echo ""
+            echo "# WTP block heavy files"
+            echo ".wtp/snapshots/*.tar.gz"
+            echo ".wtp/state/ro/public/*/repo-full.tar.gz"
+            echo "plugins-bundle.json"
+          } >> .gitignore
+
+          git add .gitignore
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."
+          else
+            git commit -m "housekeeping: drop heavy archives + update .gitignore"
+            git push
+          fi
