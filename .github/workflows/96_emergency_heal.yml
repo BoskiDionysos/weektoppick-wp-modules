@@ -24,16 +24,15 @@ jobs:
       RUN_ID: ${{ github.run_id }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup tools (sshpass)
+      - name: Setup tools
         run: |
           set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y sshpass
 
-      - name: Heal site (disable MU & plugins, provision minimal theme, activate, test)
+      - name: Heal on server (disable MU/plugins, minimal theme, test)
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.HOST }}
@@ -44,15 +43,13 @@ jobs:
           envs: TARGET,RUN_ID
           script: |
             set -euo pipefail
-            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+            TARGET="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
             cd "$TARGET"
             OUT="$TARGET/.wtp/state/ci_logs/emergency_heal_${RUN_ID}"
             mkdir -p "$OUT"
-
-            echo "[INFO] emergency heal starting…"
             rm -f .maintenance || true
 
-            HOMEURL="$(php -r 'include \"wp-config.php\"; include \"wp-load.php\"; echo get_option(\"home\");' 2>/dev/null || true)"
+            HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || true)"
             HOMEURL="${HOMEURL:-https://weektoppick.com}"
             echo "$HOMEURL" > "$OUT/home_url.txt"
 
@@ -62,16 +59,9 @@ jobs:
                 [ -f "$f" ] || continue
                 base="$(basename "$f")"
                 case "$base" in
-                  00-mu-safe-loader.php|mu-hotfix-headers.php)
-                    echo "keep MU: $base" >> "$OUT/mu_kept.txt"
-                    ;;
-                  *.off)
-                    echo "already off: $base" >> "$OUT/mu_off.txt"
-                    ;;
-                  *)
-                    mv -f "$f" "$f.off" || true
-                    echo "disabled MU: $base" >> "$OUT/mu_off.txt"
-                    ;;
+                  00-mu-safe-loader.php|mu-hotfix-headers.php) echo "keep $base" >> "$OUT/mu_kept.txt" ;;
+                  *.off) echo "already off: $base" >> "$OUT/mu_off.txt" ;;
+                  *) mv -f "$f" "$f.off" || true; echo "off: $base" >> "$OUT/mu_off.txt" ;;
                 esac
               done
             fi
@@ -104,7 +94,6 @@ add_action('after_setup_theme', function () {
 add_action('wp_enqueue_scripts', function () {
   wp_enqueue_style('wtp-core-theme', get_stylesheet_uri(), [], null);
 });
-add_action('wp_head', function(){ echo "<!-- WTP head hook alive -->"; }, 0);
 PHP
 
             cat > "$THEME_DIR/header.php" <<'PHP'
@@ -145,7 +134,7 @@ PHP
 PHP
 
             if command -v wp >/dev/null 2>&1; then
-              wp theme activate wtp-core-theme
+              wp theme activate wtp-core-theme || true
               wp plugin is-active litespeed-cache && wp litespeed-purge all || true
             fi
 
@@ -156,22 +145,12 @@ PHP
             echo "$(printf "%s" "$BODY" | wc -c)" > "$OUT/home_after_size.txt"
 
             SIZE=$(cat "$OUT/home_after_size.txt" || echo 0)
-            echo "[INFO] after activate: status=$STATUS size=$SIZE"
-
             if [ "$STATUS" != "200" ] || [ "${SIZE:-0}" -lt 600 ]; then
-              echo "[WARN] unhealthy after theme activate → rollback to twentytwentyfive" | tee "$OUT/action.txt"
+              echo "rollback" > "$OUT/action.txt"
               wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
               wp plugin is-active litespeed-cache && wp litespeed-purge all || true
-              STATUS2=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
-              echo "$STATUS2" > "$OUT/http_status_after_rollback.txt"
             else
-              echo "[OK] WTP theme skeleton healthy" | tee "$OUT/action.txt"
-              if command -v wp >/dev/null 2>&1; then
-                for p in litespeed-cache seo-by-rank-math; do
-                  wp plugin activate "$p" || true
-                done
-                wp plugin is-active litespeed-cache && wp litespeed-purge all || true
-              fi
+              echo "ok" > "$OUT/action.txt"
             fi
 
             for LOG in error_log logs/error_log wp-content/debug.log; do
@@ -179,14 +158,13 @@ PHP
             done
 
             (command -v wp >/dev/null 2>&1 && wp theme list --status=active --field=name 2>/dev/null | head -n1) > "$OUT/active_theme.txt" || true
-            echo "[INFO] DONE"
 
       - name: Pull & publish report
         if: always()
         run: |
           set -euo pipefail
           mkdir -p "_ci_logs/${RUN_ID}/emergency_heal"
-          SVRTGT="${TARGET:-/home/${{ env.USER }}/domains/weektoppick.com/public_html}"
+          SVRTGT="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
             "${USER}@${HOST}:${SVRTGT}/.wtp/state/ci_logs/emergency_heal_${RUN_ID}" \
             "_ci_logs/${RUN_ID}/emergency_heal/" || true
