@@ -25,63 +25,60 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Patch functions.php safely
+      - name: Patch functions.php safely over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ env.HOST }}
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
           port:     ${{ env.PORT }}
-          envs: TARGET,RUN_ID
+          envs: "TARGET,RUN_ID"
           script: |
             set -euo pipefail
             TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
             cd "$TARGET"
 
             THEME_DIR="wp-content/themes/wtp-core-theme"
-            FILE="${THEME_DIR}/functions.php"
+            FILE="$THEME_DIR/functions.php"
             OUT="$TARGET/.wtp/state/ci_logs/theme_fix_${RUN_ID}"
             mkdir -p "$OUT"
 
             if [ ! -d "$THEME_DIR" ]; then
-              echo "[ERR] Theme dir not found: $THEME_DIR" | tee "$OUT/action.txt"
+              echo "[ERR] theme dir not found: $THEME_DIR" | tee "$OUT/action.txt"
               exit 2
             fi
 
+            # backup if exists
             if [ -f "$FILE" ]; then
               cp -f "$FILE" "${FILE}.bak.$(date -u +%Y%m%d%H%M%S)"
             fi
 
-            cat > "$FILE" <<'PHP'
-<?php
-/**
- * WTP Core Theme — safe bootstrap
- * (no closing PHP tag on purpose)
- */
-if ( ! defined( 'ABSPATH' ) ) { exit; }
+            # write a minimal safe functions.php (no closing PHP tag)
+            printf '%s\n' \
+'<?php' \
+'if ( ! defined( "ABSPATH" ) ) { exit; }' \
+'' \
+'add_action( "after_setup_theme", function () {' \
+'    add_theme_support( "title-tag" );' \
+'    add_theme_support( "post-thumbnails" );' \
+'    add_theme_support( "html5", array("search-form","comment-form","comment-list","gallery","caption","style","script") );' \
+'} );' \
+'' \
+'add_action( "wp_enqueue_scripts", function () {' \
+'    // keep empty to avoid fatals' \
+'}, 20 );' > "$FILE"
 
-add_action( 'after_setup_theme', function () {
-    add_theme_support( 'title-tag' );
-    add_theme_support( 'post-thumbnails' );
-    add_theme_support( 'html5', array(
-        'search-form','comment-form','comment-list','gallery','caption','style','script'
-    ) );
-} );
-
-add_action( 'wp_enqueue_scripts', function () {
-    // Minimal enqueue placeholder — nothing critical to avoid fatals.
-}, 20 );
-PHP
-
+            # lint result
             php -l "$FILE" > "$OUT/functions_php_lint.txt" 2>&1 || true
             echo "[OK] functions.php replaced with safe stub" | tee "$OUT/action.txt"
 
-      - name: Install sshpass (for pulling logs)
+      - name: Install sshpass for pulling logs
         run: |
+          set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y sshpass
 
-      - name: Pull proof & publish logs
+      - name: Pull proof and publish
         run: |
           set -euo pipefail
           mkdir -p "_ci_logs/${RUN_ID}"
@@ -92,8 +89,10 @@ PHP
           RO_DIR=".wtp/state/ro/public/${RUN_ID}/theme-fix"
           RO_LATEST=".wtp/state/ro/public/latest/theme-fix"
           mkdir -p "${RO_DIR}" "${RO_LATEST}"
-          cp -a "_ci_logs/${RUN_ID}/." "${RO_DIR}/" || true
-          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"; cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
+          cp -a "_ci_logs/${RUN_ID}/." "${RO_DIR}/" 2>/dev/null || true
+          rm -rf "${RO_LATEST}"
+          mkdir -p "${RO_LATEST}"
+          cp -a "${RO_DIR}/." "${RO_LATEST}/" 2>/dev/null || true
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
