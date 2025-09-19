@@ -46,35 +46,34 @@ jobs:
             OUT="${TARGET}/.wtp/state/ci_logs/debug_pack_${RUN_ID}"
             mkdir -p "${OUT}"
 
-            # 0) wymuś WP_DEBUG_LOG (nie pokazuj na froncie)
+            # 0) wymuś WP_DEBUG_LOG (bez wyświetlania na froncie)
             if command -v wp >/dev/null 2>&1; then
               wp config set WP_DEBUG true --type=constant --raw --quiet || true
               wp config set WP_DEBUG_LOG true --type=constant --raw --quiet || true
               wp config set WP_DEBUG_DISPLAY false --type=constant --raw --quiet || true
             else
-              # fallback: dopisz definicje jeśli nie istnieją
               if ! grep -q "WTP AUTO DEBUG" wp-config.php 2>/dev/null; then
                 printf "\n/* WTP AUTO DEBUG */ define('WP_DEBUG', true); define('WP_DEBUG_LOG', true); define('WP_DEBUG_DISPLAY', false);\n" >> wp-config.php || true
               fi
             fi
 
-            # 1) zapisz HOME URL
+            # 1) HOME URL
             HOMEURL="$(php -r 'if(file_exists("wp-config.php")){ include "wp-config.php"; if(function_exists("get_option")){ include "wp-load.php"; echo get_option("home"); } }' 2>/dev/null || true)"
             HOMEURL="${HOMEURL:-https://weektoppick.com}"
             echo "$HOMEURL" > "${OUT}/home_url.txt"
 
-            # 2) strzel w stronę (wymusi zapis do debug.log przy fatals)
+            # 2) strzel w stronę (wymusza zapis do debug.log przy fatals)
             curl -ks -o /dev/null -w "%{http_code}\n" "$HOMEURL" > "${OUT}/http_status.txt" || echo 000 > "${OUT}/http_status.txt"
             curl -ks "$HOMEURL" | wc -c > "${OUT}/home_size.txt" || echo 0 > "${OUT}/home_size.txt"
 
-            # 3) zbierz logi i pliki diagnostyczne
+            # 3) zbierz logi/pliki diagnostyczne
             [ -f "wp-content/debug.log" ] && tail -n 400 "wp-content/debug.log" > "${OUT}/wp-content_debug.log" || : > "${OUT}/wp-content_debug.log"
             [ -f ".htaccess" ] && sed -n '1,300p' .htaccess > "${OUT}/htaccess.head.txt" || : > "${OUT}/htaccess.head.txt"
             [ -f "index.php" ] && sed -n '1,200p' index.php > "${OUT}/index.php.head.txt" || : > "${OUT}/index.php.head.txt"
             [ -f "wp-config.php" ] && sed -n '1,120p' wp-config.php > "${OUT}/wp-config.php.head.txt" || : > "${OUT}/wp-config.php.head.txt"
             ls -la > "${OUT}/webroot_ls.txt" || true
 
-            # 4) wersje (pomocniczo)
+            # 4) wersje
             php -r 'echo PHP_VERSION;' > "${OUT}/php_version.txt" 2>/dev/null || echo unknown > "${OUT}/php_version.txt"
             if command -v wp >/dev/null 2>&1; then
               wp core version 2>/dev/null > "${OUT}/wp_version.txt" || echo unknown > "${OUT}/wp_version.txt"
@@ -99,7 +98,7 @@ jobs:
           mkdir -p "${RO_DIR}" "${RO_LATEST}"
           cp -a "_ci_logs/${RUN_ID}/debug-pack/." "${RO_DIR}/"
           rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"
-          cp -a "${RO_DIR}/." "${RO_LEST}/" 2>/dev/null || cp -a "${RO_DIR}/." "${RO_LATEST}/"
+          cp -a "${RO_DIR}/." "${RO_LATEST}/"
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
