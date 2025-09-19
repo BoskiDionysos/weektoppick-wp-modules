@@ -1,0 +1,79 @@
+name: 98_promote_theme
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: write
+concurrency:
+  group: theme-promote
+  cancel-in-progress: true
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      RUN_ID: ${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Promote wtp-core-theme safely (+ rollback)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          envs: TARGET,RUN_ID
+          script: |
+            set -euo pipefail
+            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+            cd "$TARGET"
+
+            OUT="$TARGET/.wtp/state/ci_logs/try_theme_${RUN_ID}"
+            mkdir -p "$OUT"
+            rm -f .maintenance || true
+
+            HOMEURL="$(php -r 'if(file_exists("wp-config.php")){ include "wp-config.php"; @include "wp-load.php"; if(function_exists("get_option")){ echo get_option("home"); } }' 2>/dev/null || true)"
+            HOMEURL="${HOMEURL:-https://weektoppick.com}"
+            echo "$HOMEURL" > "$OUT/home_url.txt"
+
+            if command -v wp >/dev/null 2>&1; then
+              wp theme is-installed wtp-core-theme || wp theme install wtp-core-theme --force || true
+              ACT_RC=0
+              wp theme activate wtp-core-theme || ACT_RC=$?
+              echo "$ACT_RC" > "$OUT/activate_rc.txt"
+            else
+              echo "wp-cli missing" > "$OUT/activate_rc.txt"
+            fi
+
+            STATUS=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
+            BODY="$(curl -ks "$HOMEURL" || true)"
+            echo "$STATUS" > "$OUT/http_status_after.txt"
+            printf "%s" "$BODY" > "$OUT/home_after.html"
+            echo "$(printf "%s" "$BODY" | wc -c)" > "$OUT/home_after_size.txt"
+
+            for LOG in error_log logs/error_log wp-content/debug.log; do
+              [ -f "$LOG" ] && tail -n 200 "$LOG" > "$OUT/$(echo "$LOG" | tr '/' '_')" || true
+            done
+
+            SIZE=$(cat "$OUT/home_after_size.txt" || echo 0)
+
+            if [ "$STATUS" != "200" ] || [ "${SIZE:-0}" -lt 600 ]; then
+              echo "[WARN] Unhealthy → rollback to twentytwentyfive" | tee "$OUT/action.txt"
+              if command -v wp >/dev/null 2>&1; then
+                wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
+                wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+              fi
+              exit 4
+            fi
+
+            echo "[OK] Promoted successfully." | tee "$OUT/action.txt"
+
+      - name: Done
+        run: echo "98_promote_theme finished"
