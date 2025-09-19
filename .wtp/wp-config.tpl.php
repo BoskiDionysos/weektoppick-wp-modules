@@ -35,7 +35,7 @@ if (!defined('WP_MEMORY_LIMIT')) define('WP_MEMORY_LIMIT', '512M');
 
 /* Absolute path to the WordPress directory. */
 if ( ! defined('ABSPATH') ) {
-  define('ABSPATH', _DIR_ . '/');
+  define('ABSPATH', __DIR__ . '/');
 }
 
 /* Sets up WordPress vars and included files. */
