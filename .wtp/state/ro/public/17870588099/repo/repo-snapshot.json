@@ -1,0 +1,6982 @@
+{
+  "run_id": "17870588099",
+  "run_ts": "2025-09-19T21:51:23Z",
+  "counts": {
+    "files": 1159,
+    "size": 107083470,
+    "by_category": {
+      "other": {
+        "count": 219,
+        "size": 100287479
+      },
+      "wtp-meta": {
+        "count": 930,
+        "size": 6786592
+      },
+      "mu-plugin": {
+        "count": 2,
+        "size": 2961
+      },
+      "theme": {
+        "count": 8,
+        "size": 6438
+      }
+    }
+  },
+  "files": [
+    {
+      "path": "plugins-bundle_004.json",
+      "size": 4481853,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins-bundle_010.json",
+      "size": 4500406,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "theme-bundle.json",
+      "size": 26464,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins-bundle_000.json",
+      "size": 4497331,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins-bundle_008.json",
+      "size": 4500108,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins-bundle_006.json",
+      "size": 4257752,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "manifest.json",
+      "size": 20,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins-bundle_011.json",
+      "size": 357745,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins-bundle_003.json",
+      "size": 4261529,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins-bundle_002.json",
+      "size": 4490148,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins-bundle_005.json",
+      "size": 4318646,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins-bundle_007.json",
+      "size": 4482545,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins-bundle_001.json",
+      "size": 3883980,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins-bundle_009.json",
+      "size": 4063712,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins-index.json",
+      "size": 3481,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "scripts/wtp_snapshot.sh",
+      "size": 13115,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "scripts/rsync-sync-plugins.sh",
+      "size": 1400,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "sandbox/ai-upsert-test.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-canonical-redirects.php",
+      "size": 712,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-patcher-theme.php.off",
+      "size": 5228,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-logs-export.php.off",
+      "size": 2959,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-seo.php.off",
+      "size": 15120,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-canonical.php",
+      "size": 1947,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-dev-bridge.php",
+      "size": 20183,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-log-mirror.php.off",
+      "size": 2456,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-tax-i18n-seo.php.off",
+      "size": 16625,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-theme-guardian.php",
+      "size": 1284,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-translate.php.off",
+      "size": 6543,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-patcher-plugins.php.off",
+      "size": 8668,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-exporter-chunked.php.off",
+      "size": 11518,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-ro-exporter.php",
+      "size": 10108,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-push-runner-cron.php.off",
+      "size": 4618,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/00-mu-safe-loader.php",
+      "size": 1063,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-theme-seo-bridge.php.off",
+      "size": 2749,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-deploy-guard.php",
+      "size": 3525,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-plugins-manifest.php.off",
+      "size": 1460,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "mu-plugins/wtp-patch-safe-loader-log.php",
+      "size": 732,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "runner/runner_health.json",
+      "size": 201,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "runner/inventory.json",
+      "size": 251,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "runner/runner_response.json",
+      "size": 190,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "runner/runner_logs.json",
+      "size": 111,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "releases/README.md",
+      "size": 1094,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ssot/state.json",
+      "size": 3637,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins/manifest.json",
+      "size": 444,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins/.gitkeep",
+      "size": 1,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "plugins/wtp-site-snapshot.zip",
+      "size": 607,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": ".wtp/allowed-themes.txt",
+      "size": 15,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/ai-upsert-smoke.txt",
+      "size": 25,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/allowed-plugins.txt",
+      "size": 209,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/ssot.yml",
+      "size": 364,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/protected-plugins.txt",
+      "size": 1,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/next.json",
+      "size": 1963,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/ai-upsert-file-fix-inputs.patch",
+      "size": 4386,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": "ops/HELLO.txt",
+      "size": 19,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops/manifest.built.json",
+      "size": 20,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/candidates.txt",
+      "size": 244,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "server-sync/wtp-hello-world.zip",
+      "size": 403,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "server-sync/wtp-push-runner-fixed.zip",
+      "size": 8895,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "server-sync/wtp-url-tester.zip",
+      "size": 5622,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "server-sync/wtp-seo-core.off.zip",
+      "size": 13260,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "server-sync/index.json",
+      "size": 3254,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "server-sync/wtp-agent-bridge.zip",
+      "size": 4100,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "server-sync/wtp-agent-tester.zip",
+      "size": 2099,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "server-sync/wtp-autofixer.zip",
+      "size": 4510,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "server-sync/wtp-site-snapshot.zip",
+      "size": 607,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "server-sync/wtp-config-probe.zip",
+      "size": 2250,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "server-sync/wtp-module-manager.zip",
+      "size": 3126,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "server-sync/wtp-health-check.zip",
+      "size": 7721,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870062854/tree.txt",
+      "size": 224507,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870062854/REPO_AUDIT.md",
+      "size": 504,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870062854/mu_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870062854/hooks.json",
+      "size": 1490,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870062854/filelist.txt",
+      "size": 119508,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870062854/symbol_index.json",
+      "size": 157,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870062854/repo-audit.json",
+      "size": 2009,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870062854/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870062854/includes_index.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870347419/tree.txt",
+      "size": 226001,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870347419/REPO_AUDIT.md",
+      "size": 212,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870347419/workflows.json",
+      "size": 2008,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870347419/mu_meta.json",
+      "size": 270,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870347419/hooks.json",
+      "size": 3340,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870347419/filelist.txt",
+      "size": 120205,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870347419/symbol_index.json",
+      "size": 3579,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870347419/repo-audit.json",
+      "size": 111,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870347419/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870347419/includes_index.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17870347419/workflows.md",
+      "size": 1325,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868592787/tree.txt",
+      "size": 221555,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868592787/REPO_AUDIT.md",
+      "size": 504,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868592787/mu_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868592787/hooks.json",
+      "size": 1490,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868592787/filelist.txt",
+      "size": 118157,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868592787/symbol_index.json",
+      "size": 157,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868592787/repo-audit.json",
+      "size": 2009,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868592787/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868592787/includes_index.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868080594/tree.txt",
+      "size": 213959,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868080594/REPO_AUDIT.md",
+      "size": 504,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868080594/mu_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868080594/hooks.json",
+      "size": 1490,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868080594/filelist.txt",
+      "size": 115186,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868080594/symbol_index.json",
+      "size": 157,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868080594/repo-audit.json",
+      "size": 2009,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868080594/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868080594/includes_index.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868348505/tree.txt",
+      "size": 219448,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868348505/REPO_AUDIT.md",
+      "size": 504,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868348505/mu_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868348505/hooks.json",
+      "size": 1490,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868348505/filelist.txt",
+      "size": 117289,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868348505/symbol_index.json",
+      "size": 157,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868348505/repo-audit.json",
+      "size": 2009,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868348505/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868348505/includes_index.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868222047/tree.txt",
+      "size": 216518,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868222047/REPO_AUDIT.md",
+      "size": 504,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868222047/mu_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868222047/hooks.json",
+      "size": 1490,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868222047/filelist.txt",
+      "size": 116094,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868222047/symbol_index.json",
+      "size": 157,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868222047/repo-audit.json",
+      "size": 2009,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868222047/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17868222047/includes_index.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17869631435/tree.txt",
+      "size": 222998,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17869631435/REPO_AUDIT.md",
+      "size": 504,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17869631435/mu_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17869631435/hooks.json",
+      "size": 1490,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17869631435/filelist.txt",
+      "size": 118808,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17869631435/symbol_index.json",
+      "size": 157,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17869631435/repo-audit.json",
+      "size": 2009,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17869631435/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "_out/repo_audit/17869631435/includes_index.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "wp-content/mu-plugins/zzz-wtp-emergency-recovery.php",
+      "size": 1592,
+      "mode": "0o644",
+      "category": "mu-plugin"
+    },
+    {
+      "path": "wp-content/mu-plugins/000-wtp-safemode.php",
+      "size": 1369,
+      "mode": "0o644",
+      "category": "mu-plugin"
+    },
+    {
+      "path": "wp-content/themes/wtp-core-theme/style.css",
+      "size": 1261,
+      "mode": "0o644",
+      "category": "theme"
+    },
+    {
+      "path": "wp-content/themes/wtp-core-theme/front-page.php",
+      "size": 121,
+      "mode": "0o644",
+      "category": "theme"
+    },
+    {
+      "path": "wp-content/themes/wtp-core-theme/footer.php",
+      "size": 245,
+      "mode": "0o644",
+      "category": "theme"
+    },
+    {
+      "path": "wp-content/themes/wtp-core-theme/header.php",
+      "size": 521,
+      "mode": "0o644",
+      "category": "theme"
+    },
+    {
+      "path": "wp-content/themes/wtp-core-theme/index.php",
+      "size": 511,
+      "mode": "0o644",
+      "category": "theme"
+    },
+    {
+      "path": "wp-content/themes/wtp-core-theme/functions.php",
+      "size": 2727,
+      "mode": "0o644",
+      "category": "theme"
+    },
+    {
+      "path": "wp-content/themes/wtp-core-theme/i18n/terms.en.json",
+      "size": 260,
+      "mode": "0o644",
+      "category": "theme"
+    },
+    {
+      "path": "wp-content/themes/wtp-core-theme/inc/compat-mu.php",
+      "size": 792,
+      "mode": "0o644",
+      "category": "theme"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_006.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_004.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/manifest.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_002.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/options.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_010.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_003.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/gh-digest.json.hdr",
+      "size": 701,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/index.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_008.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_007.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_005.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_001.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_000.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/files_009.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/selftest.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "ops-snapshot-sync/headers/bundle.json.hdr",
+      "size": 690,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": ".wtp/processed/004-fix-exporter-regex-and-hardening.20250909T192922Z.patch",
+      "size": 8203,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/001-hello.patch",
+      "size": 155,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T095641Z.patch",
+      "size": 9818,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/999-fix-patch-from-comment.20250909T233543Z.patch",
+      "size": 3784,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/999-fix-patch-from-comment.20250910T052216Z.patch",
+      "size": 3784,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/004-fix-exporter-regex-and-hardening.20250909T171523Z.patch",
+      "size": 8203,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T104613Z.patch",
+      "size": 9818,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/ai-upsert-file-fix2.20250910T095640Z.patch",
+      "size": 719,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/ai-upsert-file-fix-inputs2.20250910T115051Z.patch",
+      "size": 5405,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/003-deploy-site-guard-and-readme.patch",
+      "size": 4046,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/006-add-safe-loader-base.patch",
+      "size": 1050,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/003-mu-healthcheck.patch",
+      "size": 1944,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/002-mu-loader-revert-convention.20250910T075148Z.patch",
+      "size": 2736,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/apply-inbox.20250910T054314Z.patch",
+      "size": 1905,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/004-fix-exporter-regex-and-hardening.20250909T201825Z.patch",
+      "size": 8203,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/999-fix-patch-from-comment.20250910T053611Z.patch",
+      "size": 3784,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/rsync-filters-SSH-Ping.20250910T054314Z.patch",
+      "size": 3895,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/ai-upsert-file-fix3.20250910T104612Z.patch",
+      "size": 5477,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T074453Z.patch",
+      "size": 9818,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/001-fix-patch-from-comment.20250910T052215Z.patch",
+      "size": 3816,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/ai-upsert-file-fix-inputs.20250910T112625Z.patch",
+      "size": 4386,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T115052Z.patch",
+      "size": 9818,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/apply-inbox.20250910T053611Z.patch",
+      "size": 1905,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/004-fix-wtp-ro-exporter-20250909T134650Z.patch",
+      "size": 9384,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/180880-20250909T203352Z.20250909T224923Z.patch",
+      "size": 79,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/004-readme-deploy-policy.patch",
+      "size": 559,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/005-fix-exporter-null.20250909T140733.patch",
+      "size": 7218,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/004-restore-mu-safe-loader.patch",
+      "size": 803,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/004-fix-exporter-500.20250909T192921Z.patch",
+      "size": 13556,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/007-add-safe-loader-final.patch",
+      "size": 1050,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/004-fix-wtp-ro-exporter.20250909T161552.patch",
+      "size": 8358,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/007-remove-hostinger-changed-only.yml.patch",
+      "size": 92,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/001-mu-loader-revert-convention.20250910T074453Z.patch",
+      "size": 3533,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/999-fix-patch-from-comment.20250909T233134Z.patch",
+      "size": 3784,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/002-add-mu-log-plugin.patch",
+      "size": 1378,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/ai-upsert-file-fix.20250910T095512Z.patch",
+      "size": 5390,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/005-remove-deploy-changed.yml.patch",
+      "size": 84,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T112626Z.patch",
+      "size": 9818,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/006-remove-deploy-to-hostinger.yml.patch",
+      "size": 89,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T095512Z.patch",
+      "size": 9818,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/004-fix-and-disable-exporter.20250909T154203.patch",
+      "size": 14025,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/169393-20250909T202936Z.20250909T224923Z.patch",
+      "size": 46,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T061402Z.patch",
+      "size": 9818,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/005-restore-base-safe-loader.patch",
+      "size": 848,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T075149Z.patch",
+      "size": 9818,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/rsync-filters-SSH-Ping.20250910T054729Z.patch",
+      "size": 3895,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/005-snapshot-rsync-only.20250909T154611.patch",
+      "size": 4199,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T055022Z.patch",
+      "size": 9818,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/005-snapshot-ci-404-safe.20250909T161655.patch",
+      "size": 2716,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/003-add-wtp-ro-exporter.patch",
+      "size": 9384,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/004-fix-exporter-json.20250909T192922Z.patch",
+      "size": 6408,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/processed/snapshot-watchdog1.20250910T054729Z.patch",
+      "size": 9818,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/deploy/mu-plugins",
+      "size": 1,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/inbox/ai-upsert-file-v2.yml",
+      "size": 5420,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/inbox/snapshot-watchdog1.patch",
+      "size": 9818,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/reports/ci-digest-17673445235.md",
+      "size": 55098,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/reports/workflows-audit-17672456307.md",
+      "size": 3301,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/reports/protected-sanity-17674895196.md",
+      "size": 146,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/templates/wp-config.dummy.php",
+      "size": 1438,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/charity_report.json",
+      "size": 123,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/daily_tech_report.json",
+      "size": 176,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/weekly_business_report.json",
+      "size": 152,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/health/20250912T120556Z.txt",
+      "size": 23,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ci_errors/workflow_lint.txt",
+      "size": 2197,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/inventory/plugins.json",
+      "size": 844,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/inventory/themes.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/active_theme.txt",
+      "size": 15,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/wp_config_lint.txt",
+      "size": 43,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/taxonomies_terms.json",
+      "size": 5297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/tz.txt",
+      "size": 1,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/permalink.txt",
+      "size": 13,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/functions_php_head.txt",
+      "size": 833,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/ARCHITECTURE.md",
+      "size": 285,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/plugins.json",
+      "size": 710,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/menus.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/snapshot.json",
+      "size": 71804,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/blogname.txt",
+      "size": 12,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/home.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/themes.json",
+      "size": 239,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/mu_plugins.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/post_types.json",
+      "size": 2297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/theme_lint.txt",
+      "size": 294,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/files_manifest.json",
+      "size": 41680,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/siteurl.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/functions_php_lint.txt",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/admins.json",
+      "size": 184,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/options.json",
+      "size": 283,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17858485764/blogdescription.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/active_theme.txt",
+      "size": 15,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/wp_config_lint.txt",
+      "size": 43,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/taxonomies_terms.json",
+      "size": 5297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/tz.txt",
+      "size": 1,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/permalink.txt",
+      "size": 13,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/functions_php_head.txt",
+      "size": 833,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/ARCHITECTURE.md",
+      "size": 285,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/plugins.json",
+      "size": 710,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/menus.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/snapshot.json",
+      "size": 71804,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/blogname.txt",
+      "size": 12,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/home.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/themes.json",
+      "size": 239,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/mu_plugins.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/post_types.json",
+      "size": 2297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/theme_lint.txt",
+      "size": 294,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/files_manifest.json",
+      "size": 41680,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/siteurl.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/functions_php_lint.txt",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/admins.json",
+      "size": 184,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/options.json",
+      "size": 283,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17857261930/blogdescription.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870347419/tree.txt",
+      "size": 226001,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870347419/workflows.json",
+      "size": 2008,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870347419/filelist.txt",
+      "size": 120205,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870347419/workflows.md",
+      "size": 1325,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/taxonomies_terms.json",
+      "size": 29,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/tz.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/permalink.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/ARCHITECTURE.md",
+      "size": 248,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/plugins.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/menus.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/snapshot.json",
+      "size": 58216,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/blogname.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/home.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/themes.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/mu_plugins.json",
+      "size": 1812,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/post_types.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/theme_lint.txt",
+      "size": 437,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/files_manifest.json",
+      "size": 40459,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/siteurl.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/admins.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/options.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851303735/blogdescription.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/wp_config_lint.txt",
+      "size": 43,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/taxonomies_terms.json",
+      "size": 29,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/tz.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/permalink.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/functions_php_head.txt",
+      "size": 3239,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/ARCHITECTURE.md",
+      "size": 248,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/plugins.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/menus.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/snapshot.json",
+      "size": 58502,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/blogname.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/home.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/themes.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/mu_plugins.json",
+      "size": 1897,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/post_types.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/theme_lint.txt",
+      "size": 525,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/files_manifest.json",
+      "size": 40582,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/siteurl.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/functions_php_lint.txt",
+      "size": 150,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/admins.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/options.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851793811/blogdescription.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/active_theme.txt",
+      "size": 17,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/wp_config_lint.txt",
+      "size": 43,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/taxonomies_terms.json",
+      "size": 5297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/tz.txt",
+      "size": 1,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/permalink.txt",
+      "size": 13,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/functions_php_head.txt",
+      "size": 3239,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/ARCHITECTURE.md",
+      "size": 287,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/plugins.json",
+      "size": 722,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/menus.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/snapshot.json",
+      "size": 70791,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/blogname.txt",
+      "size": 12,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/home.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/themes.json",
+      "size": 119,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/mu_plugins.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/post_types.json",
+      "size": 2173,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/theme_lint.txt",
+      "size": 16,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/files_manifest.json",
+      "size": 41185,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/siteurl.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/functions_php_lint.txt",
+      "size": 150,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/admins.json",
+      "size": 184,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/options.json",
+      "size": 287,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853607718/blogdescription.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/active_theme.txt",
+      "size": 17,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/taxonomies_terms.json",
+      "size": 5297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/tz.txt",
+      "size": 1,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/permalink.txt",
+      "size": 13,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/ARCHITECTURE.md",
+      "size": 289,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/plugins.json",
+      "size": 1676,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/menus.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/snapshot.json",
+      "size": 69723,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/blogname.txt",
+      "size": 12,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/home.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/themes.json",
+      "size": 119,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/mu_plugins.json",
+      "size": 1681,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/post_types.json",
+      "size": 2297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/files_manifest.json",
+      "size": 37509,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/siteurl.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/admins.json",
+      "size": 184,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/options.json",
+      "size": 287,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836225968/blogdescription.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/taxonomies_terms.json",
+      "size": 5297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/tz.txt",
+      "size": 1,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/permalink.txt",
+      "size": 13,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/ARCHITECTURE.md",
+      "size": 273,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/plugins.json",
+      "size": 1676,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/menus.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/snapshot.json",
+      "size": 60553,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/blogname.txt",
+      "size": 12,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/home.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/themes.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/mu_plugins.json",
+      "size": 1681,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/post_types.json",
+      "size": 2297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/files_manifest.json",
+      "size": 30777,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/siteurl.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/admins.json",
+      "size": 184,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/options.json",
+      "size": 287,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767879/blogdescription.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/taxonomies_terms.json",
+      "size": 29,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/tz.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/permalink.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/ARCHITECTURE.md",
+      "size": 248,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/plugins.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/menus.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/snapshot.json",
+      "size": 57749,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/blogname.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/home.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/themes.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/mu_plugins.json",
+      "size": 1713,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/post_types.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/theme_lint.txt",
+      "size": 437,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/files_manifest.json",
+      "size": 40213,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/siteurl.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/admins.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/options.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850179479/blogdescription.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/taxonomies_terms.json",
+      "size": 5297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/tz.txt",
+      "size": 1,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/permalink.txt",
+      "size": 13,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/ARCHITECTURE.md",
+      "size": 273,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/plugins.json",
+      "size": 1676,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/menus.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/snapshot.json",
+      "size": 60383,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/blogname.txt",
+      "size": 12,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/home.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/themes.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/mu_plugins.json",
+      "size": 1681,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/post_types.json",
+      "size": 2297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/files_manifest.json",
+      "size": 30655,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/siteurl.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/admins.json",
+      "size": 184,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/options.json",
+      "size": 283,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827345100/blogdescription.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/taxonomies_terms.json",
+      "size": 29,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/tz.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/permalink.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/ARCHITECTURE.md",
+      "size": 248,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/plugins.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/menus.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/snapshot.json",
+      "size": 57916,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/blogname.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/home.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/themes.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/mu_plugins.json",
+      "size": 1713,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/post_types.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/theme_lint.txt",
+      "size": 437,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/files_manifest.json",
+      "size": 40336,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/siteurl.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/admins.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/options.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850367845/blogdescription.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/active_theme.txt",
+      "size": 15,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins_active.json",
+      "size": 99,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/wp_config_lint.txt",
+      "size": 43,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/server_info.txt",
+      "size": 267,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu_off.txt",
+      "size": 280,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/errors.txt",
+      "size": 99,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/taxonomies_terms.json",
+      "size": 5297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/tz.txt",
+      "size": 1,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/permalink.txt",
+      "size": 13,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/_slugs.txt",
+      "size": 86,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/tree.txt",
+      "size": 226001,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/wp-config.php.head.txt",
+      "size": 1436,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/theme_active.json",
+      "size": 119,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/ssot.yml",
+      "size": 364,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/functions_php_head.txt",
+      "size": 833,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/ARCHITECTURE.md",
+      "size": 285,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/workflows.json",
+      "size": 2008,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins.json",
+      "size": 1553,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/php_info.txt",
+      "size": 201,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/menus.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins_trees.tsv",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/ssot.sha1",
+      "size": 41,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/snapshot.json",
+      "size": 9336,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/blogname.txt",
+      "size": 12,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/home.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/themes.json",
+      "size": 119,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu_plugins.json",
+      "size": 844,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/post_types.json",
+      "size": 2297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/filelist.txt",
+      "size": 120205,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins_slugs.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu_trees.tsv",
+      "size": 431,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins_active.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/theme_lint.txt",
+      "size": 294,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/errors.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/files_manifest.json",
+      "size": 41680,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins_trees.json",
+      "size": 597,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/site_info.json",
+      "size": 203,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/siteurl.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/counts.json",
+      "size": 113,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/summary.txt",
+      "size": 306,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/functions_php_lint.txt",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/admins.json",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/options.json",
+      "size": 283,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/blogdescription.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins.csv",
+      "size": 545,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/workflows.md",
+      "size": 1325,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/active_theme.txt",
+      "size": 15,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/taxonomies_terms.json",
+      "size": 5297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/tz.txt",
+      "size": 1,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/permalink.txt",
+      "size": 13,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/ARCHITECTURE.md",
+      "size": 287,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/plugins.json",
+      "size": 1803,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/menus.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/snapshot.json",
+      "size": 62037,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/blogname.txt",
+      "size": 12,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/home.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/themes.json",
+      "size": 119,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/mu_plugins.json",
+      "size": 2618,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/post_types.json",
+      "size": 2297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/files_manifest.json",
+      "size": 30655,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/siteurl.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/admins.json",
+      "size": 184,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/options.json",
+      "size": 283,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825527987/blogdescription.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/taxonomies_terms.json",
+      "size": 5297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/tz.txt",
+      "size": 1,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/permalink.txt",
+      "size": 13,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/ARCHITECTURE.md",
+      "size": 273,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/plugins.json",
+      "size": 1676,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/menus.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/snapshot.json",
+      "size": 60383,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/blogname.txt",
+      "size": 12,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/home.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/themes.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/mu_plugins.json",
+      "size": 1681,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/post_types.json",
+      "size": 2297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/files_manifest.json",
+      "size": 30655,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/siteurl.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/admins.json",
+      "size": 184,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/options.json",
+      "size": 283,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17835465570/blogdescription.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/taxonomies_terms.json",
+      "size": 5297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/tz.txt",
+      "size": 1,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/permalink.txt",
+      "size": 13,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/ARCHITECTURE.md",
+      "size": 273,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/plugins.json",
+      "size": 1676,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/menus.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/snapshot.json",
+      "size": 60383,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/blogname.txt",
+      "size": 12,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/home.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/themes.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/mu_plugins.json",
+      "size": 1681,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/post_types.json",
+      "size": 2297,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/files_manifest.json",
+      "size": 30655,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/siteurl.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/admins.json",
+      "size": 184,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/options.json",
+      "size": 283,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827828879/blogdescription.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/taxonomies_terms.json",
+      "size": 29,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/tz.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/permalink.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/ARCHITECTURE.md",
+      "size": 248,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/plugins.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/menus.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/snapshot.json",
+      "size": 57749,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/blogname.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/home.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/themes.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/menus_items_merged.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/mu_plugins.json",
+      "size": 1713,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/post_types.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/files_manifest.json",
+      "size": 40213,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/siteurl.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/admins.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/options.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849636808/blogdescription.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839425885/auto-upsert/auto_upsert_17839425885/action.txt",
+      "size": 50,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839425885/auto-upsert/auto_upsert_17839425885/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839425885/auto-upsert/auto_upsert_17839425885/home_after.html",
+      "size": 54394,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839425885/auto-upsert/auto_upsert_17839425885/php_lint_after.txt",
+      "size": 126,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839425885/auto-upsert/auto_upsert_17839425885/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839425885/auto-upsert/auto_upsert_17839425885/target_path.txt",
+      "size": 44,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839425885/auto-upsert/auto_upsert_17839425885/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17822633458/repo/REPO_AUDIT.md",
+      "size": 399,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17869631435/repo/REPO_AUDIT.md",
+      "size": 504,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17869631435/repo/mu_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17869631435/repo/hooks.json",
+      "size": 1490,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17869631435/repo/symbol_index.json",
+      "size": 157,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17869631435/repo/repo-audit.json",
+      "size": 2009,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17869631435/repo/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839389317/auto-upsert/auto_upsert_17839389317/action.txt",
+      "size": 50,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839389317/auto-upsert/auto_upsert_17839389317/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839389317/auto-upsert/auto_upsert_17839389317/home_after.html",
+      "size": 54394,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839389317/auto-upsert/auto_upsert_17839389317/php_lint_after.txt",
+      "size": 126,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839389317/auto-upsert/auto_upsert_17839389317/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839389317/auto-upsert/auto_upsert_17839389317/target_path.txt",
+      "size": 44,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839389317/auto-upsert/auto_upsert_17839389317/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834945496/repo/REPO_AUDIT.md",
+      "size": 698,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853054644/unbrick/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853054644/unbrick/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853054644/unbrick/action.txt",
+      "size": 89,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853054644/unbrick/home_url.txt",
+      "size": 2677,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853054644/unbrick/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853054644/unbrick/home_after.html",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853054644/unbrick/ls.txt",
+      "size": 810,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853054644/unbrick/http_status.txt",
+      "size": 139,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853054644/unbrick/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853054644/unbrick/home_size.txt",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17823097724/repo/REPO_AUDIT.md",
+      "size": 3832,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868222047/repo/REPO_AUDIT.md",
+      "size": 504,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868222047/repo/mu_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868222047/repo/hooks.json",
+      "size": 1490,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868222047/repo/symbol_index.json",
+      "size": 157,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868222047/repo/repo-audit.json",
+      "size": 2009,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868222047/repo/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838187368/auto-upsert/auto_upsert_17838187368/action.txt",
+      "size": 50,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838187368/auto-upsert/auto_upsert_17838187368/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838187368/auto-upsert/auto_upsert_17838187368/home_after.html",
+      "size": 64131,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838187368/auto-upsert/auto_upsert_17838187368/php_lint_after.txt",
+      "size": 125,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838187368/auto-upsert/auto_upsert_17838187368/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838187368/auto-upsert/auto_upsert_17838187368/target_path.txt",
+      "size": 43,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838187368/auto-upsert/auto_upsert_17838187368/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849299034/collect-errors/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849299034/collect-errors/plugins_active.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849299034/collect-errors/wp_boot_stdout.txt",
+      "size": 2653,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849299034/collect-errors/home_url.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849299034/collect-errors/wp_boot_stderr.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849299034/collect-errors/status_admin.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849299034/collect-errors/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849299034/collect-errors/status_front.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849299034/collect-errors/status_login.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849299034/collect-errors/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825496523/repo/repo-snapshot.json",
+      "size": 104028,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825496523/repo/REPO_ARCHITECTURE.md",
+      "size": 464,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851652529/auto-upsert/auto_upsert_17851652529/action.txt",
+      "size": 86,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851652529/auto-upsert/auto_upsert_17851652529/home_after_size.txt",
+      "size": 5,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851652529/auto-upsert/auto_upsert_17851652529/home_after.html",
+      "size": 2653,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851652529/auto-upsert/auto_upsert_17851652529/php_lint_after.txt",
+      "size": 111,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851652529/auto-upsert/auto_upsert_17851652529/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851652529/auto-upsert/auto_upsert_17851652529/target_path.txt",
+      "size": 43,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851652529/auto-upsert/auto_upsert_17851652529/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17865768977/wpcli/errors.txt",
+      "size": 0,
+      "mode": "0o755",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17865768977/wpcli/active_plugins.csv",
+      "size": 283,
+      "mode": "0o755",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17865768977/wpcli/wpcli_summary.txt",
+      "size": 742,
+      "mode": "0o755",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868348505/repo/REPO_AUDIT.md",
+      "size": 504,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868348505/repo/mu_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868348505/repo/hooks.json",
+      "size": 1490,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868348505/repo/symbol_index.json",
+      "size": 157,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868348505/repo/repo-audit.json",
+      "size": 2009,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868348505/repo/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838417042/auto-upsert/auto_upsert_17838417042/backup_path.txt",
+      "size": 112,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838417042/auto-upsert/auto_upsert_17838417042/action.txt",
+      "size": 50,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838417042/auto-upsert/auto_upsert_17838417042/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838417042/auto-upsert/auto_upsert_17838417042/home_after.html",
+      "size": 64131,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838417042/auto-upsert/auto_upsert_17838417042/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838417042/auto-upsert/auto_upsert_17838417042/target_path.txt",
+      "size": 43,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838417042/auto-upsert/auto_upsert_17838417042/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834935694/repo/repo-snapshot.json",
+      "size": 129796,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834935694/repo/REPO_ARCHITECTURE.md",
+      "size": 326,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836398890/try-theme/try_theme_17836398890/activate_rc.txt",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836398890/try-theme/try_theme_17836398890/action.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836398890/try-theme/try_theme_17836398890/home_url.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836398890/try-theme/try_theme_17836398890/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836398890/try-theme/try_theme_17836398890/home_after.html",
+      "size": 64131,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836398890/try-theme/try_theme_17836398890/theme_before.txt",
+      "size": 17,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836398890/try-theme/try_theme_17836398890/theme_after.txt",
+      "size": 17,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836398890/try-theme/try_theme_17836398890/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17822802426/repo/REPO_AUDIT.md",
+      "size": 400,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834785437/core/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834785437/core/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834785437/core/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834785437/core/snapshot-core.json",
+      "size": 5485,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834785437/core/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834785437/core/plugins.json",
+      "size": 1676,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834785437/core/home.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834785437/core/themes.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834785437/core/mu_plugins.json",
+      "size": 1681,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834785437/core/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834785437/core/siteurl.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834785437/core/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17834785437/core/admins.json",
+      "size": 184,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840219478/auto-upsert/auto_upsert_17840219478/backup_path.txt",
+      "size": 113,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840219478/auto-upsert/auto_upsert_17840219478/action.txt",
+      "size": 50,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840219478/auto-upsert/auto_upsert_17840219478/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840219478/auto-upsert/auto_upsert_17840219478/home_after.html",
+      "size": 54057,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840219478/auto-upsert/auto_upsert_17840219478/php_lint_after.txt",
+      "size": 126,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840219478/auto-upsert/auto_upsert_17840219478/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840219478/auto-upsert/auto_upsert_17840219478/target_path.txt",
+      "size": 44,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840219478/auto-upsert/auto_upsert_17840219478/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840333680/auto-upsert/auto_upsert_17840333680/action.txt",
+      "size": 50,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840333680/auto-upsert/auto_upsert_17840333680/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840333680/auto-upsert/auto_upsert_17840333680/home_after.html",
+      "size": 54057,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840333680/auto-upsert/auto_upsert_17840333680/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840333680/auto-upsert/auto_upsert_17840333680/target_path.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840333680/auto-upsert/auto_upsert_17840333680/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17822617133/repo/repo-snapshot.json",
+      "size": 108380,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17822617133/repo/REPO_ARCHITECTURE.md",
+      "size": 331,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/theme/_warn.txt",
+      "size": 35,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-patch-safe-loader-log.php.header.txt",
+      "size": 43,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-deploy-guard.php.header.txt",
+      "size": 33,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/_off.txt",
+      "size": 280,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-canonical.php.header.txt",
+      "size": 39,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-ro-exporter.php.header.txt",
+      "size": 39,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/_ls.txt",
+      "size": 1573,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-canonical-redirects.php.header.txt",
+      "size": 40,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/00-mu-safe-loader.php.header.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/_hashes.txt",
+      "size": 2544,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-dev-bridge.php.header.txt",
+      "size": 72,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/screens/weektoppick.com.headers",
+      "size": 540,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/screens/weektoppick.com_wp-admin.code",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/screens/weektoppick.com.code",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/screens/weektoppick.com_kontakt.html",
+      "size": 71395,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/screens/weektoppick.com_wp-admin.html",
+      "size": 6450,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/screens/screens_index.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/screens/weektoppick.com.html",
+      "size": 64131,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/screens/weektoppick.com_kontakt.headers",
+      "size": 569,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/screens/weektoppick.com_wp-admin.headers",
+      "size": 3957,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/screens/weektoppick.com_kontakt.code",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/repo/REPO_AUDIT.md",
+      "size": 212,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/repo/mu_meta.json",
+      "size": 270,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/repo/hooks.json",
+      "size": 3340,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/repo/symbol_index.json",
+      "size": 3579,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/repo/repo-audit.json",
+      "size": 111,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/repo/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/repo/includes_index.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins/seo-by-rank-math/hashes.sha1",
+      "size": 161735,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins/seo-by-rank-math/tree.txt",
+      "size": 124145,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins/pretty-link/hashes.sha1",
+      "size": 61285,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins/pretty-link/tree.txt",
+      "size": 45829,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins/classic-editor/hashes.sha1",
+      "size": 877,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins/classic-editor/tree.txt",
+      "size": 625,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins/litespeed-cache/hashes.sha1",
+      "size": 48611,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins/litespeed-cache/tree.txt",
+      "size": 35717,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins/wordfence/hashes.sha1",
+      "size": 120203,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins/wordfence/tree.txt",
+      "size": 89585,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins/cookie-law-info/hashes.sha1",
+      "size": 59573,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/plugins/cookie-law-info/tree.txt",
+      "size": 45083,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-ro-exporter/hashes.sha1",
+      "size": 137,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-ro-exporter/tree.txt",
+      "size": 95,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-canonical-redirects/hashes.sha1",
+      "size": 145,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-canonical-redirects/tree.txt",
+      "size": 103,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-patch-safe-loader-log/hashes.sha1",
+      "size": 147,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-patch-safe-loader-log/tree.txt",
+      "size": 105,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-canonical/hashes.sha1",
+      "size": 135,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-canonical/tree.txt",
+      "size": 93,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/00-mu-safe-loader/hashes.sha1",
+      "size": 139,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/00-mu-safe-loader/tree.txt",
+      "size": 97,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-deploy-guard/hashes.sha1",
+      "size": 138,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-deploy-guard/tree.txt",
+      "size": 96,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-dev-bridge/hashes.sha1",
+      "size": 136,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/latest/mu-plugins/wtp-dev-bridge/tree.txt",
+      "size": 94,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839276779/auto-upsert/auto_upsert_17839276779/backup_path.txt",
+      "size": 116,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839276779/auto-upsert/auto_upsert_17839276779/action.txt",
+      "size": 50,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839276779/auto-upsert/auto_upsert_17839276779/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839276779/auto-upsert/auto_upsert_17839276779/home_after.html",
+      "size": 54394,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839276779/auto-upsert/auto_upsert_17839276779/php_lint_after.txt",
+      "size": 129,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839276779/auto-upsert/auto_upsert_17839276779/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839276779/auto-upsert/auto_upsert_17839276779/target_path.txt",
+      "size": 47,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839276779/auto-upsert/auto_upsert_17839276779/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17823085543/repo/repo-snapshot.json",
+      "size": 116611,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17823085543/repo/REPO_ARCHITECTURE.md",
+      "size": 4116,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839893300/try-theme/activate_rc.txt",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839893300/try-theme/action.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839893300/try-theme/home_url.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839893300/try-theme/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839893300/try-theme/home_after.html",
+      "size": 54394,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839893300/try-theme/theme_before.txt",
+      "size": 15,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839893300/try-theme/theme_after.txt",
+      "size": 15,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839893300/try-theme/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868080594/repo/REPO_AUDIT.md",
+      "size": 504,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868080594/repo/mu_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868080594/repo/hooks.json",
+      "size": 1490,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868080594/repo/symbol_index.json",
+      "size": 157,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868080594/repo/repo-audit.json",
+      "size": 2009,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868080594/repo/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868214779/repo/repo-snapshot.json",
+      "size": 291324,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868214779/repo/REPO_ARCHITECTURE.md",
+      "size": 360,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852276570/auto-upsert/auto_upsert_17852276570/backup_path.txt",
+      "size": 116,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852276570/auto-upsert/auto_upsert_17852276570/action.txt",
+      "size": 77,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852276570/auto-upsert/auto_upsert_17852276570/home_after_size.txt",
+      "size": 5,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852276570/auto-upsert/auto_upsert_17852276570/home_after.html",
+      "size": 2653,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852276570/auto-upsert/auto_upsert_17852276570/php_lint_after.txt",
+      "size": 129,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852276570/auto-upsert/auto_upsert_17852276570/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852276570/auto-upsert/auto_upsert_17852276570/http_status_after_rollback.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852276570/auto-upsert/auto_upsert_17852276570/target_path.txt",
+      "size": 47,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852276570/auto-upsert/auto_upsert_17852276570/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852605918/try-theme/try_theme_17852605918/activate_rc.txt",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852605918/try-theme/try_theme_17852605918/action.txt",
+      "size": 195,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852605918/try-theme/try_theme_17852605918/home_url.txt",
+      "size": 2677,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852605918/try-theme/try_theme_17852605918/wp_debug_temp.txt",
+      "size": 18,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852605918/try-theme/try_theme_17852605918/home_after_size.txt",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852605918/try-theme/try_theme_17852605918/home_after.html",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852605918/try-theme/try_theme_17852605918/ls.txt",
+      "size": 764,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852605918/try-theme/try_theme_17852605918/theme_before.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852605918/try-theme/try_theme_17852605918/theme_after.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852605918/try-theme/try_theme_17852605918/http_status_after.txt",
+      "size": 139,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849669787/collect-errors/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849669787/collect-errors/plugins_active.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849669787/collect-errors/wp_boot_stdout.txt",
+      "size": 2653,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849669787/collect-errors/home_url.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849669787/collect-errors/wp_boot_stderr.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849669787/collect-errors/status_admin.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849669787/collect-errors/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849669787/collect-errors/status_front.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849669787/collect-errors/status_login.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849669787/collect-errors/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849146322/hard-reset/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849146322/hard-reset/home_url.txt",
+      "size": 2654,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849146322/hard-reset/home_after_size.txt",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849146322/hard-reset/home_after.html",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17849146322/hard-reset/http_status_after.txt",
+      "size": 139,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17822421735/repo/repo-snapshot.json",
+      "size": 107907,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17822421735/repo/REPO_ARCHITECTURE.md",
+      "size": 331,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17822906054/repo/REPO_AUDIT.md",
+      "size": 400,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840281636/auto-upsert/auto_upsert_17840281636/action.txt",
+      "size": 50,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840281636/auto-upsert/auto_upsert_17840281636/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840281636/auto-upsert/auto_upsert_17840281636/home_after.html",
+      "size": 54057,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840281636/auto-upsert/auto_upsert_17840281636/php_lint_after.txt",
+      "size": 130,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840281636/auto-upsert/auto_upsert_17840281636/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840281636/auto-upsert/auto_upsert_17840281636/target_path.txt",
+      "size": 48,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840281636/auto-upsert/auto_upsert_17840281636/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839467644/auto-upsert/auto_upsert_17839467644/backup_path.txt",
+      "size": 112,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839467644/auto-upsert/auto_upsert_17839467644/action.txt",
+      "size": 50,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839467644/auto-upsert/auto_upsert_17839467644/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839467644/auto-upsert/auto_upsert_17839467644/home_after.html",
+      "size": 54394,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839467644/auto-upsert/auto_upsert_17839467644/php_lint_after.txt",
+      "size": 125,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839467644/auto-upsert/auto_upsert_17839467644/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839467644/auto-upsert/auto_upsert_17839467644/target_path.txt",
+      "size": 43,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839467644/auto-upsert/auto_upsert_17839467644/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840146447/auto-upsert/auto_upsert_17840146447/backup_path.txt",
+      "size": 112,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840146447/auto-upsert/auto_upsert_17840146447/action.txt",
+      "size": 50,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840146447/auto-upsert/auto_upsert_17840146447/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840146447/auto-upsert/auto_upsert_17840146447/home_after.html",
+      "size": 54057,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840146447/auto-upsert/auto_upsert_17840146447/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840146447/auto-upsert/auto_upsert_17840146447/target_path.txt",
+      "size": 43,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840146447/auto-upsert/auto_upsert_17840146447/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868592787/repo/REPO_AUDIT.md",
+      "size": 504,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868592787/repo/mu_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868592787/repo/hooks.json",
+      "size": 1490,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868592787/repo/symbol_index.json",
+      "size": 157,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868592787/repo/repo-audit.json",
+      "size": 2009,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868592787/repo/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840248330/auto-upsert/auto_upsert_17840248330/backup_path.txt",
+      "size": 113,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840248330/auto-upsert/auto_upsert_17840248330/action.txt",
+      "size": 50,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840248330/auto-upsert/auto_upsert_17840248330/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840248330/auto-upsert/auto_upsert_17840248330/home_after.html",
+      "size": 54057,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840248330/auto-upsert/auto_upsert_17840248330/php_lint_after.txt",
+      "size": 126,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840248330/auto-upsert/auto_upsert_17840248330/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840248330/auto-upsert/auto_upsert_17840248330/target_path.txt",
+      "size": 44,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840248330/auto-upsert/auto_upsert_17840248330/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840354760/try-theme/activate_rc.txt",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840354760/try-theme/action.txt",
+      "size": 197,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840354760/try-theme/home_url.txt",
+      "size": 2654,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840354760/try-theme/home_after_size.txt",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840354760/try-theme/home_after.html",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840354760/try-theme/theme_before.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840354760/try-theme/theme_after.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840354760/try-theme/http_status_after.txt",
+      "size": 139,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838143259/auto-upsert/auto_upsert_17838143259/action.txt",
+      "size": 50,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838143259/auto-upsert/auto_upsert_17838143259/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838143259/auto-upsert/auto_upsert_17838143259/home_after.html",
+      "size": 64131,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838143259/auto-upsert/auto_upsert_17838143259/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838143259/auto-upsert/auto_upsert_17838143259/target_path.txt",
+      "size": 43,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17838143259/auto-upsert/auto_upsert_17838143259/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840174824/auto-upsert/auto_upsert_17840174824/backup_path.txt",
+      "size": 116,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840174824/auto-upsert/auto_upsert_17840174824/action.txt",
+      "size": 50,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840174824/auto-upsert/auto_upsert_17840174824/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840174824/auto-upsert/auto_upsert_17840174824/home_after.html",
+      "size": 54057,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840174824/auto-upsert/auto_upsert_17840174824/php_lint_after.txt",
+      "size": 115,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840174824/auto-upsert/auto_upsert_17840174824/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840174824/auto-upsert/auto_upsert_17840174824/target_path.txt",
+      "size": 47,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17840174824/auto-upsert/auto_upsert_17840174824/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853887465/try-theme/activate_rc.txt",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853887465/try-theme/action.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853887465/try-theme/home_url.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853887465/try-theme/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853887465/try-theme/home_after.html",
+      "size": 27686,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853887465/try-theme/theme_before.txt",
+      "size": 15,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853887465/try-theme/theme_after.txt",
+      "size": 15,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853887465/try-theme/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17854141226/restore-plugins/action.txt",
+      "size": 481,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17854141226/restore-plugins/broken.txt",
+      "size": 1,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17854141226/restore-plugins/home_url.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17854141226/restore-plugins/healthy.txt",
+      "size": 86,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17854141226/restore-plugins/http_status.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17854141226/restore-plugins/home_sample.html",
+      "size": 54159,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17854141226/restore-plugins/home_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853429831/healthcheck/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853429831/healthcheck/home_url.txt",
+      "size": 2654,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853429831/healthcheck/index.php.head.txt",
+      "size": 404,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853429831/healthcheck/healthcheck_url.txt",
+      "size": 2670,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853429831/healthcheck/health_status.txt",
+      "size": 139,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853429831/healthcheck/htaccess.head.txt",
+      "size": 3374,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853429831/healthcheck/health_size.txt",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853429831/healthcheck/webroot_ls.txt",
+      "size": 3939,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853429831/healthcheck/health_body.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853429831/healthcheck/health_headers.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17853429831/healthcheck/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839251198/auto-upsert/auto_upsert_17839251198/backup_path.txt",
+      "size": 112,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839251198/auto-upsert/auto_upsert_17839251198/action.txt",
+      "size": 77,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839251198/auto-upsert/auto_upsert_17839251198/home_after_size.txt",
+      "size": 5,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839251198/auto-upsert/auto_upsert_17839251198/home_after.html",
+      "size": 2653,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839251198/auto-upsert/auto_upsert_17839251198/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839251198/auto-upsert/auto_upsert_17839251198/http_status_after_rollback.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839251198/auto-upsert/auto_upsert_17839251198/target_path.txt",
+      "size": 43,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839251198/auto-upsert/auto_upsert_17839251198/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850263993/auto-upsert/auto_upsert_17850263993/backup_path.txt",
+      "size": 116,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850263993/auto-upsert/auto_upsert_17850263993/action.txt",
+      "size": 77,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850263993/auto-upsert/auto_upsert_17850263993/home_after_size.txt",
+      "size": 5,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850263993/auto-upsert/auto_upsert_17850263993/home_after.html",
+      "size": 2653,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850263993/auto-upsert/auto_upsert_17850263993/php_lint_after.txt",
+      "size": 115,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850263993/auto-upsert/auto_upsert_17850263993/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850263993/auto-upsert/auto_upsert_17850263993/http_status_after_rollback.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850263993/auto-upsert/auto_upsert_17850263993/target_path.txt",
+      "size": 47,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17850263993/auto-upsert/auto_upsert_17850263993/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17822794367/repo/repo-snapshot.json",
+      "size": 114785,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17822794367/repo/REPO_ARCHITECTURE.md",
+      "size": 332,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870347419/repo/REPO_AUDIT.md",
+      "size": 212,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870347419/repo/mu_meta.json",
+      "size": 270,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870347419/repo/hooks.json",
+      "size": 3340,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870347419/repo/symbol_index.json",
+      "size": 3579,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870347419/repo/repo-audit.json",
+      "size": 111,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870347419/repo/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870347419/repo/includes_index.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870062854/repo/REPO_AUDIT.md",
+      "size": 504,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870062854/repo/mu_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870062854/repo/hooks.json",
+      "size": 1490,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870062854/repo/symbol_index.json",
+      "size": 157,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870062854/repo/repo-audit.json",
+      "size": 2009,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17870062854/repo/plugin_meta.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17837671206/try-theme/activate_rc.txt",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17837671206/try-theme/action.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17837671206/try-theme/home_url.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17837671206/try-theme/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17837671206/try-theme/home_after.html",
+      "size": 64131,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17837671206/try-theme/theme_before.txt",
+      "size": 17,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17837671206/try-theme/theme_after.txt",
+      "size": 17,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17837671206/try-theme/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827047229/core/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827047229/core/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827047229/core/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827047229/core/snapshot-core.json",
+      "size": 5485,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827047229/core/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827047229/core/plugins.json",
+      "size": 1676,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827047229/core/home.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827047229/core/themes.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827047229/core/mu_plugins.json",
+      "size": 1681,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827047229/core/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827047229/core/siteurl.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827047229/core/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17827047229/core/admins.json",
+      "size": 184,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839506113/try-theme/activate_rc.txt",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839506113/try-theme/action.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839506113/try-theme/home_url.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839506113/try-theme/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839506113/try-theme/home_after.html",
+      "size": 54394,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839506113/try-theme/theme_before.txt",
+      "size": 15,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839506113/try-theme/theme_after.txt",
+      "size": 15,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17839506113/try-theme/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17866313932/repo/repo-snapshot.json",
+      "size": 285680,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17866313932/repo/REPO_ARCHITECTURE.md",
+      "size": 360,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868561362/repo/REPO_AUDIT.md",
+      "size": 500,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868561362/repo/repo-snapshot.json",
+      "size": 168155,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868561362/repo/REPO_ARCHITECTURE.md",
+      "size": 6766,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836816971/try-theme/try_theme_17836816971/activate_rc.txt",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836816971/try-theme/try_theme_17836816971/action.txt",
+      "size": 52,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836816971/try-theme/try_theme_17836816971/home_url.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836816971/try-theme/try_theme_17836816971/home_after_size.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836816971/try-theme/try_theme_17836816971/home_after.html",
+      "size": 64131,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836816971/try-theme/try_theme_17836816971/theme_before.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836816971/try-theme/try_theme_17836816971/theme_after.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836816971/try-theme/try_theme_17836816971/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852936675/collect-errors/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852936675/collect-errors/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852936675/collect-errors/wp_boot_stderr.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852936675/collect-errors/status_admin.txt",
+      "size": 3,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852936675/collect-errors/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852936675/collect-errors/ls.txt",
+      "size": 611,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852936675/collect-errors/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17825508916/repo/REPO_AUDIT.md",
+      "size": 723,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852143907/auto-upsert/auto_upsert_17852143907/backup_path.txt",
+      "size": 116,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852143907/auto-upsert/auto_upsert_17852143907/action.txt",
+      "size": 77,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852143907/auto-upsert/auto_upsert_17852143907/home_after_size.txt",
+      "size": 5,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852143907/auto-upsert/auto_upsert_17852143907/home_after.html",
+      "size": 2653,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852143907/auto-upsert/auto_upsert_17852143907/php_lint_after.txt",
+      "size": 129,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852143907/auto-upsert/auto_upsert_17852143907/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852143907/auto-upsert/auto_upsert_17852143907/http_status_after_rollback.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852143907/auto-upsert/auto_upsert_17852143907/target_path.txt",
+      "size": 47,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852143907/auto-upsert/auto_upsert_17852143907/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17867603100/repo/repo-snapshot.json",
+      "size": 286616,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17867603100/repo/REPO_ARCHITECTURE.md",
+      "size": 360,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767847/core/active_theme.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767847/core/ts_utc.txt",
+      "size": 21,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767847/core/errors.txt",
+      "size": 0,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767847/core/snapshot-core.json",
+      "size": 5485,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767847/core/wp_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767847/core/plugins.json",
+      "size": 1676,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767847/core/home.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767847/core/themes.json",
+      "size": 2,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767847/core/mu_plugins.json",
+      "size": 1681,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767847/core/hostname.txt",
+      "size": 31,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767847/core/siteurl.txt",
+      "size": 24,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767847/core/php_version.txt",
+      "size": 6,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17836767847/core/admins.json",
+      "size": 184,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851243489/auto-upsert/auto_upsert_17851243489/action.txt",
+      "size": 86,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851243489/auto-upsert/auto_upsert_17851243489/home_after_size.txt",
+      "size": 5,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851243489/auto-upsert/auto_upsert_17851243489/home_after.html",
+      "size": 2653,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851243489/auto-upsert/auto_upsert_17851243489/php_lint_after.txt",
+      "size": 121,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851243489/auto-upsert/auto_upsert_17851243489/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851243489/auto-upsert/auto_upsert_17851243489/target_path.txt",
+      "size": 53,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17851243489/auto-upsert/auto_upsert_17851243489/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852374292/auto-upsert/auto_upsert_17852374292/backup_path.txt",
+      "size": 116,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852374292/auto-upsert/auto_upsert_17852374292/action.txt",
+      "size": 77,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852374292/auto-upsert/auto_upsert_17852374292/home_after_size.txt",
+      "size": 5,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852374292/auto-upsert/auto_upsert_17852374292/home_after.html",
+      "size": 2653,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852374292/auto-upsert/auto_upsert_17852374292/php_lint_after.txt",
+      "size": 115,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852374292/auto-upsert/auto_upsert_17852374292/error_log",
+      "size": 76,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852374292/auto-upsert/auto_upsert_17852374292/http_status_after_rollback.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852374292/auto-upsert/auto_upsert_17852374292/target_path.txt",
+      "size": 47,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17852374292/auto-upsert/auto_upsert_17852374292/http_status_after.txt",
+      "size": 4,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868298753/repo/repo-snapshot.json",
+      "size": 216953,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/state/ro/public/17868298753/repo/REPO_ARCHITECTURE.md",
+      "size": 3947,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": ".wtp/vendor/plugins/.gitkeep",
+      "size": 1,
+      "mode": "0o644",
+      "category": "wtp-meta"
+    },
+    {
+      "path": "runner/logs/selftest.json",
+      "size": 3,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/selftest.txt",
+      "size": 59,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/test-agent.txt",
+      "size": 8,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/style.css",
+      "size": 2060,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/.wtp_check.txt",
+      "size": 13,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/.gitkeep",
+      "size": 1,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/footer.php",
+      "size": 175,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/header.php",
+      "size": 434,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/CHANGELOG.md",
+      "size": 562,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/index.php",
+      "size": 383,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/functions.php",
+      "size": 4679,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.cs.json",
+      "size": 461,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.es.json",
+      "size": 482,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.pl.json",
+      "size": 479,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.en.json",
+      "size": 463,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.de.json",
+      "size": 477,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.sk.json",
+      "size": 456,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.pt.json",
+      "size": 489,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/i18n/terms.fr.json",
+      "size": 496,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/templates/parts/category-chips.php",
+      "size": 1823,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/templates/parts/charity-banner.php",
+      "size": 608,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/templates/parts/lang-switcher.php",
+      "size": 461,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/js/wtp.js",
+      "size": 1654,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/css/wtp.css",
+      "size": 0,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/travel-outdoor.svg",
+      "size": 136,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/electronics.svg",
+      "size": 136,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/pets.svg",
+      "size": 136,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/sports-fitness.svg",
+      "size": 136,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/default.svg",
+      "size": 136,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/beauty-health.svg",
+      "size": 136,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/fashion.svg",
+      "size": 136,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/hobby-entertainment.svg",
+      "size": 136,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/kids-toys.svg",
+      "size": 136,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "themes/wtp-core-theme/assets/icons/home-garden.svg",
+      "size": 136,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "docs/locks/WeekTopPick_LOCKS_v3.0.md",
+      "size": 4463,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "docs/locks/index.json",
+      "size": 1515,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_002.json",
+      "size": 2092389,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_008.json",
+      "size": 2095951,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_019.json",
+      "size": 2095423,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/gh-digest.json",
+      "size": 114,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/ls.json",
+      "size": 2116,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_000.json",
+      "size": 2057429,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_012.json",
+      "size": 2095298,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_003.json",
+      "size": 2087855,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_020.json",
+      "size": 2066492,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/selftest.json",
+      "size": 282292,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/manifest.json",
+      "size": 114,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_016.json",
+      "size": 2011450,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/logs.old",
+      "size": 2,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/_files.txt",
+      "size": 14,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_011.json",
+      "size": 2082680,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_004.json",
+      "size": 2096691,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_005.json",
+      "size": 2082222,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/index.json",
+      "size": 580,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_018.json",
+      "size": 2096805,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_015.json",
+      "size": 1923528,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_014.json",
+      "size": 2093982,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_001.json",
+      "size": 2010838,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_017.json",
+      "size": 1957906,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_007.json",
+      "size": 2086706,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/wp-debug-meta.json",
+      "size": 201,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_006.json",
+      "size": 2097143,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/wp-debug-latest.txt",
+      "size": 30955,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_010.json",
+      "size": 2094642,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_009.json",
+      "size": 2095389,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/php_errors-latest.txt",
+      "size": 9083,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files_013.json",
+      "size": 2054610,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/options.json",
+      "size": 978,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/bundle.json",
+      "size": 71,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/files.list",
+      "size": 428,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/config/config_dump.json",
+      "size": 246,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/logs/mu-loader-latest.txt",
+      "size": 650907,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/logs/wp-debug-meta.json",
+      "size": 256,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/logs/wp-debug-latest.txt",
+      "size": 2528928,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/logs/errors-tail.txt",
+      "size": 113524,
+      "mode": "0o644",
+      "category": "other"
+    },
+    {
+      "path": "snapshots/5Depft8Y9LU0t6Sv/logs/php_errors-latest.txt",
+      "size": 2528928,
+      "mode": "0o644",
+      "category": "other"
+    }
+  ]
+}
