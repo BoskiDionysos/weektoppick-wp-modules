@@ -1,0 +1,105 @@
+name: 92_root_healthcheck
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: root-healthcheck
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      RUN_ID: ${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y sshpass
+
+      - name: Create & test healthcheck on remote
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          envs: TARGET,RUN_ID
+          script: |
+            set -euo pipefail
+            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+            cd "${TARGET}" || { echo "[ERR] no TARGET ${TARGET}"; exit 2; }
+            OUT="${TARGET}/.wtp/state/ci_logs/healthcheck_${RUN_ID}"
+            mkdir -p "${OUT}"
+
+            # 1) utwórz prosty endpoint poza WP
+            cat > healthcheck.php <<'PHP'
+            <?php
+            header('Content-Type: text/plain; charset=utf-8');
+            echo "OK\n";
+            echo "ts=" . gmdate('c') . "\n";
+            echo "php=" . PHP_VERSION . "\n";
+            PHP
+
+            # 2) spróbuj pobrać bezpośrednio (pełny URL)
+            # Ustal bazowy host z wp-config/wp-load (jeśli się da), inaczej domena
+            HOMEURL="$(php -r 'if(file_exists("wp-config.php")){include "wp-config.php";@include "wp-load.php"; if(function_exists("get_option")){echo get_option("home");}}' 2>/dev/null || true)"
+            BASE="${HOMEURL:-https://weektoppick.com}"
+            echo "$BASE" > "${OUT}/home_url.txt"
+
+            # 3) curl do healthcheck.php
+            HC_URL="${BASE%/}/healthcheck.php"
+            echo "$HC_URL" > "${OUT}/healthcheck_url.txt"
+
+            STATUS=$(curl -ks -o /dev/null -w "%{http_code}" "$HC_URL" || echo 000)
+            BODY="$(curl -ks "$HC_URL" || true)"
+            echo "$STATUS" > "${OUT}/health_status.txt"
+            printf "%s" "$BODY" > "${OUT}/health_body.txt"
+            echo "$(printf "%s" "$BODY" | wc -c)" > "${OUT}/health_size.txt"
+
+            # 4) zachowaj nagłówki i podstawowe pliki
+            curl -ks -D - "$HC_URL" -o /dev/null > "${OUT}/health_headers.txt" || true
+            [ -f ".htaccess" ] && sed -n '1,200p' .htaccess > "${OUT}/htaccess.head.txt" || : > "${OUT}/htaccess.head.txt"
+            [ -f "index.php" ] && sed -n '1,120p' index.php > "${OUT}/index.php.head.txt" || : > "${OUT}/index.php.head.txt"
+
+            # 5) wersje
+            php -r 'echo PHP_VERSION;' > "${OUT}/php_version.txt" 2>/dev/null || echo unknown > "${OUT}/php_version.txt"
+
+            date -u +%FT%TZ > "${OUT}/ts_utc.txt"
+            ls -la > "${OUT}/webroot_ls.txt" || true
+            echo "[INFO] healthcheck saved: ${OUT}"
+
+      - name: Pull & publish healthcheck
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${RUN_ID}/healthcheck"
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
+            "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/healthcheck_${RUN_ID}/." \
+            "_ci_logs/${RUN_ID}/healthcheck/" || { echo "::error::no healthcheck pulled"; exit 2; }
+
+          RO_DIR=".wtp/state/ro/public/${RUN_ID}/healthcheck"
+          RO_LATEST=".wtp/state/ro/public/latest/healthcheck"
+          mkdir -p "${RO_DIR}" "${RO_LATEST}"
+          cp -a "_ci_logs/${RUN_ID}/healthcheck/." "${RO_DIR}/"
+          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"
+          cp -a "${RO_DIR}/." "${RO_LATEST}/"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "[ci] root healthcheck ${RUN_ID}" || echo "Nothing to commit"
+          git push origin HEAD:${GITHUB_REF_NAME:-main} || echo "[WARN] push failed"
