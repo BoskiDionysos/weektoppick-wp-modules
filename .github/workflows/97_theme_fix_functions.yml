@@ -1,10 +1,12 @@
 name: 97_theme_fix_functions
 on:
   workflow_dispatch: {}
+
 permissions:
-  contents: write
+  contents: read
+
 concurrency:
-  group: theme-fix-functions
+  group: fix-functions
   cancel-in-progress: true
 
 jobs:
@@ -17,61 +19,9 @@ jobs:
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
-      RUN_ID: ${{ github.run_id }}
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Replace functions.php with safe stub
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host:     ${{ env.HOST }}
-          username: ${{ env.USER }}
-          password: ${{ env.PASS }}
-          port:     ${{ env.PORT }}
-          envs: TARGET,RUN_ID
-          script: |
-            set -euo pipefail
-            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
-            cd "$TARGET"
-
-            THEME_DIR="wp-content/themes/wtp-core-theme"
-            FILE="$THEME_DIR/functions.php"
-            OUT="$TARGET/.wtp/state/ci_logs/theme_fix_${RUN_ID}"
-            mkdir -p "$OUT" "$THEME_DIR"
-
-            # backup jeśli istnieje
-            if [ -f "$FILE" ]; then
-              cp -f "$FILE" "$OUT/functions.php.bak" || true
-            fi
-
-            # bezpieczny stub (brak short open tags, tylko PHP)
-            cat > "$FILE" <<'PHP'
-<?php
-/**
- * Safe stub functions.php for wtp-core-theme.
- * Keeps site alive while we iterate.
- */
-if (!defined('ABSPATH')) { exit; }
-
-/** Basic theme supports */
-add_action('after_setup_theme', function () {
-    add_theme_support('title-tag');
-    add_theme_support('post-thumbnails');
-});
-
-/** No-op placeholders to avoid fatal errors if called elsewhere */
-if (!function_exists('wtp_bootstrap')) {
-    function wtp_bootstrap() { return true; }
-}
-PHP
-
-            # szybka walidacja składni
-            php -l "$FILE" || { echo "[ERR] PHP lint failed"; exit 3; }
-
-            echo "[OK] functions.php replaced with safe stub" | tee "$OUT/action.txt"
-
-      - name: Purge caches (best effort)
+      - name: Patch functions.php (ensure valid PHP open tags) + lint
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ env.HOST }}
@@ -83,7 +33,35 @@ PHP
             set -euo pipefail
             TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
             cd "$TARGET"
-            if command -v wp >/dev/null 2>&1; then
-              wp plugin is-active litespeed-cache >/dev/null 2>&1 && wp litespeed-purge all || true
+
+            FILE="wp-content/themes/wtp-core-theme/functions.php"
+            if [ ! -f "$FILE" ]; then
+              echo "::error file not found::$FILE"
+              exit 1
             fi
-            echo "[OK] purge attempted"
+
+            # backup
+            cp -a "$FILE" "${FILE}.bak.$(date -u +%Y%m%d%H%M%S)"
+
+            # PHP one-liner: do 2 rzeczy
+            # 1) jeżeli plik nie zaczyna się od <?php — dopisz
+            # 2) zamień " ?php" (bez '<') na "<?php"
+            php -r '
+              $f = "wp-content/themes/wtp-core-theme/functions.php";
+              $s = file_get_contents($f);
+              if ($s === false) { fwrite(STDERR, "read failed\n"); exit(2); }
+              if (strncmp($s, "<?php", 5) !== 0) { $s = "<?php\n" . $s; }
+              $s = preg_replace("/(?<!<)\\?php/", "<?php", $s);
+              file_put_contents($f, $s);
+            '
+
+            # lint – jeżeli błąd, wyjdź
+            php -l "$FILE"
+
+            # pokaż nagłówek pliku dla kontroli
+            head -n 40 "$FILE" || true
+
+            # purge cache jeśli Litespeed aktywny
+            if command -v wp >/dev/null 2>&1; then
+              wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+            fi
