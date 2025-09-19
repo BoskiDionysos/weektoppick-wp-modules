@@ -57,16 +57,32 @@ jobs:
             OUT="${TARGET}/.wtp/state/ci_logs/snapshot_full"
             mkdir -p "${OUT}" "${OUT}/menus"
             WP="$(command -v wp || true)"
+
+            # Wersja PHP
             php -r 'echo PHP_VERSION;' > "${OUT}/php_version.txt" 2>/dev/null || echo unknown > "${OUT}/php_version.txt"
 
-            # === DODANE: lint motywu (wynik -> theme_lint.txt) ===
+            # === LINT MOTYWU + DIAGNOSTYKA PLIKÓW KRYTYCZNYCH ===
             if [ -d "wp-content/themes/wtp-core-theme" ]; then
+              # pełny lint wszystkich plików PHP motywu (z numerami linii)
               find wp-content/themes/wtp-core-theme -type f -name "*.php" \
-                -exec php -l {} \; > "${OUT}/theme_lint.txt" 2>&1 || true
+                -exec sh -c 'php -d display_errors=1 -l "$1" 2>&1' _ {} \; \
+                > "${OUT}/theme_lint.txt" 2>&1 || true
+
+              # szczegółowo functions.php – lint + podgląd pierwszych 120 linii
+              php -d display_errors=1 -l wp-content/themes/wtp-core-theme/functions.php \
+                > "${OUT}/functions_php_lint.txt" 2>&1 || true
+              nl -ba wp-content/themes/wtp-core-theme/functions.php | sed -n '1,120p' \
+                > "${OUT}/functions_php_head.txt" || true
             else
               echo "theme not found" > "${OUT}/theme_lint.txt"
             fi
-            # === KONIEC DODATKU ===
+
+            # wp-config.php – szybki lint (częsty winowajca fatal przed logami)
+            if [ -f "wp-config.php" ]; then
+              php -d display_errors=1 -l wp-config.php \
+                > "${OUT}/wp_config_lint.txt" 2>&1 || true
+            fi
+            # === KONIEC DIAGNOSTYKI ===
 
             if [ -n "$WP" ]; then
               $WP core version 2>/dev/null > "${OUT}/wp_version.txt" || echo unknown > "${OUT}/wp_version.txt"
@@ -87,13 +103,16 @@ jobs:
               : > "${OUT}/home.txt"; : > "${OUT}/siteurl.txt"; : > "${OUT}/blogname.txt"; : > "${OUT}/blogdescription.txt"; : > "${OUT}/tz.txt"; : > "${OUT}/permalink.txt"
               echo "[]" > "${OUT}/plugins.json"; echo "[]" > "${OUT}/themes.json"; echo "[]" > "${OUT}/admins.json"; echo "[]" > "${OUT}/post_types.json"; : > "${OUT}/active_theme.txt"; echo "[]" > "${OUT}/menus.json"
             fi
+
             hostname > "${OUT}/hostname.txt" 2>/dev/null || echo unknown > "${OUT}/hostname.txt"
             date -u +%FT%TZ > "${OUT}/ts_utc.txt" 2>/dev/null || echo unknown > "${OUT}/ts_utc.txt"
+
             php -r '
               $d="wp-content/mu-plugins"; $o=[];
               if (is_dir($d)) foreach (scandir($d) as $f){ if($f==="."||$f==="..")continue; $p="$d/$f"; if(is_file($p)) $o[]=["file"=>$f,"size"=>@filesize($p),"md5"=>@md5_file($p)];}
               echo json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
             ' > "${OUT}/mu_plugins.json" 2>/dev/null || echo "[]" > "${OUT}/mu_plugins.json"
+
             php -r '
               require_once "wp-load.php";
               $tx = get_taxonomies([], "objects");
@@ -105,6 +124,7 @@ jobs:
               }
               echo json_encode($out, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
             ' > "${OUT}/taxonomies_terms.json" 2>/dev/null || echo '{"taxonomies":[],"terms":{}}' > "${OUT}/taxonomies_terms.json"
+
             if [ -s "${OUT}/menus.json" ] && [ -n "$WP" ]; then
               php -r '
                 $out = getenv("OUT");
@@ -120,12 +140,14 @@ jobs:
                 }
               ' 2>/dev/null || true
             fi
+
             php -r '
               require_once "wp-load.php";
               $keys=["siteurl","home","blogname","blogdescription","timezone_string","permalink_structure","template","stylesheet"];
               $o=[]; foreach($keys as $k){ $o[$k]=get_option($k); }
               echo json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
             ' > "${OUT}/options.json" 2>/dev/null || echo "{}" > "${OUT}/options.json"
+
             php -r '
               function scan($base,$exts,$max){ $it=new RecursiveIteratorIterator(new RecursiveDirectoryIterator($base,FilesystemIterator::SKIP_DOTS)); $o=[]; $n=0;
                 foreach($it as $f){ if($n>=$max) break; $p=$f->getPathname(); $e=strtolower(pathinfo($p,PATHINFO_EXTENSION));
@@ -136,6 +158,7 @@ jobs:
               $o=["www"=>scan(getcwd(),$ext,3000),"uploads"=>scan("wp-content/uploads",$ext,5000)];
               echo json_encode($o, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
             ' > "${OUT}/files_manifest.json" 2>/dev/null || echo '{"www":[],"uploads":[]}' > "${OUT}/files_manifest.json"
+
             : > "${OUT}/errors.txt" || true
             echo "[INFO] full snapshot written to ${OUT}"
 
