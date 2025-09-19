@@ -1,3 +1,0 @@
-[OK] mu-plugins moved to .off
-[OK] deactivated all plugins
-[OK] theme = twentytwentyfive
