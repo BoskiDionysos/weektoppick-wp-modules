@@ -1,0 +1,14 @@
+[INFO] Deactivating all to start fresh
+[INFO] Trying plugin: litespeed-cache
+[OK] plugin healthy: litespeed-cache
+[INFO] Trying plugin: seo-by-rank-math
+[OK] plugin healthy: seo-by-rank-math
+[INFO] Trying plugin: pretty-link
+[OK] plugin healthy: pretty-link
+[INFO] Trying plugin: wordfence
+[OK] plugin healthy: wordfence
+[INFO] Trying plugin: cookie-law-info
+[OK] plugin healthy: cookie-law-info
+[INFO] Trying plugin: classic-editor
+[OK] plugin healthy: classic-editor
+[INFO] done
