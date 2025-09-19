@@ -13,7 +13,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     env:
       HOST:   ${{ secrets.DEPLOY_HOST }}
       PORT:   ${{ secrets.DEPLOY_PORT }}
@@ -23,74 +23,92 @@ jobs:
       RUN_ID: ${{ github.run_id }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: 1) Checkout repo
+        uses: actions/checkout@v4
 
-      - name: Setup tools
+      - name: 2) Setup tools
         run: |
           set -euo pipefail
           sudo apt-get update -y
           sudo apt-get install -y sshpass
 
-      - name: Collect errors & admin status
+      - name: 3) Remote collect (errors + admin/theme status)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          envs: TARGET,RUN_ID
+          script: |
+            set -euo pipefail
+            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+            cd "${TARGET}" || { echo "[ERR] no TARGET ${TARGET}"; exit 2; }
+
+            OUT="${TARGET}/.wtp/state/ci_logs/collect_errors_${RUN_ID}"
+            mkdir -p "${OUT}"
+
+            # Active theme (if wp-cli exists)
+            if command -v wp >/dev/null 2>&1; then
+              wp theme list --status=active --field=name 2>/dev/null | head -n1 > "${OUT}/active_theme.txt" || :
+              wp user list --role=administrator --field=user_login --format=json 2>/dev/null > "${OUT}/status_admin.txt" || echo "[]" > "${OUT}/status_admin.txt"
+            else
+              : > "${OUT}/active_theme.txt"
+              echo "[]" > "${OUT}/status_admin.txt"
+            fi
+
+            # Logs (tail)
+            for LOG in error_log logs/error_log wp-content/debug.log; do
+              [ -f "$LOG" ] && tail -n 200 "$LOG" > "${OUT}/$(echo "$LOG" | tr '/' '_')" || true
+            done
+
+            # WP bootstrap stderr (non-fatal)
+            php -r 'require "wp-load.php"; echo "OK\n";' 1>/dev/null 2> "${OUT}/wp_boot_stderr.txt" || true
+
+            # PHP & WP versions (best-effort)
+            php -r 'echo PHP_VERSION;' > "${OUT}/php_version.txt" 2>/dev/null || echo unknown > "${OUT}/php_version.txt"
+            if command -v wp >/dev/null 2>&1; then
+              wp core version 2>/dev/null > "${OUT}/wp_version.txt" || echo unknown > "${OUT}/wp_version.txt"
+            else
+              echo unknown > "${OUT}/wp_version.txt"
+            fi
+
+            date -u +%FT%TZ > "${OUT}/ts_utc.txt"
+            ls -la "${OUT}" > "${OUT}/ls.txt" || true
+            echo "[INFO] collected into ${OUT}"
+
+      - name: 4) Pull collected logs from server
         run: |
           set -euo pipefail
-          mkdir -p "_ci_logs/${RUN_ID}"
-          REMOTE_DIR="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
-          OUT="${REMOTE_DIR}/.wtp/state/ci_logs/collect_errors"
-          mkdir -p "${OUT}"
+          mkdir -p "_ci_logs/${RUN_ID}/collect-errors"
+          REMOTE_DIR="${TARGET:-/home/runner/domains/weektoppick.com/public_html}/.wtp/state/ci_logs/collect_errors_${RUN_ID}"
 
-          cd "${REMOTE_DIR}" || exit 0
-
-          # active theme
-          if command -v wp >/dev/null 2>&1; then
-            wp theme list --status=active --field=name 2>/dev/null | head -n1 > "${OUT}/active_theme.txt" || true
-          else
-            : > "${OUT}/active_theme.txt"
-          fi
-
-          # admin status
-          if command -v wp >/dev/null 2>&1; then
-            wp user list --role=administrator --field=user_login --format=json 2>/dev/null > "${OUT}/status_admin.txt" || echo "[]" > "${OUT}/status_admin.txt"
-          else
-            echo "[]" > "${OUT}/status_admin.txt"
-          fi
-
-          # collect logs
-          for LOG in error_log logs/error_log wp-content/debug.log; do
-            [ -f "$LOG" ] && tail -n 200 "$LOG" > "${OUT}/$(echo "$LOG" | tr '/' '_')" || true
-          done
-
-          # stderr during WP bootstrap
-          php -r 'require "wp-load.php";' 2> "${OUT}/wp_boot_stderr.txt" || true
-
-          echo "[INFO] errors collected into ${OUT}"
-
-      - name: Pull collected errors
-        run: |
-          set -euo pipefail
-          mkdir -p "_ci_logs/${RUN_ID}"
-          REMOTE_DIR="${TARGET:-$HOME/domains/weektoppick.com/public_html}/.wtp/state/ci_logs/collect_errors"
-
+          echo "[INFO] pulling ${REMOTE_DIR}"
           sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
-            "${USER}@${HOST}:${REMOTE_DIR}" "_ci_logs/${RUN_ID}/" || {
-              echo "::error::no errors pulled"
-              exit 2
-          }
+            "${USER}@${HOST}:${REMOTE_DIR}/." "_ci_logs/${RUN_ID}/collect-errors/" || {
+              echo "::error::no errors pulled"; exit 2;
+            }
 
-          ls -la "_ci_logs/${RUN_ID}/collect_errors" || true
+          ls -la "_ci_logs/${RUN_ID}/collect-errors" || true
 
-      - name: Commit & push errors
+      - name: 5) Publish logs to repo (RO + latest)
         run: |
           set -euo pipefail
-          RO_DIR=".wtp/state/ro/public/latest/collect-errors"
-          mkdir -p "${RO_DIR}"
-          cp -a "_ci_logs/${RUN_ID}/collect_errors/." "${RO_DIR}/"
+          RO_DIR=".wtp/state/ro/public/${RUN_ID}/collect-errors"
+          RO_LATEST=".wtp/state/ro/public/latest/collect-errors"
+          mkdir -p "${RO_DIR}" "${RO_LATEST}"
+
+          cp -a "_ci_logs/${RUN_ID}/collect-errors/." "${RO_DIR}/"
+          rm -rf "${RO_LATEST}"
+          mkdir -p "${RO_LATEST}"
+          cp -a "${RO_DIR}/." "${RO_LATEST}/"
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          if git diff --staged --quiet; then
-            echo "::notice::Nothing to commit."; exit 0
-          fi
-          git commit -m "[ci] collected errors (run ${RUN_ID})"
-          git push origin HEAD:${GITHUB_REF_NAME:-main}
+          git commit -m "[ci] collected errors ${RUN_ID}" || echo "Nothing to commit"
+          git push origin HEAD:${GITHUB_REF_NAME:-main} || echo "[WARN] push failed"
+
+      - name: 6) Summary
+        if: ${{ always() }}
+        run: echo "::notice::94_collect_errors finished for run ${RUN_ID}"
