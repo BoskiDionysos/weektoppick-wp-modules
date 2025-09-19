@@ -1,47 +1,137 @@
 name: 95_admin_unbrick
+
 on:
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+
+concurrency:
+  group: admin-unbrick
+  cancel-in-progress: true
+
 jobs:
-  fix:
+  heal:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      RUN_ID: ${{ github.run_id }}
+
     steps:
-      - name: "Admin unbrick (TT25, MU off, plugins off, purge, ping)"
+      - name: 1) Checkout repo
+        uses: actions/checkout@v4
+
+      - name: 2) Setup tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y sshpass
+
+      - name: 3) Unbrick on remote (quarantine MU, deactivate plugins, switch theme)
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host:     ${{ secrets.DEPLOY_HOST }}
-          username: ${{ secrets.DEPLOY_USER }}
-          password: ${{ secrets.DEPLOY_PASS }}
-          port:     ${{ secrets.DEPLOY_PORT }}
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          envs: TARGET,RUN_ID
           script: |
             set -euo pipefail
+            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+            cd "${TARGET}" || { echo "[ERR] no TARGET ${TARGET}"; exit 2; }
 
-            TARGET="${{ secrets.DEPLOY_TARGET }}"
-            if [ -z "${TARGET}" ] || [ "${TARGET}" = "null" ]; then
-              TARGET="$HOME/domains/weektoppick.com/public_html"
-            fi
-            echo "[INFO] TARGET=$TARGET"
-            cd "$TARGET" || exit 1
+            OUT="${TARGET}/.wtp/state/ci_logs/unbrick_${RUN_ID}"
+            mkdir -p "${OUT}"
+
             rm -f .maintenance || true
 
-            # MU-plugins OFF (wszystkie)
-            if [ -d wp-content/mu-plugins ]; then
-              for f in wp-content/mu-plugins/*.php; do
-                [ -f "$f" ] && mv -f "$f" "$f.off" || true
-              done
-            fi
+            # 0) zapisz home url
+            HOMEURL="$(php -r 'if(file_exists("wp-config.php")){ include "wp-config.php"; if(function_exists("get_option")){ include "wp-load.php"; echo get_option("home"); } }' 2>/dev/null || echo "https://weektoppick.com")"
+            echo "${HOMEURL:-https://weektoppick.com}" > "${OUT}/home_url.txt"
 
-            # Plugins OFF + TT25 + purge
-            if command -v wp >/dev/null 2>&1; then
-              wp plugin deactivate --all --quiet || true
-              wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
-              wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+            # 1) kwarantanna MU-plugins
+            MU="wp-content/mu-plugins"
+            MUOFF="wp-content/mu-plugins.off"
+            if [ -d "$MU" ]; then
+              mkdir -p "$MUOFF"
+              # przenosimy tylko pliki (nie kasujemy)
+              find "$MU" -maxdepth 1 -type f -print -exec mv -f {} "$MUOFF"/ \;
+              echo "[OK] mu-plugins moved to .off" | tee -a "${OUT}/action.txt"
             else
-              echo "[WARN] WP-CLI not on PATH"
+              echo "[INFO] no mu-plugins" | tee -a "${OUT}/action.txt"
             fi
 
-            # Ping frontu (log)
-            HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || echo https://weektoppick.com)"
-            CODE="$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)"
-            echo "STATUS:${CODE}"
+            # 2) dezaktywuj WSZYSTKIE zwykłe pluginy
+            if command -v wp >/dev/null 2>&1; then
+              wp plugin deactivate --all --skip-plugins --skip-themes || true
+              echo "[OK] deactivated all plugins" | tee -a "${OUT}/action.txt"
+            else
+              echo "[WARN] wp-cli not found" | tee -a "${OUT}/action.txt"
+            fi
+
+            # 3) przełącz na twentytwentyfive (fallback)
+            if command -v wp >/dev/null 2>&1; then
+              wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
+              echo "[OK] theme = twentytwentyfive" | tee -a "${OUT}/action.txt"
+            fi
+
+            # 4) purge LiteSpeed (jeśli aktywny)
+            if command -v wp >/dev/null 2>&1; then
+              wp plugin is-active litespeed-cache >/dev/null 2>&1 && wp litespeed-purge all || true
+            fi
+
+            # 5) prosta sonda HTTP frontu
+            STATUS=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
+            BODY="$(curl -ks "$HOMEURL" || true)"
+            echo "$STATUS" > "${OUT}/http_status.txt"
+            printf "%s" "$BODY" > "${OUT}/home_after.html"
+            echo "$(printf "%s" "$BODY" | wc -c)" > "${OUT}/home_size.txt"
+
+            # 6) basic logs (ostatnie 200 linii)
+            for LOG in error_log logs/error_log wp-content/debug.log; do
+              [ -f "$LOG" ] && tail -n 200 "$LOG" > "${OUT}/$(echo "$LOG" | tr '/' '_')" || true
+            done
+
+            # 7) wersje
+            php -r 'echo PHP_VERSION;' > "${OUT}/php_version.txt" 2>/dev/null || echo unknown > "${OUT}/php_version.txt"
+            if command -v wp >/dev/null 2>&1; then
+              wp core version 2>/dev/null > "${OUT}/wp_version.txt" || echo unknown > "${OUT}/wp_version.txt"
+              wp theme list --status=active --field=name 2>/dev/null | head -n1 > "${OUT}/active_theme.txt" || :
+            else
+              : > "${OUT}/active_theme.txt"
+              echo unknown > "${OUT}/wp_version.txt"
+            fi
+
+            date -u +%FT%TZ > "${OUT}/ts_utc.txt"
+            ls -la "${OUT}" > "${OUT}/ls.txt" || true
+            echo "[DONE] unbrick"
+
+      - name: 4) Pull & publish unbrick logs
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${RUN_ID}/unbrick"
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
+            "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/unbrick_${RUN_ID}/." \
+            "_ci_logs/${RUN_ID}/unbrick/" || { echo "::error::no logs pulled"; exit 2; }
+
+          RO_DIR=".wtp/state/ro/public/${RUN_ID}/unbrick"
+          RO_LATEST=".wtp/state/ro/public/latest/unbrick"
+          mkdir -p "${RO_DIR}" "${RO_LATEST}"
+          cp -a "_ci_logs/${RUN_ID}/unbrick/." "${RO_DIR}/"
+          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"
+          cp -a "${RO_DIR}/." "${RO_LATEST}/"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "[ci] unbrick logs ${RUN_ID}" || echo "Nothing to commit"
+          git push origin HEAD:${GITHUB_REF_NAME:-main} || echo "[WARN] push failed"
+
+      - name: 5) Summary
+        if: ${{ always() }}
+        run: echo "::notice::95_admin_unbrick finished for run ${RUN_ID}"
