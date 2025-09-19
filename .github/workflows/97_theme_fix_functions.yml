@@ -1,6 +1,11 @@
 name: 97_theme_fix_functions
-on: { workflow_dispatch: {} }
-permissions: { contents: write }
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
 concurrency:
   group: theme-fix-functions
   cancel-in-progress: true
@@ -9,29 +14,37 @@ jobs:
   fix:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
     env:
-      HOST:   ${{ secrets.DEPLOY_HOST }}
-      PORT:   ${{ secrets.DEPLOY_PORT }}
-      USER:   ${{ secrets.DEPLOY_USER }}
-      PASS:   ${{ secrets.DEPLOY_PASS }}
+      HOST: ${{ secrets.DEPLOY_HOST }}
+      PORT: ${{ secrets.DEPLOY_PORT }}
+      USER: ${{ secrets.DEPLOY_USER }}
+      PASS: ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
       RUN_ID: ${{ github.run_id }}
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Setup tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y sshpass
 
       - name: Patch functions.php safely
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host:     ${{ env.HOST }}
+          host: ${{ env.HOST }}
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
-          port:     ${{ env.PORT }}
+          port: ${{ env.PORT }}
+          request_pty: true
           envs: TARGET,RUN_ID
           script: |
             set -euo pipefail
             TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
             cd "$TARGET"
-
             THEME_DIR="wp-content/themes/wtp-core-theme"
             FILE="${THEME_DIR}/functions.php"
             OUT="$TARGET/.wtp/state/ci_logs/theme_fix_${RUN_ID}"
@@ -52,7 +65,6 @@ jobs:
  * WTP Core Theme — safe bootstrap
  * (no closing PHP tag on purpose)
  */
-
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 
 add_action( 'after_setup_theme', function () {
@@ -83,9 +95,11 @@ PHP
           RO_LATEST=".wtp/state/ro/public/latest/theme-fix"
           mkdir -p "${RO_DIR}" "${RO_LATEST}"
           cp -a "_ci_logs/${RUN_ID}/." "${RO_DIR}/" || true
-          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"; cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
+          rm -rf "${RO_LATEST}"
+          mkdir -p "${RO_LATEST}"
+          cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
 
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git commit -m "theme_fix_functions: ${RUN_ID}" || true
