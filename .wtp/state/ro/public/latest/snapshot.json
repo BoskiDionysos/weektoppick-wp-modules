@@ -1,6 +1,6 @@
 {
-  "run_id": "17851303735",
-  "run_ts": "2025-09-19T07:13:41Z",
+  "run_id": "17851793811",
+  "run_ts": "2025-09-19T07:35:38Z",
   "site": {
     "home": "",
     "siteurl": "",
@@ -11,7 +11,7 @@
     "wp_version": "6.8.2",
     "php_version": "8.3.22",
     "hostname": "de-fra-web2061.main-hosting.eu",
-    "timestamp_utc": "2025-09-19T07:13:25Z"
+    "timestamp_utc": "2025-09-19T07:35:24Z"
   },
   "active_theme": {
     "active": ""
@@ -23,6 +23,11 @@
       "file": "00-mu-safe-loader.php.off",
       "size": 1063,
       "md5": "5c8e9f5ef6757e581b09da35e79632b2"
+    },
+    {
+      "file": "000-wtp-safemode.php",
+      "size": 1369,
+      "md5": "f18c3c16336a409584be179b7f2f2380"
     },
     {
       "file": "wtp-canonical-redirects.php.off",
@@ -403,6 +408,11 @@
         "path": ".wtp/state/ci_logs/snapshot/screens/weektoppick.com_wp-admin.html",
         "size": 7149,
         "md5": "b4920dbc3c827cc2cc12ef2032d26cf8"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17851652529/home_after.html",
+        "size": 2653,
+        "md5": "ca361bd481567872c6748076e5ee415d"
       },
       {
         "path": ".wtp/state/ci_logs/auto_upsert_17838143259/home_after.html",
