@@ -1,4 +1,4 @@
-name: 97_theme_fix_functions
+name: theme_fix_functions_v2
 
 on:
   workflow_dispatch: {}
@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: theme-fix-functions
+  group: theme-fix-functions-v2
   cancel-in-progress: true
 
 jobs:
@@ -32,7 +32,32 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y sshpass
 
-      - name: Patch functions.php safely
+      - name: Create safe functions.php content
+        run: |
+          mkdir -p /tmp/theme-fix
+          cat > /tmp/theme-fix/functions.php << 'EOF'
+          <?php
+          /**
+           * WTP Core Theme — safe bootstrap
+           * (no closing PHP tag on purpose)
+           */
+          if ( ! defined( 'ABSPATH' ) ) { exit; }
+
+          add_action( 'after_setup_theme', function () {
+              add_theme_support( 'title-tag' );
+              add_theme_support( 'post-thumbnails' );
+              add_theme_support( 'html5', array(
+                  'search-form','comment-form','comment-list','gallery','caption','style','script'
+              ) );
+              // place for future supports...
+          } );
+
+          add_action( 'wp_enqueue_scripts', function () {
+              // Minimal enqueue placeholder — nothing critical to avoid fatals.
+          }, 20 );
+          EOF
+
+      - name: Deploy and patch functions.php safely
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.HOST }}
@@ -57,39 +82,50 @@ jobs:
 
             if [ -f "$FILE" ]; then
               cp -f "$FILE" "${FILE}.bak.$(date -u +%Y%m%d%H%M%S)"
+              echo "[INFO] Backed up existing functions.php" >> "$OUT/action.txt"
             fi
 
-            cat > "$FILE" <<'PHP'
-<?php
-/**
- * WTP Core Theme — safe bootstrap
- * (no closing PHP tag on purpose)
- */
-if ( ! defined( 'ABSPATH' ) ) { exit; }
+            echo "[INFO] Creating new safe functions.php" >> "$OUT/action.txt"
 
-add_action( 'after_setup_theme', function () {
-    add_theme_support( 'title-tag' );
-    add_theme_support( 'post-thumbnails' );
-    add_theme_support( 'html5', array(
-        'search-form','comment-form','comment-list','gallery','caption','style','script'
-    ) );
-    // place for future supports...
-} );
+      - name: Upload new functions.php
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port: ${{ env.PORT }}
+          source: /tmp/theme-fix/functions.php
+          target: ${{ env.TARGET }}/wp-content/themes/wtp-core-theme/
+          strip_components: 2
 
-add_action( 'wp_enqueue_scripts', function () {
-    // Minimal enqueue placeholder — nothing critical to avoid fatals.
-}, 20 );
-PHP
+      - name: Verify and test functions.php
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port: ${{ env.PORT }}
+          request_pty: true
+          envs: TARGET,RUN_ID
+          script: |
+            set -euo pipefail
+            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+            cd "$TARGET"
+            FILE="wp-content/themes/wtp-core-theme/functions.php"
+            OUT="$TARGET/.wtp/state/ci_logs/theme_fix_${RUN_ID}"
 
             php -l "$FILE" > "$OUT/functions_php_lint.txt" 2>&1 || true
             echo "[OK] functions.php replaced with safe stub" | tee "$OUT/action.txt"
 
-      - name: Pull proof & publish logs
+      - name: Pull proof and publish logs
+        if: always()
         run: |
           set -euo pipefail
           mkdir -p "_ci_logs/${RUN_ID}"
-          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no \
-            "${USER}@${HOST}:${TARGET:-$HOME/domains/weektoppick.com/public_html}/.wtp/state/ci_logs/theme_fix_${RUN_ID}/"* "_ci_logs/${RUN_ID}/" || true
+          
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
+            "${USER}@${HOST}:${TARGET:-$HOME/domains/weektoppick.com/public_html}/.wtp/state/ci_logs/theme_fix_${RUN_ID}/" \
+            "_ci_logs/${RUN_ID}/" || true
 
           RO_DIR=".wtp/state/ro/public/${RUN_ID}/theme-fix"
           RO_LATEST=".wtp/state/ro/public/latest/theme-fix"
@@ -102,5 +138,9 @@ PHP
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "theme_fix_functions: ${RUN_ID}" || true
-          git push || true
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."
+            exit 0
+          fi
+          git commit -m "theme_fix_functions: ${RUN_ID}"
+          git push
