@@ -1,9 +1,17 @@
-name: 96_emergency_heal
+name: 96_nuke_wtp_theme
+
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hotfix-nuke-theme
+  cancel-in-progress: true
 
 jobs:
-  heal:
+  nuke:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -12,39 +20,39 @@ jobs:
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
+      RUN_ID: ${{ github.run_id }}
 
     steps:
-      - name: Heal via SSH (MU off → plugins off → theme TT25 → purge → ping)
+      - uses: actions/checkout@v4
+
+      - name: SSH nuke wtp-core-theme
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ env.HOST }}
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
           port:     ${{ env.PORT }}
-          envs: TARGET
+          envs:     TARGET
           script: |
             set -euo pipefail
-            TARGET="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
-            cd "$TARGET" || exit 1
+            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+            echo "[INFO] TARGET=$TARGET"
+            cd "$TARGET"
+
             rm -f .maintenance || true
 
-            # 1) MU-plugins OFF (wszystkie)
-            if [ -d wp-content/mu-plugins ]; then
-              for f in wp-content/mu-plugins/*.php; do
-                [ -f "$f" ] && mv -f "$f" "$f.off" || true
-              done
+            # usuń wadliwy motyw
+            if [ -d "wp-content/themes/wtp-core-theme" ]; then
+              echo "[WARN] Removing broken theme wtp-core-theme"
+              rm -rf wp-content/themes/wtp-core-theme
             fi
 
-            # 2) Plugins OFF, motyw TT25
             if command -v wp >/dev/null 2>&1; then
-              wp plugin deactivate --all --quiet || true
+              echo "[INFO] Switching to twentytwentyfive"
               wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
-              wp plugin activate litespeed-cache || true
               wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+            else
+              echo "[WARN] wp-cli not found, theme switch skipped"
             fi
 
-            # 3) Szybki ping frontu
-            HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || true)"
-            HOMEURL="${HOMEURL:-https://weektoppick.com}"
-            CODE="$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)"
-            echo "[INFO] front status: $CODE"
+            echo "[DONE] wtp-core-theme removed and site rolled back"
