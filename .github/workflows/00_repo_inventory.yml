@@ -1,4 +1,4 @@
-name: 00_repo_inventory
+name: 03_repo_audit_extended
 
 on:
   workflow_dispatch: {}
@@ -6,14 +6,22 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: repo-audit-extended
+  cancel-in-progress: true
+
 jobs:
-  inventory:
+  audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RUN_ID: ${{ github.run_id }}
+
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python (for YAML parsing)
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
@@ -24,83 +32,383 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyyaml
 
-      - name: Build inventory (filelist, workflows index) and archive
+      - name: Build repo inventory + static PHP scan
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p _dump
-          # 1) Spisy
-          git ls-files -co --exclude-standard > _dump/filelist.txt
-          ls -laR > _dump/tree.txt
-          # 2) Indeks workflowów
-          python - << 'PY'
-          import os, glob, json, yaml
-          os.makedirs("_dump", exist_ok=True)
-          items=[]
-          for p in sorted(glob.glob(".github/workflows/*.yml")):
-              try:
-                  with open(p, "r", encoding="utf-8") as f:
-                      y = yaml.safe_load(f) or {}
-              except Exception as e:
-                  y = {"_parse_error": str(e)}
-              items.append({
-                  "file": os.path.basename(p),
-                  "name": y.get("name", os.path.basename(p)),
-                  "on": y.get("on"),
-                  "jobs": list((y.get("jobs") or {}).keys())
-              })
-          with open("_dump/workflows.json","w",encoding="utf-8") as f:
-              json.dump(items, f, ensure_ascii=False, indent=2)
-          with open("_dump/workflows.md","w",encoding="utf-8") as f:
-              f.write("# Workflows index\n\n")
-              for w in items:
-                  f.write(f"## {w['name']} ({w['file']})\n")
-                  f.write(f"- Triggers: `{w['on']}`\n")
-                  f.write(f"- Jobs: {', '.join(w['jobs']) if w['jobs'] else '-'}\n\n")
-          PY
-          # 3) Duże archiwum tylko jako artifact (NIE commitujemy)
-          tar --exclude='./.git' --exclude='./_dump' -czf _dump/repo-full.tar.gz .
+          OUT="_out/repo_audit/${RUN_ID}"
+          mkdir -p "${OUT}"
 
-      - name: Upload artifact (inventory bundle)
+          # Bezpieczne listingi repo (małe)
+          git ls-files -co --exclude-standard > "${OUT}/filelist.txt"
+          # Uwaga: bez dwukropków itp., żeby artifact się nie wywalił
+          ls -laR > "${OUT}/tree.txt"
+
+          # Pełny skan PHP w repo (plugins, mu-plugins, themes, mu)
+          python - << 'PY'
+          import os, re, json, io, yaml
+          from pathlib import Path
+
+          RUN_ID = os.environ["RUN_ID"]
+          ROOT = Path(".")
+          OUT = Path(f"_out/repo_audit/{RUN_ID}")
+          OUT.mkdir(parents=True, exist_ok=True)
+
+          # Katalogi do skanowania (repo – niezależnie od aktywacji na serwerze)
+          SCAN_DIRS = [
+              "wp-content/plugins",
+              "wp-content/mu-plugins",
+              "wp-content/themes",
+              ".wtp/mu",   # ewentualne Twoje MU-paczki w repo
+          ]
+
+          # Małe, szybkie czytanie (limit do ~512 KB per plik, to i tak starczy na nagłówki/definicje)
+          MAX_READ = 512 * 1024
+
+          # Proste regexy (bez pełnego parsera – szybki audyt statyczny)
+          re_fn   = re.compile(r'function\s+([a-zA-Z0-9_]+)\s*\(', re.M)
+          re_cls  = re.compile(r'class\s+([a-zA-Z0-9_\\]+)\b', re.M)
+          re_ns   = re.compile(r'namespace\s+([^;]+);', re.M)
+          re_add_action = re.compile(r'add_action\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*([^\),]+)', re.M)
+          re_add_filter = re.compile(r'add_filter\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*([^\),]+)', re.M)
+          re_enqueue = re.compile(r'wp_enqueue_(script|style)\s*\(\s*[\'"]([^\'"]+)[\'"]', re.M)
+          re_require = re.compile(r'\b(require|require_once|include|include_once)\s*\(\s*[\'"]([^\'"]+)[\'"]', re.M)
+
+          # Plugin header (WP standard)
+          # patrzymy w pierwsze ~8 KB pliku
+          def read_head(p: Path, n=8192):
+              try:
+                  with p.open("r", encoding="utf-8", errors="ignore") as f:
+                      return f.read(n)
+              except:
+                  return ""
+          def parse_plugin_header(head: str):
+              # Minimalne klucze (bez cudowania)
+              keys = {
+                  "Plugin Name": "name",
+                  "Plugin URI": "uri",
+                  "Description": "description",
+                  "Version": "version",
+                  "Author": "author",
+                  "Author URI": "author_uri",
+                  "Text Domain": "text_domain",
+                  "Requires at least": "wp_requires",
+                  "Requires PHP": "php_requires",
+                  "Update URI": "update_uri",
+              }
+              out = {}
+              for k, kk in keys.items():
+                  m = re.search(rf'^{re.escape(k)}:\s*(.+)$', head, re.M | re.I)
+                  if m:
+                      out[kk] = m.group(1).strip()
+              return out
+
+          # composer.json parse helper
+          def read_composer(p: Path):
+              try:
+                  data = json.loads(p.read_text(encoding="utf-8"))
+                  return {
+                      "name": data.get("name"),
+                      "require": data.get("require", {}),
+                      "autoload": data.get("autoload", {}),
+                      "extra": data.get("extra", {}),
+                  }
+              except:
+                  return None
+
+          files = []
+          for base in SCAN_DIRS:
+              b = ROOT / base
+              if not b.exists():
+                  continue
+              for p in b.rglob("*"):
+                  if p.is_file():
+                      rel = str(p.as_posix())
+                      size = p.stat().st_size
+                      files.append({"path": rel, "size": size})
+
+          # Zbiorcze indeksy
+          symbol_index = {
+              "functions": {},   # name -> [paths]
+              "classes":   {},   # name -> [paths]
+              "namespaces": {},  # ns   -> [paths]
+          }
+          hooks = {
+              "actions": [],   # {hook, callback, path}
+              "filters": [],   # {hook, callback, path}
+          }
+          enqueues = []        # {type, handle, path}
+          includes = []        # {type, target, path}
+
+          plugin_meta = []     # {base_dir, main_file, headers, composer?}
+          mu_meta = []         # similar for MU
+
+          # Pomocnicze: mapy do wykrycia main-file pluginu
+          def candidate_main_files(dir_path: Path):
+              # WP: nazwa katalogu + .php, albo największy .php z nagłówkiem
+              cands = []
+              for p in dir_path.glob("*.php"):
+                  cands.append(p)
+              # fallback: weź .php w podkatalogu (rzadziej)
+              if not cands:
+                  for p in dir_path.rglob("*.php"):
+                      cands.append(p)
+              return cands
+
+          # Skan plików
+          for f in files:
+              path = Path(f["path"])
+              # plugin headers
+              if path.parts[:3] == ("wp-content", "plugins", path.parts[2] if len(path.parts) > 2 else "") and path.suffix == ".php":
+                  # później i tak zrobimy zbiorcze wykrycie "głównego" pliku per plugin
+                  pass
+              # MU header – zwykle pojedyncze pliki
+              if path.parts[:3] == ("wp-content", "mu-plugins", path.parts[2] if len(path.parts) > 2 else "") and path.suffix == ".php":
+                  head = read_head(path)
+                  hdr = parse_plugin_header(head)
+                  if hdr.get("name"):
+                      mu_meta.append({
+                          "file": f["path"],
+                          "headers": hdr
+                      })
+
+              # Skan symboli/hooków itp.
+              if path.suffix.lower() == ".php":
+                  try:
+                      raw = path.read_text(encoding="utf-8", errors="ignore")
+                  except:
+                      try:
+                          with path.open("rb") as rb:
+                              raw = rb.read(MAX_READ).decode("utf-8", errors="ignore")
+                      except:
+                          raw = ""
+
+                  # namespace
+                  for ns in re_ns.findall(raw):
+                      ns = ns.strip()
+                      symbol_index["namespaces"].setdefault(ns, []).append(f["path"])
+
+                  # functions
+                  for fn in re_fn.findall(raw):
+                      symbol_index["functions"].setdefault(fn, []).append(f["path"])
+
+                  # classes
+                  for cls in re_cls.findall(raw):
+                      symbol_index["classes"].setdefault(cls, []).append(f["path"])
+
+                  # hooks
+                  for hook, cb in re_add_action.findall(raw):
+                      hooks["actions"].append({"hook": hook.strip(), "callback": cb.strip(), "path": f["path"]})
+                  for hook, cb in re_add_filter.findall(raw):
+                      hooks["filters"].append({"hook": hook.strip(), "callback": cb.strip(), "path": f["path"]})
+
+                  # enqueue
+                  for _typ, handle in re_enqueue.findall(raw):
+                      enqueues.append({"type": f"wp_enqueue_{_typ}", "handle": handle.strip(), "path": f["path"]})
+
+                  # includes
+                  for ityp, tgt in re_require.findall(raw):
+                      includes.append({"type": ityp, "target": tgt.strip(), "path": f["path"]})
+
+          # Plugin meta – wykryj katalogi pluginów oraz "główny" plik z nagłówkiem
+          plug_root = ROOT / "wp-content/plugins"
+          if plug_root.exists():
+              for pl_dir in [d for d in plug_root.iterdir() if d.is_dir()]:
+                  main = None
+                  header = None
+                  for cand in candidate_main_files(pl_dir):
+                      head = read_head(cand)
+                      hdr = parse_plugin_header(head)
+                      if hdr.get("name"):
+                          # preferuj plik w katalogu głównym
+                          if main is None or cand.parent == pl_dir:
+                              main = cand
+                              header = hdr
+                  comp = read_composer(pl_dir / "composer.json")
+                  plugin_meta.append({
+                      "base_dir": str(pl_dir.as_posix()),
+                      "main_file": str(main.as_posix()) if main else None,
+                      "headers": header or {},
+                      "composer": comp
+                  })
+
+          # MU meta – jeżeli są katalogi MU z composerem, też zapisz
+          mu_root = ROOT / "wp-content/mu-plugins"
+          if mu_root.exists():
+              for mu_dir in [d for d in mu_root.iterdir() if d.is_dir()]:
+                  comp = read_composer(mu_dir / "composer.json")
+                  if comp:
+                      mu_meta.append({
+                          "dir": str(mu_dir.as_posix()),
+                          "composer": comp
+                      })
+
+          # Wykrywanie duplikatów (funkcje/klasy – ta sama nazwa w >1 pliku)
+          def dups(mapper):
+              return {k:v for k,v in mapper.items() if len(v) > 1}
+          dup_functions = dups(symbol_index["functions"])
+          dup_classes   = dups(symbol_index["classes"])
+
+          # Szybkie heurystyki/ryzyka
+          risks = []
+          def add_risk(kind, msg, refs=None, weight=1):
+              risks.append({"kind": kind, "message": msg, "refs": refs or [], "weight": weight})
+          if dup_functions:
+              add_risk("conflict:functions", "Zduplikowane nazwy funkcji mogą powodować fatale.", list(dup_functions.keys()), 3)
+          if dup_classes:
+              add_risk("conflict:classes", "Zduplikowane nazwy klas mogą powodować konflikty autoloadera.", list(dup_classes.keys()), 2)
+          # enqueue – potencjalne zdublowane handle
+          handles = {}
+          for e in enqueues:
+              handles.setdefault(e["handle"], 0)
+              handles[e["handle"]] += 1
+          dup_handles = [h for h,c in handles.items() if c>1]
+          if dup_handles:
+              add_risk("assets:handles", "Wiele skryptów/stylów z tym samym handle.", dup_handles, 1)
+
+          # Zbiorczy JSON
+          repo_audit = {
+              "run_id": RUN_ID,
+              "files_scanned": len(files),
+              "symbol_index": symbol_index,
+              "hooks": hooks,
+              "enqueues": enqueues,
+              "includes": includes,
+              "plugin_meta": plugin_meta,
+              "mu_meta": mu_meta,
+              "duplicates": {
+                  "functions": dup_functions,
+                  "classes": dup_classes
+              },
+              "risks": risks
+          }
+          (OUT / "repo-audit.json").write_text(json.dumps(repo_audit, ensure_ascii=False, indent=2), encoding="utf-8")
+
+          # Zwięzły raport MD
+          def count_hooks(hk):
+              return len(hk.get("actions", [])) + len(hk.get("filters", []))
+          pm_named = [p for p in plugin_meta if (p.get("headers") or {}).get("name")]
+          mu_named = [m for m in mu_meta if m.get("headers") and m["headers"].get("name")]
+
+          L = []
+          L.append("# REPO AUDIT (extended)")
+          L.append(f"- Run ID: {RUN_ID}")
+          L.append("")
+          L.append("## Podsumowanie")
+          L.append(f"- Plików skanowanych: **{len(files)}**")
+          L.append(f"- Funkcje: **{len(symbol_index['functions'])}** • Klasy: **{len(symbol_index['classes'])}** • Namespaces: **{len(symbol_index['namespaces'])}**")
+          L.append(f"- Hooki (add_action/add_filter): **{count_hooks(hooks)}**")
+          L.append(f"- Enqueue: **{len(enqueues)}**  • Includes: **{len(includes)}**")
+          L.append("")
+          L.append("## Wtyczki (wykryte z nagłówków)")
+          if pm_named:
+              for p in pm_named:
+                  h = p["headers"]
+                  L.append(f"- **{h.get('name')}** {h.get('version','')}  (dir: `{p['base_dir']}`)")
+          else:
+              L.append("_brak jawnych nagłówków (albo brak wtyczek)_")
+          L.append("")
+          L.append("## MU-plugins (wykryte)")
+          if mu_named:
+              for m in mu_named:
+                  h = m["headers"]
+                  L.append(f"- **{h.get('name')}** {h.get('version','')}  (file: `{m['file']}`)")
+          else:
+              # MU bywa w formie pojedynczych plików bez nagłówków – to normalne
+              L.append("_brak widocznych nagłówków MU_")
+          L.append("")
+          L.append("## Potencjalne konflikty")
+          if repo_audit["duplicates"]["functions"]:
+              L.append(f"- Zduplikowane funkcje: **{len(repo_audit['duplicates']['functions'])}** (szczegóły w JSON)")
+          if repo_audit["duplicates"]["classes"]:
+              L.append(f"- Zduplikowane klasy: **{len(repo_audit['duplicates']['classes'])}** (szczegóły w JSON)")
+          if not (repo_audit["duplicates"]["functions"] or repo_audit["duplicates"]["classes"]):
+              L.append("- Brak oczywistych duplikatów nazw funkcji/klas 🎉")
+          L.append("")
+          if risks:
+              L.append("## Ryzyka (heurystyki)")
+              for r in risks:
+                  L.append(f"- **{r['kind']}** – {r['message']}")
+          else:
+              L.append("## Ryzyka")
+              L.append("- Nie wykryto istotnych czerwonych flag.")
+          L.append("")
+          (OUT / "REPO_AUDIT.md").write_text("\n".join(L)+"\n", encoding="utf-8")
+
+          # Osobne, poręczne wyciągi
+          (OUT / "symbol_index.json").write_text(json.dumps(symbol_index, ensure_ascii=False, indent=2), encoding="utf-8")
+          (OUT / "includes_index.json").write_text(json.dumps(includes, ensure_ascii=False, indent=2), encoding="utf-8")
+          (OUT / "plugin_meta.json").write_text(json.dumps(plugin_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+          (OUT / "mu_meta.json").write_text(json.dumps(mu_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+          (OUT / "hooks.json").write_text(json.dumps(hooks, ensure_ascii=False, indent=2), encoding="utf-8")
+          PY
+
+      - name: Upload artifact (repo audit bundle)
         uses: actions/upload-artifact@v4
         with:
-          name: repo-inventory-${{ github.run_id }}
-          path: _dump/*
-          retention-days: 7
+          name: repo-audit-${{ github.run_id }}
+          path: _out/repo_audit/${{ github.run_id }}/**
+          retention-days: 14
 
-      - name: Publish small indexes to repo (no large files)
+      - name: Publish small reports to repo (rebase-safe)
+        shell: bash
         run: |
           set -euo pipefail
-          RUN_ID=${{ github.run_id }}
-          RO_DIR=".wtp/state/ro/public/${RUN_ID}"
-          RO_LATEST=".wtp/state/ro/public/latest"
+          RUN_ID="${RUN_ID}"
+          SRC_DIR="_out/repo_audit/${RUN_ID}"
+          RO_RUN=".wtp/state/ro/public/${RUN_ID}/repo"
+          RO_LATEST=".wtp/state/ro/public/latest/repo"
 
-          mkdir -p "${RO_DIR}"
-          # tylko lekkie pliki
-          cp -f _dump/filelist.txt   "${RO_DIR}/filelist.txt"
-          cp -f _dump/tree.txt       "${RO_DIR}/tree.txt"
-          cp -f _dump/workflows.json "${RO_DIR}/workflows.json"
-          cp -f _dump/workflows.md   "${RO_DIR}/workflows.md"
+          mkdir -p "${RO_RUN}" "${RO_LATEST}"
+
+          # Publikujemy TYLKO małe/kluczowe pliki
+          cp -f "${SRC_DIR}/REPO_AUDIT.md"    "${RO_RUN}/REPO_AUDIT.md"
+          cp -f "${SRC_DIR}/repo-audit.json"  "${RO_RUN}/repo-audit.json"
+          cp -f "${SRC_DIR}/symbol_index.json" "${RO_RUN}/symbol_index.json"
+          cp -f "${SRC_DIR}/plugin_meta.json" "${RO_RUN}/plugin_meta.json"
+          cp -f "${SRC_DIR}/mu_meta.json"     "${RO_RUN}/mu_meta.json"
+          cp -f "${SRC_DIR}/hooks.json"       "${RO_RUN}/hooks.json"
 
           rm -rf "${RO_LATEST}"
           mkdir -p "${RO_LATEST}"
-          cp -a "${RO_DIR}/." "${RO_LATEST}/"
+          cp -a "${RO_RUN}/." "${RO_LATEST}/"
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "${RO_DIR}" "${RO_LATEST}"
+          git add -A
+
           if git diff --staged --quiet; then
             echo "::notice::Nothing to commit."
-          else
-            git commit -m "repo inventory (indexes only) ${RUN_ID}"
-            git push
+            exit 0
           fi
 
-      - name: Print quick summary to logs
+          git commit -m "repo audit (extended) ${RUN_ID}"
+
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
+
+          for i in 1 2 3; do
+            git fetch origin "$BRANCH"
+            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+            if git push origin "HEAD:$BRANCH"; then
+              echo "::notice::Pushed (attempt $i)."
+              exit 0
+            fi
+            echo "[warn] push failed, retry $i"; sleep 2
+          done
+
+          echo "::error::Push failed after 3 attempts"; exit 1
+
+      - name: Summary
         run: |
           set -euo pipefail
-          echo "::group::Workflows summary"
-          sed -n '1,200p' _dump/workflows.md || true
+          echo "::group::REPO_AUDIT.md (first 200 lines)"
+          sed -n '1,200p' "_out/repo_audit/${RUN_ID}/REPO_AUDIT.md" || true
           echo "::endgroup::"
-          echo "::group::Filelist (first 300)"
-          sed -n '1,300p' _dump/filelist.txt || true
-          echo "::endgroup::"
+          echo "::notice::Links (latest):"
+          echo "  • REPO_AUDIT.md        -> .wtp/state/ro/public/latest/repo/REPO_AUDIT.md"
+          echo "  • repo-audit.json      -> .wtp/state/ro/public/latest/repo/repo-audit.json"
+          echo "  • symbol_index.json    -> .wtp/state/ro/public/latest/repo/symbol_index.json"
+          echo "  • hooks.json           -> .wtp/state/ro/public/latest/repo/hooks.json"
+          echo "  • plugin_meta.json     -> .wtp/state/ro/public/latest/repo/plugin_meta.json"
+          echo "  • mu_meta.json         -> .wtp/state/ro/public/latest/repo/mu_meta.json"
