@@ -1,0 +1,4 @@
+No syntax errors detected in wp-content/themes/wtp-core-theme/functions.php
+No syntax errors detected in wp-content/themes/wtp-core-theme/index.php
+No syntax errors detected in wp-content/themes/wtp-core-theme/footer.php
+No syntax errors detected in wp-content/themes/wtp-core-theme/header.php

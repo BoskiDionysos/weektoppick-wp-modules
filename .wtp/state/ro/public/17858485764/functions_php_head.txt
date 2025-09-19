@@ -1,0 +1,15 @@
+     1	<?php
+     2	// Safe minimal bootstrap — no output/echo here.
+     3	add_action('after_setup_theme', function () {
+     4	  add_theme_support('title-tag');
+     5	  add_theme_support('post-thumbnails');
+     6	  add_theme_support('html5', ['search-form','comment-form','comment-list','gallery','caption','style','script']);
+     7	});
+     8	
+     9	add_action('wp_enqueue_scripts', function () {
+    10	  // Load a very small inline CSS to prove render
+    11	  $css = "body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu; margin:0; padding:0;} .wtp-hello{padding:24px;max-width:840px;margin:40px auto;border:1px solid #ddd;border-radius:8px}";
+    12	  wp_register_style('wtp-core-inline', false);
+    13	  wp_enqueue_style('wtp-core-inline');
+    14	  wp_add_inline_style('wtp-core-inline', $css);
+    15	});

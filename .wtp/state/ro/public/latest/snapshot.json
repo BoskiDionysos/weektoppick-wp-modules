@@ -1,6 +1,6 @@
 {
-  "run_id": "17857261930",
-  "run_ts": "2025-09-19T11:41:11Z",
+  "run_id": "17858485764",
+  "run_ts": "2025-09-19T12:38:00Z",
   "site": {
     "home": "https://weektoppick.com",
     "siteurl": "https://weektoppick.com",
@@ -11,7 +11,7 @@
     "wp_version": "6.8.2",
     "php_version": "8.3.22",
     "hostname": "de-fra-web2061.main-hosting.eu",
-    "timestamp_utc": "2025-09-19T11:40:56Z"
+    "timestamp_utc": "2025-09-19T12:37:42Z"
   },
   "active_theme": {
     "active": "wtp-core-theme"
