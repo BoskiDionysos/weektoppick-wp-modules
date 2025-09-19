@@ -1,6 +1,6 @@
 {
-  "run_id": "17850179479",
-  "run_ts": "2025-09-19T06:15:57Z",
+  "run_id": "17850367845",
+  "run_ts": "2025-09-19T06:25:17Z",
   "site": {
     "home": "",
     "siteurl": "",
@@ -11,7 +11,7 @@
     "wp_version": "6.8.2",
     "php_version": "8.3.22",
     "hostname": "de-fra-web2061.main-hosting.eu",
-    "timestamp_utc": "2025-09-19T06:15:43Z"
+    "timestamp_utc": "2025-09-19T06:25:06Z"
   },
   "active_theme": {
     "active": ""
@@ -353,6 +353,11 @@
         "path": "wp-admin/images/icons32-vs-2x.png",
         "size": 21396,
         "md5": "a12a3034ff4734469709265a83697d22"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17850263993/home_after.html",
+        "size": 2653,
+        "md5": "ca361bd481567872c6748076e5ee415d"
       },
       {
         "path": ".wtp/state/ci_logs/auto_upsert_17839251198/home_after.html",
