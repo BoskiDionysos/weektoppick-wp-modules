@@ -1,0 +1,124 @@
+name: 95B_hard_reset
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: write
+concurrency:
+  group: hard-reset
+  cancel-in-progress: true
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      RUN_ID: ${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup sshpass
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y sshpass
+
+      - name: Hard reset on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          request_pty: true
+          envs: TARGET,RUN_ID
+          script: |
+            set -euo pipefail
+            TARGET="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
+            cd "$TARGET" || exit 1
+
+            OUT="$TARGET/.wtp/state/ci_logs/hard_reset_${RUN_ID}"
+            mkdir -p "$OUT"
+
+            echo "[INFO] starting hard reset"
+            rm -f .maintenance || true
+
+            # Enable debug logging safely (append only if missing)
+            if ! grep -q "WP_DEBUG_LOG" wp-config.php 2>/dev/null; then
+              printf "\n/* WTP HARD RESET DEBUG */ define('WP_DEBUG', true); define('WP_DEBUG_LOG', true); define('WP_DEBUG_DISPLAY', false);\n" >> wp-config.php
+              echo "debug_flags_added" > "$OUT/wp_debug_flag.txt"
+            fi
+
+            # MU plugins OFF (rename to .off)
+            if [ -d wp-content/mu-plugins ]; then
+              for f in wp-content/mu-plugins/*.php; do
+                [ -f "$f" ] && mv -f "$f" "$f.off" || true
+              done
+            fi
+
+            # Deactivate all regular plugins, switch to TT25, purge cache
+            if command -v wp >/dev/null 2>&1; then
+              wp plugin deactivate --all --quiet || true
+              wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
+              wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+            fi
+
+            # Determine home URL
+            HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || true)"
+            HOMEURL="${HOMEURL:-https://weektoppick.com}"
+            echo "$HOMEURL" > "$OUT/home_url.txt"
+
+            # Smoke test front
+            STATUS="$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)"
+            BODY="$(curl -ks "$HOMEURL" || true)"
+            echo "$STATUS" > "$OUT/http_status_after.txt"
+            printf "%s" "$BODY" > "$OUT/home_after.html"
+            echo "$(printf "%s" "$BODY" | wc -c)" > "$OUT/home_after_size.txt"
+
+            # Collect logs (last 200 lines if exist)
+            for LOG in error_log logs/error_log wp-content/debug.log; do
+              [ -f "$LOG" ] && tail -n 200 "$LOG" > "$OUT/$(echo "$LOG" | tr '/' '_')"
+            done
+
+            (command -v wp >/dev/null 2>&1 && wp theme list --status=active --field=name 2>/dev/null | head -n1) > "$OUT/active_theme.txt" || true
+
+            echo "[INFO] hard reset done"
+
+      - name: Pull logs to runner
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${RUN_ID}/hard_reset"
+          SVRTGT="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
+            "${USER}@${HOST}:${SVRTGT}/.wtp/state/ci_logs/hard_reset_${RUN_ID}" \
+            "_ci_logs/${RUN_ID}/hard_reset/" || true
+          # flatten
+          if [ -d "_ci_logs/${RUN_ID}/hard_reset/hard_reset_${RUN_ID}" ]; then
+            shopt -s dotglob || true
+            mv "_ci_logs/${RUN_ID}/hard_reset/hard_reset_${RUN_ID}/"* "_ci_logs/${RUN_ID}/hard_reset/" || true
+            rmdir "_ci_logs/${RUN_ID}/hard_reset/hard_reset_${RUN_ID}" || true
+          fi
+
+      - name: Publish report to repo
+        if: always()
+        run: |
+          set -euo pipefail
+          RO_DIR=".wtp/state/ro/public/${RUN_ID}/hard-reset"
+          RO_LATEST=".wtp/state/ro/public/latest/hard-reset"
+          mkdir -p "${RO_DIR}"
+          cp -a "_ci_logs/${RUN_ID}/hard_reset/." "${RO_DIR}/" || true
+          rm -rf "${RO_LATEST}"
+          mkdir -p "${RO_LATEST}"
+          cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "hard reset ${RUN_ID}" || true
+          git push || true
