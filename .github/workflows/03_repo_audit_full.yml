@@ -1,0 +1,214 @@
+name: 03_repo_audit_full (read-only, complete, publish-latest)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repo-audit-full
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RUN_ID: ${{ github.run_id }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install deps
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install pyyaml
+
+      - name: Build file list + tree (context)
+        run: |
+          set -euo pipefail
+          OUT="_out/repo_audit/${{ env.RUN_ID }}"
+          mkdir -p "$OUT"
+          git ls-files -co --exclude-standard > "$OUT/filelist.txt"
+          ls -laR > "$OUT/tree.txt"
+
+      - name: Index workflows (names, triggers, jobs)
+        run: |
+          set -euo pipefail
+          OUT="_out/repo_audit/${{ env.RUN_ID }}"
+          python - << 'PY'
+          import os, glob, json, yaml, pathlib
+          OUT = pathlib.Path(os.environ["OUT"]) if "OUT" in os.environ else pathlib.Path("_out/repo_audit/${{ env.RUN_ID }}")
+          OUT.mkdir(parents=True, exist_ok=True)
+          items=[]
+          for p in sorted(glob.glob(".github/workflows/*.yml")):
+              try:
+                  with open(p, "r", encoding="utf-8") as f:
+                      y = yaml.safe_load(f) or {}
+              except Exception as e:
+                  y = {"_parse_error": str(e)}
+              items.append({
+                  "file": os.path.basename(p),
+                  "name": y.get("name", os.path.basename(p)),
+                  "on": y.get("on"),
+                  "jobs": list((y.get("jobs") or {}).keys())
+              })
+          (OUT/"workflows.json").write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+          with open(OUT/"workflows.md","w",encoding="utf-8") as f:
+              f.write("# Workflows index\n\n")
+              for w in items:
+                  f.write(f"## {w['name']} ({w['file']})\n")
+                  f.write(f"- Triggers: `{w['on']}`\n")
+                  f.write(f"- Jobs: {', '.join(w['jobs']) if w['jobs'] else '-'}\n\n")
+          PY
+
+      - name: Scan repo → hooks/symbols/includes & metadata (MU + plugins)
+        shell: python
+        run: |
+          import os, re, json, pathlib
+          RUN_ID = os.environ["RUN_ID"]
+          OUT = pathlib.Path(f"_out/repo_audit/{RUN_ID}")
+          OUT.mkdir(parents=True, exist_ok=True)
+
+          php_files = []
+          for root, _, files in os.walk("."):
+            if root.startswith("./.git"): continue
+            for fn in files:
+              if fn.endswith(".php"):
+                php_files.append(os.path.join(root, fn))
+
+          hook_re = re.compile(r"\b(add_action|add_filter)\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
+          func_re = re.compile(r"\bfunction\s+([a-zA-Z0-9_]+)\s*\(", re.I)
+          class_re = re.compile(r"\bclass\s+([a-zA-Z0-9_]+)", re.I)
+          incl_re = re.compile(r"\b(require|require_once|include|include_once)\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
+
+          hooks = []
+          symbols = []
+          includes = {}
+          def scan_file(path):
+            try:
+              with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                txt = f.read()
+            except Exception:
+              return
+            for m in hook_re.finditer(txt):
+              hooks.append({"file": path, "type": m.group(1), "hook": m.group(2)})
+            for m in func_re.finditer(txt):
+              symbols.append({"file": path, "kind": "function", "name": m.group(1)})
+            for m in class_re.finditer(txt):
+              symbols.append({"file": path, "kind": "class", "name": m.group(1)})
+            incs = [m.group(2) for m in incl_re.finditer(txt)]
+            if incs:
+              includes[path] = incs
+
+          for p in php_files:
+            scan_file(p)
+
+          # MU-plugins meta (również *.off)
+          mu_meta = []
+          for root, _, files in os.walk("wp-content/mu-plugins"):
+            for fn in files:
+              if not fn.endswith(".php"): continue
+              full = os.path.join(root, fn)
+              mu_meta.append({"path": full, "basename": fn, "off": fn.endswith(".off")})
+
+          # Plugins meta (również *.off)
+          plugin_meta = []
+          for root, _, files in os.walk("wp-content/plugins"):
+            for fn in files:
+              if not fn.endswith(".php"): continue
+              full = os.path.join(root, fn)
+              plugin_meta.append({"path": full, "basename": fn, "off": fn.endswith(".off")})
+
+          # Write results
+          (OUT / "hooks.json").write_text(json.dumps(hooks, ensure_ascii=False, indent=2), "utf-8")
+          (OUT / "symbol_index.json").write_text(json.dumps(symbols, ensure_ascii=False, indent=2), "utf-8")
+          (OUT / "includes_index.json").write_text(json.dumps(includes, ensure_ascii=False, indent=2), "utf-8")
+          (OUT / "mu_meta.json").write_text(json.dumps(mu_meta, ensure_ascii=False, indent=2), "utf-8")
+          (OUT / "plugin_meta.json").write_text(json.dumps(plugin_meta, ensure_ascii=False, indent=2), "utf-8")
+
+          # Minimal REPO_AUDIT.md + agregat
+          lines = []
+          lines.append("# REPO AUDIT")
+          lines.append(f"- Run ID: {RUN_ID}")
+          lines.append("")
+          lines.append(f"- PHP files scanned: {len(php_files)}")
+          lines.append(f"- Hooks found: {len(hooks)}")
+          lines.append(f"- Symbols found: {len(symbols)}")
+          lines.append(f"- MU files: {len(mu_meta)}  |  Plugins files: {len(plugin_meta)}")
+          lines.append("")
+          lines.append("## Notes")
+          lines.append("- MU/plugins z sufiksem `.off` są wyłączone, ale objęte audytem.")
+          (OUT / "REPO_AUDIT.md").write_text("\n".join(lines) + "\n", "utf-8")
+
+          agg = {
+            "run_id": RUN_ID,
+            "hooks_count": len(hooks),
+            "symbols_count": len(symbols),
+            "mu_count": len(mu_meta),
+            "plugin_count": len(plugin_meta),
+          }
+          (OUT / "repo-audit.json").write_text(json.dumps(agg, ensure_ascii=False, indent=2), "utf-8")
+
+      - name: Publish to .wtp (run ID + latest mirror)
+        run: |
+          set -euo pipefail
+          RUN_ID="${{ env.RUN_ID }}"
+          SRC="_out/repo_audit/${RUN_ID}"
+
+          RUN_REPO=".wtp/state/ro/public/${RUN_ID}/repo"
+          RUN_ROOT=".wtp/state/ro/public/${RUN_ID}"
+          LATEST_REPO=".wtp/state/ro/public/latest/repo"
+          LATEST_ROOT=".wtp/state/ro/public/latest"
+
+          mkdir -p "${RUN_REPO}" "${RUN_ROOT}" "${LATEST_REPO}" "${LATEST_ROOT}"
+
+          # repo/*
+          for f in REPO_AUDIT.md repo-audit.json plugin_meta.json mu_meta.json hooks.json symbol_index.json includes_index.json; do
+            cp -f "${SRC}/$f" "${RUN_REPO}/$f"
+            cp -f "${SRC}/$f" "${LATEST_REPO}/$f"
+          done
+
+          # root-level indexes (context)
+          cp -f "${SRC}/filelist.txt" "${RUN_ROOT}/filelist.txt"
+          cp -f "${SRC}/tree.txt"     "${RUN_ROOT}/tree.txt"
+          cp -f "${SRC}/workflows.md" "${RUN_ROOT}/workflows.md"
+          cp -f "${SRC}/workflows.json" "${RUN_ROOT}/workflows.json"
+
+          cp -f "${SRC}/filelist.txt" "${LATEST_ROOT}/filelist.txt"
+          cp -f "${SRC}/tree.txt"     "${LATEST_ROOT}/tree.txt"
+          cp -f "${SRC}/workflows.md" "${LATEST_ROOT}/workflows.md"
+          cp -f "${SRC}/workflows.json" "${LATEST_ROOT}/workflows.json"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "repo audit (extended) ${RUN_ID}"
+
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
+
+          for i in 1 2 3; do
+            git fetch origin "$BRANCH"
+            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+            if git push origin "HEAD:$BRANCH"; then
+              echo "::notice::Pushed (attempt $i)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Push failed after 3 attempts"
+          exit 1
