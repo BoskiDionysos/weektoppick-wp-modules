@@ -1,0 +1,134 @@
+name: 91_restore_plugins_safely
+on:
+  workflow_dispatch:
+    inputs:
+      plugin_list:
+        description: "Space-separated slugs do bezpiecznej aktywacji (kolejno)"
+        required: false
+        default: "litespeed-cache seo-by-rank-math pretty-link wordfence cookie-law-info classic-editor"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: restore-plugins
+  cancel-in-progress: true
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      RUN_ID: ${{ github.run_id }}
+      PLUGINS: ${{ github.event.inputs.plugin_list }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Activate plugins one-by-one with health-check
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          envs: TARGET,RUN_ID,PLUGINS
+          script: |
+            set -euo pipefail
+            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+            cd "$TARGET"
+
+            OUT="$TARGET/.wtp/state/ci_logs/restore_plugins_${RUN_ID}"
+            mkdir -p "$OUT"
+
+            HOMEURL="$(php -r 'if(file_exists("wp-config.php")){ include "wp-config.php"; if(function_exists("get_option")){ include "wp-load.php"; echo get_option("home"); } }' 2>/dev/null || echo "https://weektoppick.com")"
+            HOMEURL="${HOMEURL:-https://weektoppick.com}"
+            echo "$HOMEURL" > "$OUT/home_url.txt"
+
+            if ! command -v wp >/dev/null 2>&1; then
+              echo "[ERR] wp-cli missing" | tee "$OUT/action.txt"
+              exit 2
+            fi
+
+            echo "[INFO] Deactivating all to start fresh" | tee "$OUT/action.txt"
+            wp plugin deactivate --all --allow-root >/dev/null 2>&1 || true
+
+            HEALTHY=()
+            BROKEN=()
+
+            check_site() {
+              local url="$1"
+              local status body size
+              status=$(curl -ks -o /dev/null -w "%{http_code}" "$url" || echo 000)
+              body="$(curl -ks "$url" || true)"
+              size=$(printf "%s" "$body" | wc -c | tr -d ' ')
+              echo "$status" > "$OUT/http_status.txt"
+              echo "$size" > "$OUT/home_size.txt"
+              printf "%s" "$body" > "$OUT/home_sample.html"
+              if [ "$status" != "200" ] || [ "${size:-0}" -lt 1200 ]; then
+                return 1
+              fi
+              return 0
+            }
+
+            # baseline check (powinno przejść na twentytwentyfive)
+            if ! check_site "$HOMEURL"; then
+              echo "[WARN] baseline not healthy but continuing" | tee -a "$OUT/action.txt"
+            fi
+
+            for slug in $PLUGINS; do
+              echo "[INFO] Trying plugin: $slug" | tee -a "$OUT/action.txt"
+              ACT_OK=0
+              wp plugin is-installed "$slug" --allow-root >/dev/null 2>&1 || wp plugin install "$slug" --allow-root >/dev/null 2>&1 || true
+              wp plugin activate "$slug" --allow-root >/dev/null 2>&1 || ACT_OK=$?
+              if [ "$ACT_OK" -ne 0 ]; then
+                echo "[WARN] activate failed: $slug" | tee -a "$OUT/action.txt"
+                BROKEN+=("$slug (activate failed)")
+                continue
+              fi
+
+              # purge LS cache jeśli aktywna
+              wp plugin is-active litespeed-cache --allow-root >/dev/null 2>&1 && wp litespeed-purge all --allow-root >/dev/null 2>&1 || true
+
+              if check_site "$HOMEURL"; then
+                echo "[OK] plugin healthy: $slug" | tee -a "$OUT/action.txt"
+                HEALTHY+=("$slug")
+              else
+                echo "[ERR] plugin broke site: $slug -> rollback" | tee -a "$OUT/action.txt"
+                wp plugin deactivate "$slug" --allow-root >/dev/null 2>&1 || true
+                wp plugin is-active litespeed-cache --allow-root >/dev/null 2>&1 && wp litespeed-purge all --allow-root >/dev/null 2>&1 || true
+                BROKEN+=("$slug")
+              fi
+            done
+
+            printf "%s\n" "${HEALTHY[@]:-}" > "$OUT/healthy.txt"
+            printf "%s\n" "${BROKEN[@]:-}"  > "$OUT/broken.txt"
+            echo "[INFO] done" | tee -a "$OUT/action.txt"
+
+      - name: Pull logs
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${RUN_ID}"
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
+            "${USER}@${HOST}:${TARGET:-$HOME/domains/weektoppick.com/public_html}/.wtp/state/ci_logs/restore_plugins_${RUN_ID}" "_ci_logs/${RUN_ID}/" || true
+          ls -la "_ci_logs/${RUN_ID}/restore_plugins_${RUN_ID}" || true
+
+      - name: Publish report to repo
+        run: |
+          set -euo pipefail
+          RUN_ID="${RUN_ID}"
+          RO_DIR=".wtp/state/ro/public/${RUN_ID}/restore-plugins"
+          RO_LATEST=".wtp/state/ro/public/latest/restore-plugins"
+          mkdir -p "${RO_DIR}" "${RO_LATEST}"
+          cp -a "_ci_logs/${RUN_ID}/restore_plugins_${RUN_ID}/." "${RO_DIR}/" || true
+          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"; cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "restore_plugins: report ${RUN_ID}" || true
+          git push || true
