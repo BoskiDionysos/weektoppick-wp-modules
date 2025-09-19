@@ -1,146 +1,89 @@
-name: theme_fix_functions_v2
-
+name: 97_theme_fix_functions
 on:
   workflow_dispatch: {}
-
 permissions:
   contents: write
-
 concurrency:
-  group: theme-fix-functions-v2
+  group: theme-fix-functions
   cancel-in-progress: true
 
 jobs:
   fix:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     env:
-      HOST: ${{ secrets.DEPLOY_HOST }}
-      PORT: ${{ secrets.DEPLOY_PORT }}
-      USER: ${{ secrets.DEPLOY_USER }}
-      PASS: ${{ secrets.DEPLOY_PASS }}
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
       RUN_ID: ${{ github.run_id }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup tools
-        run: |
-          set -euo pipefail
-          sudo apt-get update -y
-          sudo apt-get install -y sshpass
-
-      - name: Create safe functions.php content
-        run: |
-          mkdir -p /tmp/theme-fix
-          cat > /tmp/theme-fix/functions.php << 'EOF'
-          <?php
-          /**
-           * WTP Core Theme — safe bootstrap
-           * (no closing PHP tag on purpose)
-           */
-          if ( ! defined( 'ABSPATH' ) ) { exit; }
-
-          add_action( 'after_setup_theme', function () {
-              add_theme_support( 'title-tag' );
-              add_theme_support( 'post-thumbnails' );
-              add_theme_support( 'html5', array(
-                  'search-form','comment-form','comment-list','gallery','caption','style','script'
-              ) );
-              // place for future supports...
-          } );
-
-          add_action( 'wp_enqueue_scripts', function () {
-              // Minimal enqueue placeholder — nothing critical to avoid fatals.
-          }, 20 );
-          EOF
-
-      - name: Deploy and patch functions.php safely
+      - name: Replace functions.php with safe stub
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ env.HOST }}
+          host:     ${{ env.HOST }}
           username: ${{ env.USER }}
           password: ${{ env.PASS }}
-          port: ${{ env.PORT }}
-          request_pty: true
+          port:     ${{ env.PORT }}
           envs: TARGET,RUN_ID
           script: |
             set -euo pipefail
             TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
             cd "$TARGET"
+
             THEME_DIR="wp-content/themes/wtp-core-theme"
-            FILE="${THEME_DIR}/functions.php"
+            FILE="$THEME_DIR/functions.php"
             OUT="$TARGET/.wtp/state/ci_logs/theme_fix_${RUN_ID}"
-            mkdir -p "$OUT"
+            mkdir -p "$OUT" "$THEME_DIR"
 
-            if [ ! -d "$THEME_DIR" ]; then
-              echo "[ERR] Theme dir not found: $THEME_DIR" | tee "$OUT/action.txt"
-              exit 2
-            fi
-
+            # backup jeśli istnieje
             if [ -f "$FILE" ]; then
-              cp -f "$FILE" "${FILE}.bak.$(date -u +%Y%m%d%H%M%S)"
-              echo "[INFO] Backed up existing functions.php" >> "$OUT/action.txt"
+              cp -f "$FILE" "$OUT/functions.php.bak" || true
             fi
 
-            echo "[INFO] Creating new safe functions.php" >> "$OUT/action.txt"
+            # bezpieczny stub (brak short open tags, tylko PHP)
+            cat > "$FILE" <<'PHP'
+<?php
+/**
+ * Safe stub functions.php for wtp-core-theme.
+ * Keeps site alive while we iterate.
+ */
+if (!defined('ABSPATH')) { exit; }
 
-      - name: Upload new functions.php
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ env.HOST }}
-          username: ${{ env.USER }}
-          password: ${{ env.PASS }}
-          port: ${{ env.PORT }}
-          source: /tmp/theme-fix/functions.php
-          target: ${{ env.TARGET }}/wp-content/themes/wtp-core-theme/
-          strip_components: 2
+/** Basic theme supports */
+add_action('after_setup_theme', function () {
+    add_theme_support('title-tag');
+    add_theme_support('post-thumbnails');
+});
 
-      - name: Verify and test functions.php
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ env.HOST }}
-          username: ${{ env.USER }}
-          password: ${{ env.PASS }}
-          port: ${{ env.PORT }}
-          request_pty: true
-          envs: TARGET,RUN_ID
-          script: |
-            set -euo pipefail
-            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
-            cd "$TARGET"
-            FILE="wp-content/themes/wtp-core-theme/functions.php"
-            OUT="$TARGET/.wtp/state/ci_logs/theme_fix_${RUN_ID}"
+/** No-op placeholders to avoid fatal errors if called elsewhere */
+if (!function_exists('wtp_bootstrap')) {
+    function wtp_bootstrap() { return true; }
+}
+PHP
 
-            php -l "$FILE" > "$OUT/functions_php_lint.txt" 2>&1 || true
+            # szybka walidacja składni
+            php -l "$FILE" || { echo "[ERR] PHP lint failed"; exit 3; }
+
             echo "[OK] functions.php replaced with safe stub" | tee "$OUT/action.txt"
 
-      - name: Pull proof and publish logs
-        if: always()
-        run: |
-          set -euo pipefail
-          mkdir -p "_ci_logs/${RUN_ID}"
-          
-          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
-            "${USER}@${HOST}:${TARGET:-$HOME/domains/weektoppick.com/public_html}/.wtp/state/ci_logs/theme_fix_${RUN_ID}/" \
-            "_ci_logs/${RUN_ID}/" || true
-
-          RO_DIR=".wtp/state/ro/public/${RUN_ID}/theme-fix"
-          RO_LATEST=".wtp/state/ro/public/latest/theme-fix"
-          mkdir -p "${RO_DIR}" "${RO_LATEST}"
-          cp -a "_ci_logs/${RUN_ID}/." "${RO_DIR}/" || true
-          rm -rf "${RO_LATEST}"
-          mkdir -p "${RO_LATEST}"
-          cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --staged --quiet; then
-            echo "::notice::Nothing to commit."
-            exit 0
-          fi
-          git commit -m "theme_fix_functions: ${RUN_ID}"
-          git push
+      - name: Purge caches (best effort)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          envs: TARGET
+          script: |
+            set -euo pipefail
+            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+            cd "$TARGET"
+            if command -v wp >/dev/null 2>&1; then
+              wp plugin is-active litespeed-cache >/dev/null 2>&1 && wp litespeed-purge all || true
+            fi
+            echo "[OK] purge attempted"
