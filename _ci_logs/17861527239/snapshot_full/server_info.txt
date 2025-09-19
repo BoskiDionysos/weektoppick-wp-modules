@@ -1,0 +1,4 @@
+user: u493676300
+uname: Linux de-fra-web2061.main-hosting.eu 5.14.0-570.28.1.el9_6.x86_64 #1 SMP PREEMPT_DYNAMIC Tue Jul 22 07:56:01 EDT 2025 x86_64 x86_64 x86_64 GNU/Linux
+datetime: 2025-09-16T05:25:48+00:00
+cwd: /home/u493676300/domains/weektoppick.com/public_html
