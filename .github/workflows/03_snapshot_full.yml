@@ -33,6 +33,7 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup tools
         run: |
           set -euo pipefail
@@ -57,6 +58,16 @@ jobs:
             mkdir -p "${OUT}" "${OUT}/menus"
             WP="$(command -v wp || true)"
             php -r 'echo PHP_VERSION;' > "${OUT}/php_version.txt" 2>/dev/null || echo unknown > "${OUT}/php_version.txt"
+
+            # === DODANE: lint motywu (wynik -> theme_lint.txt) ===
+            if [ -d "wp-content/themes/wtp-core-theme" ]; then
+              find wp-content/themes/wtp-core-theme -type f -name "*.php" \
+                -exec php -l {} \; > "${OUT}/theme_lint.txt" 2>&1 || true
+            else
+              echo "theme not found" > "${OUT}/theme_lint.txt"
+            fi
+            # === KONIEC DODATKU ===
+
             if [ -n "$WP" ]; then
               $WP core version 2>/dev/null > "${OUT}/wp_version.txt" || echo unknown > "${OUT}/wp_version.txt"
               $WP option get home    2>/dev/null > "${OUT}/home.txt"    || : > "${OUT}/home.txt"
@@ -269,5 +280,5 @@ jobs:
           echo "::error::Failed to push after rebasing 3 times."; exit 1
 
       - name: Summary
-        if: ${{ always() }}
-        run: echo "::notice::03_snapshot_full finished for run ${RUN_ID}"
+        if: always()
+        run: echo "::notice::03_snapshot_full finished for run $RUN_ID"
