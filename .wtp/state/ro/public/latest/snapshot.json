@@ -1,6 +1,6 @@
 {
-  "run_id": "17850367845",
-  "run_ts": "2025-09-19T06:25:17Z",
+  "run_id": "17851303735",
+  "run_ts": "2025-09-19T07:13:41Z",
   "site": {
     "home": "",
     "siteurl": "",
@@ -11,7 +11,7 @@
     "wp_version": "6.8.2",
     "php_version": "8.3.22",
     "hostname": "de-fra-web2061.main-hosting.eu",
-    "timestamp_utc": "2025-09-19T06:25:06Z"
+    "timestamp_utc": "2025-09-19T07:13:25Z"
   },
   "active_theme": {
     "active": ""
@@ -113,6 +113,11 @@
       "file": "wtp-translate.php.off",
       "size": 6543,
       "md5": "50ab3256b657587600abd172942636af"
+    },
+    {
+      "file": "zzz-wtp-emergency-recovery.php.off",
+      "size": 1592,
+      "md5": "6785aa010145b70f2bcdaa8783ccf7a2"
     }
   ],
   "admins": [],
@@ -408,6 +413,11 @@
         "path": ".wtp/state/ci_logs/try_theme_17839893300/home_after.html",
         "size": 54394,
         "md5": "47afce29b95a6a476b5d1f147625a0be"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17851243489/home_after.html",
+        "size": 2653,
+        "md5": "ca361bd481567872c6748076e5ee415d"
       },
       {
         "path": ".wtp/state/ci_logs/try_theme_17836816971/home_after.html",
