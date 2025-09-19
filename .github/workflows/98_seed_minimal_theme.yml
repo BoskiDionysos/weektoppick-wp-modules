@@ -170,7 +170,7 @@ jobs:
           mkdir -p "${RO_DIR}" "${RO_LATEST}"
           cp -a "_ci_logs/${RUN_ID}/try-theme/." "${RO_DIR}/"
           rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"
-          cp -a "${RO_DIR}/." "${RO_LEST}/" 2>/dev/null || cp -a "${RO_DIR}/." "${RO_LATEST}/"
+          cp -a "${RO_DIR}/." "${RO_LATEST}/" 2>/dev/null || cp -a "${RO_DIR}/." "${RO_LATEST}/"
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
