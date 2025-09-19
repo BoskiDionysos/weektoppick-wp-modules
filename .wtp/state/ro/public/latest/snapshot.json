@@ -1,159 +1,46 @@
 {
-  "run_id": "17836767879",
-  "run_ts": "2025-09-18T17:37:30Z",
+  "run_id": "17849636808",
+  "run_ts": "2025-09-19T05:43:28Z",
   "site": {
-    "home": "https://weektoppick.com",
-    "siteurl": "https://weektoppick.com",
-    "blogname": "WeekTopPick",
-    "blogdescription": "Your Weekly Top Picks in Tech, Lifestyle &amp; More",
+    "home": "",
+    "siteurl": "",
+    "blogname": "",
+    "blogdescription": "",
     "timezone": "",
-    "permalink": "/%postname%/",
+    "permalink": "",
     "wp_version": "6.8.2",
     "php_version": "8.3.22",
     "hostname": "de-fra-web2061.main-hosting.eu",
-    "timestamp_utc": "2025-09-18T17:37:11Z"
+    "timestamp_utc": "2025-09-19T05:43:13Z"
   },
   "active_theme": {
     "active": ""
   },
-  "plugins": [
-    {
-      "name": "classic-editor",
-      "status": "active",
-      "update": "none",
-      "version": "1.6.7",
-      "update_version": "",
-      "auto_update": "off"
-    },
-    {
-      "name": "cookie-law-info",
-      "status": "active",
-      "update": "none",
-      "version": "3.3.5",
-      "update_version": "",
-      "auto_update": "off"
-    },
-    {
-      "name": "litespeed-cache",
-      "status": "active",
-      "update": "none",
-      "version": "7.5.0.1",
-      "update_version": "",
-      "auto_update": "off"
-    },
-    {
-      "name": "pretty-link",
-      "status": "active",
-      "update": "none",
-      "version": "3.6.17",
-      "update_version": "",
-      "auto_update": "off"
-    },
-    {
-      "name": "seo-by-rank-math",
-      "status": "active",
-      "update": "none",
-      "version": "1.0.253",
-      "update_version": "",
-      "auto_update": "off"
-    },
-    {
-      "name": "wordfence",
-      "status": "active",
-      "update": "none",
-      "version": "8.1.0",
-      "update_version": "",
-      "auto_update": "off"
-    },
-    {
-      "name": "00-mu-safe-loader",
-      "status": "must-use",
-      "update": false,
-      "version": "",
-      "update_version": "",
-      "auto_update": "off"
-    },
-    {
-      "name": "wtp-canonical",
-      "status": "must-use",
-      "update": false,
-      "version": "",
-      "update_version": "",
-      "auto_update": "off"
-    },
-    {
-      "name": "wtp-canonical-redirects",
-      "status": "must-use",
-      "update": false,
-      "version": "",
-      "update_version": "",
-      "auto_update": "off"
-    },
-    {
-      "name": "wtp-deploy-guard",
-      "status": "must-use",
-      "update": false,
-      "version": "1.0.0",
-      "update_version": "",
-      "auto_update": "off"
-    },
-    {
-      "name": "wtp-dev-bridge",
-      "status": "must-use",
-      "update": false,
-      "version": "4.0.0",
-      "update_version": "",
-      "auto_update": "off"
-    },
-    {
-      "name": "wtp-patch-safe-loader-log",
-      "status": "must-use",
-      "update": false,
-      "version": "0.1.0",
-      "update_version": "",
-      "auto_update": "off"
-    },
-    {
-      "name": "wtp-ro-exporter",
-      "status": "must-use",
-      "update": false,
-      "version": "1.2.0",
-      "update_version": "",
-      "auto_update": "off"
-    },
-    {
-      "name": "wtp-theme-guardian",
-      "status": "must-use",
-      "update": false,
-      "version": "0.1.0",
-      "update_version": "",
-      "auto_update": "off"
-    }
-  ],
+  "plugins": [],
   "themes": [],
   "mu_plugins": [
     {
-      "file": "00-mu-safe-loader.php",
+      "file": "00-mu-safe-loader.php.off",
       "size": 1063,
       "md5": "5c8e9f5ef6757e581b09da35e79632b2"
     },
     {
-      "file": "wtp-canonical-redirects.php",
+      "file": "wtp-canonical-redirects.php.off",
       "size": 712,
       "md5": "d5cba3f4548d24f6eefdd77d84758c6f"
     },
     {
-      "file": "wtp-canonical.php",
+      "file": "wtp-canonical.php.off",
       "size": 1947,
       "md5": "c77b945405d699534dcf29b38bdaf23d"
     },
     {
-      "file": "wtp-deploy-guard.php",
+      "file": "wtp-deploy-guard.php.off",
       "size": 3525,
       "md5": "467aeaaf3fc793e1cac4b5d831455966"
     },
     {
-      "file": "wtp-dev-bridge.php",
+      "file": "wtp-dev-bridge.php.off",
       "size": 20183,
       "md5": "d4936ab30c4ef2f1e29591fe0df54886"
     },
@@ -173,7 +60,7 @@
       "md5": "dcdad39040c952886e80ac87af1436b4"
     },
     {
-      "file": "wtp-patch-safe-loader-log.php",
+      "file": "wtp-patch-safe-loader-log.php.off",
       "size": 732,
       "md5": "27600b743f03337a72211e85406f9f99"
     },
@@ -198,7 +85,7 @@
       "md5": "5a1dd7fd71d6ad265943402b67a3afff"
     },
     {
-      "file": "wtp-ro-exporter.php",
+      "file": "wtp-ro-exporter.php.off",
       "size": 10108,
       "md5": "d1b3083c5e73884ec342476d7c518b50"
     },
@@ -213,7 +100,7 @@
       "md5": "281dd686cb2356f768d401717aa4b2d6"
     },
     {
-      "file": "wtp-theme-guardian.php",
+      "file": "wtp-theme-guardian.php.off",
       "size": 1284,
       "md5": "a25090d55e76f55705188f299e7a5a26"
     },
@@ -228,599 +115,13 @@
       "md5": "50ab3256b657587600abd172942636af"
     }
   ],
-  "admins": [
-    {
-      "ID": 1,
-      "user_login": "bmpanek@gmail.com",
-      "display_name": "WeekTopPick Editorial Team",
-      "user_email": "bmpanek@gmail.com",
-      "user_registered": "2025-08-28 09:08:51",
-      "roles": "administrator"
-    }
-  ],
-  "post_types": [
-    {
-      "name": "post",
-      "label": "Posts",
-      "description": "",
-      "hierarchical": false,
-      "public": true,
-      "capability_type": "post"
-    },
-    {
-      "name": "page",
-      "label": "Pages",
-      "description": "",
-      "hierarchical": true,
-      "public": true,
-      "capability_type": "page"
-    },
-    {
-      "name": "attachment",
-      "label": "Media",
-      "description": "",
-      "hierarchical": false,
-      "public": true,
-      "capability_type": "post"
-    },
-    {
-      "name": "revision",
-      "label": "Revisions",
-      "description": "",
-      "hierarchical": false,
-      "public": false,
-      "capability_type": "post"
-    },
-    {
-      "name": "nav_menu_item",
-      "label": "Navigation Menu Items",
-      "description": "",
-      "hierarchical": false,
-      "public": false,
-      "capability_type": "edit_theme_options"
-    },
-    {
-      "name": "custom_css",
-      "label": "Custom CSS",
-      "description": "",
-      "hierarchical": false,
-      "public": false,
-      "capability_type": "post"
-    },
-    {
-      "name": "customize_changeset",
-      "label": "Changesets",
-      "description": "",
-      "hierarchical": false,
-      "public": false,
-      "capability_type": "customize_changeset"
-    },
-    {
-      "name": "oembed_cache",
-      "label": "oEmbed Responses",
-      "description": "",
-      "hierarchical": false,
-      "public": false,
-      "capability_type": "post"
-    },
-    {
-      "name": "user_request",
-      "label": "User Requests",
-      "description": "",
-      "hierarchical": false,
-      "public": false,
-      "capability_type": "post"
-    },
-    {
-      "name": "wp_block",
-      "label": "Patterns",
-      "description": "",
-      "hierarchical": false,
-      "public": false,
-      "capability_type": "block"
-    },
-    {
-      "name": "wp_template",
-      "label": "Templates",
-      "description": "Templates to include in your theme.",
-      "hierarchical": false,
-      "public": false,
-      "capability_type": "template"
-    },
-    {
-      "name": "wp_template_part",
-      "label": "Template Parts",
-      "description": "Template parts to include in your templates.",
-      "hierarchical": false,
-      "public": false,
-      "capability_type": "post"
-    },
-    {
-      "name": "wp_global_styles",
-      "label": "Global Styles",
-      "description": "Global styles to include in themes.",
-      "hierarchical": false,
-      "public": false,
-      "capability_type": "post"
-    },
-    {
-      "name": "wp_navigation",
-      "label": "Navigation Menus",
-      "description": "Navigation menus that can be inserted into your site.",
-      "hierarchical": false,
-      "public": false,
-      "capability_type": "post"
-    },
-    {
-      "name": "wp_font_family",
-      "label": "Font Families",
-      "description": "",
-      "hierarchical": false,
-      "public": false,
-      "capability_type": "post"
-    },
-    {
-      "name": "wp_font_face",
-      "label": "Font Faces",
-      "description": "",
-      "hierarchical": false,
-      "public": false,
-      "capability_type": "post"
-    },
-    {
-      "name": "pretty-link",
-      "label": "Pretty Links",
-      "description": "",
-      "hierarchical": false,
-      "public": false,
-      "capability_type": "post"
-    }
-  ],
-  "taxonomies": [
-    {
-      "name": "category",
-      "label": "Categories",
-      "public": true,
-      "hierarchical": true
-    },
-    {
-      "name": "post_tag",
-      "label": "Tags",
-      "public": true,
-      "hierarchical": false
-    },
-    {
-      "name": "nav_menu",
-      "label": "Navigation Menus",
-      "public": false,
-      "hierarchical": false
-    },
-    {
-      "name": "link_category",
-      "label": "Link Categories",
-      "public": false,
-      "hierarchical": false
-    },
-    {
-      "name": "post_format",
-      "label": "Formats",
-      "public": true,
-      "hierarchical": false
-    },
-    {
-      "name": "wp_theme",
-      "label": "Themes",
-      "public": false,
-      "hierarchical": false
-    },
-    {
-      "name": "wp_template_part_area",
-      "label": "Template Part Areas",
-      "public": false,
-      "hierarchical": false
-    },
-    {
-      "name": "wp_pattern_category",
-      "label": "Pattern Categories",
-      "public": false,
-      "hierarchical": false
-    }
-  ],
-  "terms": {
-    "category": [
-      {
-        "term_id": 7,
-        "slug": "audio-video",
-        "name": "Audio &amp; Video",
-        "count": 0
-      },
-      {
-        "term_id": 42,
-        "slug": "baby-toddler",
-        "name": "Baby &amp; Toddler",
-        "count": 0
-      },
-      {
-        "term_id": 11,
-        "slug": "beauty-health",
-        "name": "Beauty &amp; Health",
-        "count": 0
-      },
-      {
-        "term_id": 35,
-        "slug": "bedding-bath",
-        "name": "Bedding &amp; Bath",
-        "count": 0
-      },
-      {
-        "term_id": 25,
-        "slug": "board-card-games",
-        "name": "Board Games &amp; Card Games",
-        "count": 0
-      },
-      {
-        "term_id": 26,
-        "slug": "books-comics",
-        "name": "Books &amp; Comics",
-        "count": 0
-      },
-      {
-        "term_id": 60,
-        "slug": "camping-gear",
-        "name": "Camping Gear",
-        "count": 0
-      },
-      {
-        "term_id": 48,
-        "slug": "cat-supplies",
-        "name": "Cat Supplies",
-        "count": 0
-      },
-      {
-        "term_id": 29,
-        "slug": "collectibles-hobbies",
-        "name": "Collectibles &amp; Hobbies",
-        "count": 0
-      },
-      {
-        "term_id": 47,
-        "slug": "dog-supplies",
-        "name": "Dog Supplies",
-        "count": 0
-      },
-      {
-        "term_id": 40,
-        "slug": "educational-toys",
-        "name": "Educational Toys",
-        "count": 0
-      },
-      {
-        "term_id": 6,
-        "slug": "electronic-accessories",
-        "name": "Electronic Accessories",
-        "count": 0
-      },
-      {
-        "term_id": 2,
-        "slug": "electronics",
-        "name": "Electronics",
-        "count": 0
-      },
-      {
-        "term_id": 18,
-        "slug": "fashion",
-        "name": "Fashion",
-        "count": 0
-      },
-      {
-        "term_id": 22,
-        "slug": "fashion-accessories",
-        "name": "Fashion Accessories",
-        "count": 0
-      },
-      {
-        "term_id": 54,
-        "slug": "fitness-equipment",
-        "name": "Fitness Equipment",
-        "count": 0
-      },
-      {
-        "term_id": 21,
-        "slug": "footwear",
-        "name": "Footwear",
-        "count": 0
-      },
-      {
-        "term_id": 15,
-        "slug": "fragrances",
-        "name": "Fragrances",
-        "count": 0
-      },
-      {
-        "term_id": 32,
-        "slug": "furniture",
-        "name": "Furniture",
-        "count": 0
-      },
-      {
-        "term_id": 45,
-        "slug": "games-puzzles",
-        "name": "Games &amp; Puzzles",
-        "count": 0
-      },
-      {
-        "term_id": 30,
-        "slug": "gaming-esports",
-        "name": "Gaming &amp; Esports",
-        "count": 0
-      },
-      {
-        "term_id": 37,
-        "slug": "garden-outdoor",
-        "name": "Garden &amp; Outdoor",
-        "count": 0
-      },
-      {
-        "term_id": 14,
-        "slug": "hair-care",
-        "name": "Hair Care",
-        "count": 0
-      },
-      {
-        "term_id": 16,
-        "slug": "health-wellness",
-        "name": "Health &amp; Wellness",
-        "count": 0
-      },
-      {
-        "term_id": 61,
-        "slug": "hiking-equipment",
-        "name": "Hiking Equipment",
-        "count": 0
-      },
-      {
-        "term_id": 24,
-        "slug": "hobby-entertainment",
-        "name": "Hobby &amp; Entertainment",
-        "count": 0
-      },
-      {
-        "term_id": 31,
-        "slug": "home-garden",
-        "name": "Home &amp; Garden",
-        "count": 0
-      },
-      {
-        "term_id": 33,
-        "slug": "home-decor",
-        "name": "Home Decor",
-        "count": 0
-      },
-      {
-        "term_id": 23,
-        "slug": "jewelry",
-        "name": "Jewelry",
-        "count": 0
-      },
-      {
-        "term_id": 38,
-        "slug": "kids-toys",
-        "name": "Kids &amp; Toys",
-        "count": 0
-      },
-      {
-        "term_id": 43,
-        "slug": "kids-fashion",
-        "name": "Kids’ Fashion",
-        "count": 0
-      },
-      {
-        "term_id": 34,
-        "slug": "kitchen-dining",
-        "name": "Kitchen &amp; Dining",
-        "count": 0
-      },
-      {
-        "term_id": 9,
-        "slug": "laptops-computers",
-        "name": "Laptops &amp; Computers",
-        "count": 0
-      },
-      {
-        "term_id": 36,
-        "slug": "lighting",
-        "name": "Lighting",
-        "count": 0
-      },
-      {
-        "term_id": 59,
-        "slug": "luggage-backpacks",
-        "name": "Luggage &amp; Backpacks",
-        "count": 0
-      },
-      {
-        "term_id": 13,
-        "slug": "makeup",
-        "name": "Makeup",
-        "count": 0
-      },
-      {
-        "term_id": 20,
-        "slug": "mens-clothing",
-        "name": "Men's Clothing",
-        "count": 0
-      },
-      {
-        "term_id": 28,
-        "slug": "movies-series",
-        "name": "Movies &amp; Series",
-        "count": 0
-      },
-      {
-        "term_id": 27,
-        "slug": "music-instruments",
-        "name": "Music &amp; Instruments",
-        "count": 0
-      },
-      {
-        "term_id": 64,
-        "slug": "outdoor-clothing",
-        "name": "Outdoor Clothing",
-        "count": 0
-      },
-      {
-        "term_id": 44,
-        "slug": "outdoor-play",
-        "name": "Outdoor Play",
-        "count": 0
-      },
-      {
-        "term_id": 17,
-        "slug": "personal-care",
-        "name": "Personal Care",
-        "count": 0
-      },
-      {
-        "term_id": 52,
-        "slug": "pet-accessories",
-        "name": "Pet Accessories",
-        "count": 0
-      },
-      {
-        "term_id": 50,
-        "slug": "pet-food",
-        "name": "Pet Food",
-        "count": 0
-      },
-      {
-        "term_id": 51,
-        "slug": "pet-toys",
-        "name": "Pet Toys",
-        "count": 0
-      },
-      {
-        "term_id": 46,
-        "slug": "pets",
-        "name": "Pets",
-        "count": 0
-      },
-      {
-        "term_id": 12,
-        "slug": "skincare",
-        "name": "Skincare",
-        "count": 0
-      },
-      {
-        "term_id": 49,
-        "slug": "small-pets",
-        "name": "Small Pets",
-        "count": 0
-      },
-      {
-        "term_id": 8,
-        "slug": "smartphones",
-        "name": "Smartphones",
-        "count": 0
-      },
-      {
-        "term_id": 53,
-        "slug": "sports-fitness",
-        "name": "Sports &amp; Fitness",
-        "count": 0
-      },
-      {
-        "term_id": 65,
-        "slug": "sportswear",
-        "name": "Sportswear",
-        "count": 0
-      },
-      {
-        "term_id": 55,
-        "slug": "team-sports",
-        "name": "Team Sports",
-        "count": 0
-      },
-      {
-        "term_id": 63,
-        "slug": "tents-sleeping-bags",
-        "name": "Tents &amp; Sleeping Bags",
-        "count": 0
-      },
-      {
-        "term_id": 66,
-        "slug": "top-picks",
-        "name": "Top Picks",
-        "count": 0
-      },
-      {
-        "term_id": 41,
-        "slug": "toys",
-        "name": "Toys",
-        "count": 0
-      },
-      {
-        "term_id": 58,
-        "slug": "travel-outdoor",
-        "name": "Travel &amp; Outdoor",
-        "count": 0
-      },
-      {
-        "term_id": 62,
-        "slug": "travel-accessories",
-        "name": "Travel Accessories",
-        "count": 0
-      },
-      {
-        "term_id": 1,
-        "slug": "uncategorized",
-        "name": "Uncategorized",
-        "count": 2
-      },
-      {
-        "term_id": 56,
-        "slug": "water-sports",
-        "name": "Water Sports",
-        "count": 0
-      },
-      {
-        "term_id": 10,
-        "slug": "wearables",
-        "name": "Wearables",
-        "count": 0
-      },
-      {
-        "term_id": 57,
-        "slug": "winter-sports",
-        "name": "Winter Sports",
-        "count": 0
-      },
-      {
-        "term_id": 19,
-        "slug": "womens-clothing",
-        "name": "Women's Clothing",
-        "count": 0
-      }
-    ],
-    "post_tag": [],
-    "nav_menu": [],
-    "link_category": [],
-    "post_format": [],
-    "wp_theme": [],
-    "wp_template_part_area": [],
-    "wp_pattern_category": []
-  },
+  "admins": [],
+  "post_types": [],
+  "taxonomies": [],
+  "terms": {},
   "menus": [],
   "menu_items": {},
-  "options": {
-    "siteurl": "https://weektoppick.com",
-    "home": "https://weektoppick.com",
-    "blogname": "WeekTopPick",
-    "blogdescription": "Your Weekly Top Picks in Tech, Lifestyle &amp; More",
-    "timezone_string": "",
-    "permalink_structure": "/%postname%/",
-    "template": "twentytwentyfive",
-    "stylesheet": "twentytwentyfive"
-  },
+  "options": {},
   "files": {
     "www": [
       {
@@ -1054,6 +355,31 @@
         "md5": "a12a3034ff4734469709265a83697d22"
       },
       {
+        "path": ".wtp/state/ci_logs/auto_upsert_17839251198/home_after.html",
+        "size": 2653,
+        "md5": "ca361bd481567872c6748076e5ee415d"
+      },
+      {
+        "path": ".wtp/state/ci_logs/try_theme_17837671206/home_after.html",
+        "size": 64131,
+        "md5": "dde13e837101a76bb256002f92fd2077"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17840146447/home_after.html",
+        "size": 54057,
+        "md5": "ef652f69809613262fef86bd09bf232d"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17840333680/home_after.html",
+        "size": 54057,
+        "md5": "ef652f69809613262fef86bd09bf232d"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17838187368/home_after.html",
+        "size": 64131,
+        "md5": "dde13e837101a76bb256002f92fd2077"
+      },
+      {
         "path": ".wtp/state/ci_logs/snapshot/screens/weektoppick.com.html",
         "size": 54249,
         "md5": "8deb14650a1f604d36ab715a5dbfa0dd"
@@ -1069,9 +395,89 @@
         "md5": "b4920dbc3c827cc2cc12ef2032d26cf8"
       },
       {
+        "path": ".wtp/state/ci_logs/auto_upsert_17838143259/home_after.html",
+        "size": 64131,
+        "md5": "dde13e837101a76bb256002f92fd2077"
+      },
+      {
+        "path": ".wtp/state/ci_logs/try_theme_17839893300/home_after.html",
+        "size": 54394,
+        "md5": "47afce29b95a6a476b5d1f147625a0be"
+      },
+      {
+        "path": ".wtp/state/ci_logs/try_theme_17836816971/home_after.html",
+        "size": 64131,
+        "md5": "6bdbd04311761b94583dafdc3b90a81e"
+      },
+      {
         "path": ".wtp/state/ci_logs/try_theme_17836398890/home_after.html",
         "size": 64131,
         "md5": "6bdbd04311761b94583dafdc3b90a81e"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17839425885/home_after.html",
+        "size": 54394,
+        "md5": "47afce29b95a6a476b5d1f147625a0be"
+      },
+      {
+        "path": ".wtp/state/ci_logs/hard_reset_17849146322/home_after.html",
+        "size": 0,
+        "md5": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17840281636/home_after.html",
+        "size": 54057,
+        "md5": "ef652f69809613262fef86bd09bf232d"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17840219478/home_after.html",
+        "size": 54057,
+        "md5": "ef652f69809613262fef86bd09bf232d"
+      },
+      {
+        "path": ".wtp/state/ci_logs/try_theme_17840354760/home_after.html",
+        "size": 0,
+        "md5": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17838417042/home_after.html",
+        "size": 64131,
+        "md5": "dde13e837101a76bb256002f92fd2077"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17839467644/home_after.html",
+        "size": 54394,
+        "md5": "47afce29b95a6a476b5d1f147625a0be"
+      },
+      {
+        "path": ".wtp/state/ci_logs/try_theme_17839506113/home_after.html",
+        "size": 54394,
+        "md5": "47afce29b95a6a476b5d1f147625a0be"
+      },
+      {
+        "path": ".wtp/state/ci_logs/try_theme_17837573841/home_after.html",
+        "size": 64131,
+        "md5": "dde13e837101a76bb256002f92fd2077"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17839276779/home_after.html",
+        "size": 54394,
+        "md5": "47afce29b95a6a476b5d1f147625a0be"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17840248330/home_after.html",
+        "size": 54057,
+        "md5": "ef652f69809613262fef86bd09bf232d"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17840174824/home_after.html",
+        "size": 54057,
+        "md5": "ef652f69809613262fef86bd09bf232d"
+      },
+      {
+        "path": ".wtp/state/ci_logs/auto_upsert_17839389317/home_after.html",
+        "size": 54394,
+        "md5": "47afce29b95a6a476b5d1f147625a0be"
       },
       {
         "path": ".wtp/state/ro/public/17755518414/screens/weektoppick.com.html",
@@ -1777,6 +1183,266 @@
         "path": "wp-content/uploads/2025/08/cropped-logo_black_bg.png",
         "size": 13870,
         "md5": "7ca1caeba7df898615aed385dc9f948a"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/home.html",
+        "size": 471,
+        "md5": "b048f307ae5e2145b9cab7a5096dd604"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/index.html",
+        "size": 471,
+        "md5": "b048f307ae5e2145b9cab7a5096dd604"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/404.html",
+        "size": 621,
+        "md5": "5877e599020832df6c6e8ac002e0cb8b"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/single.html",
+        "size": 1502,
+        "md5": "d148deef805d62d64b4556b4b6d061b1"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/page-no-title.html",
+        "size": 347,
+        "md5": "0690adeae46f8e81541e5be41b751a05"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/archive.html",
+        "size": 478,
+        "md5": "148470ac39bce982d5f216748811c27f"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/search.html",
+        "size": 570,
+        "md5": "b39a6201f5f1cce2e640574e7fec5504"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/templates/page.html",
+        "size": 879,
+        "md5": "f9912d724c9b98cb37870d67facc0142"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/screenshot.png",
+        "size": 216683,
+        "md5": "0d60746d300aa01c31d9398c6867c87c"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/delphinium-flowers.webp",
+        "size": 42214,
+        "md5": "3d00fe42d8401d3deb3f54fdef700316"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/category-sunflowers.webp",
+        "size": 18558,
+        "md5": "b0a9ca9a76d79fc738ba623d0ad467c1"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/book-image-landing.webp",
+        "size": 19734,
+        "md5": "2cea00c9903be2255dac09b54f64259b"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/coral-square.webp",
+        "size": 27554,
+        "md5": "ee9f2e0211563850c86f75f0b44c7f5b"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/typewriter.webp",
+        "size": 97944,
+        "md5": "8e8c7a312e1ea9a42eea74f9c4d9c4ab"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/malibu-plantlife.webp",
+        "size": 5194,
+        "md5": "eda70b7c8a4d13f22c47c527a43625c2"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/category-cactus.webp",
+        "size": 51878,
+        "md5": "8aa993aa901657c0456ebe91bcc86c90"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/dallas-creek-square.webp",
+        "size": 7768,
+        "md5": "e2658a111f10c10215c636e674e0ee8b"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/marshland-birds-square.webp",
+        "size": 5886,
+        "md5": "05f1806401291ef6c0bd001cdfaaebfa"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/services-subscriber-photo.webp",
+        "size": 52542,
+        "md5": "41170b96734b709609b5bbfb53312862"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/book-image.webp",
+        "size": 20980,
+        "md5": "d0fc01a6110cdc467d245b574036ddc9"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/agenda-img-4.webp",
+        "size": 14542,
+        "md5": "81023f3e91dc9d6507d1f2906757c40b"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/hero-podcast.webp",
+        "size": 60794,
+        "md5": "3b848eb5c14d25be34a4983bb689e100"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/man-in-hat.webp",
+        "size": 35386,
+        "md5": "edad43aaf0a7059ce24b9948139fd770"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/campanula-alliariifolia-flower.webp",
+        "size": 42036,
+        "md5": "41f1308b456fdcb122996460d8fe3140"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/ruins-image.webp",
+        "size": 68384,
+        "md5": "80d1e5a5e6fe99525dfe1824a581dc58"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/northern-buttercups-flowers.webp",
+        "size": 35820,
+        "md5": "fea4b3d66fdfc40f4521ae560b0f52de"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/star-thristle-flower.webp",
+        "size": 21338,
+        "md5": "6565902ddc4e13e7eee2ab89e6ee453d"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/vash-gon-square.webp",
+        "size": 28214,
+        "md5": "d8b32ab460b29012fb976dd28b5fd3c2"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/404-image.webp",
+        "size": 129970,
+        "md5": "189ee7f2a40c13d4a2094d2497929e62"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/grid-flower-2.webp",
+        "size": 82646,
+        "md5": "b918a975ae328f3963f7ea247bcbe591"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/nurse.webp",
+        "size": 21850,
+        "md5": "f91f5f16501274541bc7bc7a6999ac5d"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/botany-flowers.webp",
+        "size": 99800,
+        "md5": "ffb5f9c90dca0ed752e94629a368fcc9"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/link-in-bio-background.webp",
+        "size": 112516,
+        "md5": "e66b9824129232faa34638d26b525910"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/link-in-bio-image.webp",
+        "size": 95598,
+        "md5": "821242d3836517cec62075830b9a442e"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/flower-meadow-square.webp",
+        "size": 29920,
+        "md5": "4a0190b2622efebab9323e2414697029"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/parthenon-square.webp",
+        "size": 36124,
+        "md5": "259500ec8c58940c856861f6912d5fef"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/red-hibiscus-closeup.webp",
+        "size": 56851,
+        "md5": "ef97fed0409311df29afe95e282f8197"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/category-anthuriums.webp",
+        "size": 27472,
+        "md5": "f126372ae2a67109e4156f99c2794e5c"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/coming-soon-bg-image.webp",
+        "size": 88600,
+        "md5": "a8a1516bedca39878f6241c97868dc7f"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/poster-image-background.webp",
+        "size": 222864,
+        "md5": "e196e4dc2d34fc0b2f806cd1cf502250"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/akaka-falls-state-park-flora.webp",
+        "size": 6116,
+        "md5": "200a78a49be62e8af1457005cae76142"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/grid-flower-1.webp",
+        "size": 19654,
+        "md5": "cda8b7e8ca214886cfa9dd47249d5ec5"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/location.webp",
+        "size": 141020,
+        "md5": "c8dda29f86b03fb43bd74a95026baa03"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/woman-splashing-water.webp",
+        "size": 57776,
+        "md5": "b4293dd5b58d97c0e7da79a065755f70"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/assets/images/botany-flowers-closeup.webp",
+        "size": 60176,
+        "md5": "2a78c17e95f75987edc9b2e4739e5008"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/parts/vertical-header.html",
+        "size": 65,
+        "md5": "93738c867ec4f02f97fd1bf02cf9801d"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/parts/footer-columns.html",
+        "size": 64,
+        "md5": "2f43c9be8afce24bbdb1e0a014497041"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/parts/footer.html",
+        "size": 56,
+        "md5": "608aa5412849fd5d011f9c747573f656"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/parts/footer-newsletter.html",
+        "size": 67,
+        "md5": "7a54076b657425cc93a367bc4a8fbdc4"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/parts/header-large-title.html",
+        "size": 68,
+        "md5": "e9d3575856968972ffc41ae34199c062"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/parts/header.html",
+        "size": 56,
+        "md5": "26e30ce6f9196b918412a75334d46f77"
+      },
+      {
+        "path": "wp-content/themes/twentytwentyfive/parts/sidebar.html",
+        "size": 64,
+        "md5": "2e806c09844d621fc162c1ff6fcf2d93"
       },
       {
         "path": "wp-includes/js/mediaelement/mejs-controls.png",
