@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: SSH: TT25 + MU OFF + plugins OFF + purge + ping
+      - name: "Admin unbrick (TT25, MU off, plugins off, purge, ping)"
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ secrets.DEPLOY_HOST }}
@@ -16,13 +16,13 @@ jobs:
           port:     ${{ secrets.DEPLOY_PORT }}
           script: |
             set -euo pipefail
+
             TARGET="${{ secrets.DEPLOY_TARGET }}"
             if [ -z "${TARGET}" ] || [ "${TARGET}" = "null" ]; then
               TARGET="$HOME/domains/weektoppick.com/public_html"
             fi
             echo "[INFO] TARGET=$TARGET"
             cd "$TARGET" || exit 1
-
             rm -f .maintenance || true
 
             # MU-plugins OFF (wszystkie)
@@ -32,7 +32,7 @@ jobs:
               done
             fi
 
-            # Plugins OFF + przełącz na Twenty Twenty-Five + purge LS
+            # Plugins OFF + TT25 + purge
             if command -v wp >/dev/null 2>&1; then
               wp plugin deactivate --all --quiet || true
               wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
@@ -43,5 +43,5 @@ jobs:
 
             # Ping frontu (log)
             HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || echo https://weektoppick.com)"
-            curl -ks -o /dev/null -w "STATUS:%{http_code}\n" "$HOMEURL" || true
-            echo "[DONE] admin unbrick complete"
+            CODE="$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)"
+            echo "STATUS:${CODE}"
