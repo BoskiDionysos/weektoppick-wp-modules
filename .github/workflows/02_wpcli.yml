@@ -1,20 +1,20 @@
-name: 03_snapshot_full (server state → repo SSOT, safe wp-config)
+name: 02_wpcli (install/update/activate from SSOT, secure SSH)
 
 on:
   workflow_dispatch: {}
   workflow_run:
-    workflows: ["02_wpcli (install/update/activate from SSOT, secure SSH)"]
+    workflows: ["01_deploy (single-run, password auth, strict host key, rsync, sanity)"]
     types: [completed]
 
 permissions:
   contents: write
 
 concurrency:
-  group: snapshot_full
+  group: wpcli
   cancel-in-progress: true
 
 jobs:
-  snapshot_full:
+  wpcli:
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -25,77 +25,281 @@ jobs:
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
+      WTP_CI: "1"
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup tools (sshpass, yq, jq, curl)
+      - name: Setup tools and known_hosts (STRICT)
         run: |
           set -euo pipefail
+          for v in HOST PORT USER PASS TARGET; do
+            [ -n "${!v:-}" ] || { echo "::error::Missing $v"; exit 1; }
+          done
           sudo apt-get update -y
-          sudo apt-get install -y sshpass curl jq
+          sudo apt-get install -y curl sshpass jq
           curl -sSL https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o yq
           chmod +x yq && sudo mv yq /usr/local/bin/yq
-
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
           echo "::add-mask::$HOST"
           echo "::add-mask::$USER"
 
-      - name: Pull snapshot from server
+      - name: Parse SSOT -> plugins.install
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" ssh -p "$PORT" \
-            -o StrictHostKeyChecking=yes \
-            -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST" "cd '$TARGET' && bash .wtp/scripts/snapshot_full.sh" || true
+          test -f ".wtp/ssot.yml" || { echo "::warning::.wtp/ssot.yml not found – proceeding with empty plugin list"; mkdir -p .wtp; : > .wtp/plugins.install.list; exit 0; }
+          yq -e '.plugins.install // []' .wtp/ssot.yml >/dev/null || { echo "::error::Invalid SSOT structure (.plugins.install)"; exit 1; }
+          mkdir -p .wtp
+          yq -r '.plugins.install // [] | .[]' .wtp/ssot.yml > .wtp/plugins.install.list || : 
+          echo "---- plugins.install ----"
+          cat .wtp/plugins.install.list || true
 
-          mkdir -p _ci_logs/${{ github.run_id }}/snapshot_full
-          sshpass -p "$PASS" scp -P "$PORT" -r \
+      - name: Prepare local logs dir
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${{ github.run_id }}/wpcli"
+
+      - name: Create remote sanity script
+        run: |
+          set -euo pipefail
+          cat > /tmp/sanity_script.sh <<'SCRIPT'
+          set -euo pipefail
+          cd "$TARGET" || { echo "::error::Cannot cd to TARGET"; exit 1; }
+          php -v >/dev/null 2>&1 || { echo "::error::php CLI not available"; exit 1; }
+          if [ ! -x ./wp ]; then
+            curl -sS -L -o wp.phar https://github.com/wp-cli/wp-cli/releases/latest/download/wp-cli.phar
+            php wp.phar --info >/dev/null 2>&1
+            chmod +x wp.phar && mv wp.phar wp
+          fi
+          mkdir -p .wtp/state/ci_logs
+          {
+            echo "whoami: $(whoami)"
+            echo "uname: $(uname -a)"
+            echo "date:  $(date -Is)"
+            echo "pwd:   $(pwd)"
+          } > .wtp/state/ci_logs/server_info.txt
+          : > .wtp/state/ci_logs/wpcli_summary.txt
+          echo "=== SERVER INFO ==="                   | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          cat .wtp/state/ci_logs/server_info.txt     | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          SCRIPT
+
+      - name: Remote sanity (PHP + local WP-CLI)
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" scp -P "$PORT" \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST:$TARGET/.wtp/state/ro/public/latest/*" \
-            "_ci_logs/${{ github.run_id }}/snapshot_full/" || true
+            "/tmp/sanity_script.sh" "$USER@$HOST:$TARGET/temp_sanity.sh"
+          sshpass -p "$PASS" ssh -p "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$USER@$HOST" "cd '$TARGET' && TARGET='$TARGET' bash temp_sanity.sh && rm temp_sanity.sh"
 
-      - name: Render safe wp-config.php.head.txt (dummy only)
+      - name: Upload plugins list to server (if any)
         run: |
           set -euo pipefail
-          RAW="_ci_logs/${{ github.run_id }}/snapshot_full"
-          mkdir -p "${RAW}"
-          test -f ".wtp/templates/wp-config.dummy.php" || { echo "::error::Missing .wtp/templates/wp-config.dummy.php"; exit 1; }
-          cp ".wtp/templates/wp-config.dummy.php" "${RAW}/wp-config.php.head.txt"
-          sed -i 's/${WP_DB_NAME}/db_name/g; s/${WP_DB_USER}/db_user/g; s/${WP_DB_PASSWORD}/***REDACTED***/g; s/${WP_DB_HOST}/db_host/g; s#${WP_HOME_URL}#https://weektoppick.com#g; s#${WP_SITEURL}#https://weektoppick.com#g' "${RAW}/wp-config.php.head.txt"
-
-      - name: Scrub secrets from all pulled logs
-        run: |
-          set -euo pipefail
-          ROOT="_ci_logs/${{ github.run_id }}/snapshot_full"
-          [ -d "$ROOT" ] || exit 0
-
-          # GitHub tokens
-          grep -RIl --null -e 'ghp_' -e 'github_pat_' -e 'gho_' "$ROOT" | \
-            xargs -0 -I{} sed -i -E 's/(ghp_[A-Za-z0-9]{20,})/***REDACTED***/g; s/(github_pat_[A-Za-z0-9_]{20,})/***REDACTED***/g; s/(gho_[A-Za-z0-9]{20,})/***REDACTED***/g' {} || true
-          # Authorization headers
-          grep -RIl --null -e 'Authorization:' -e 'Bearer ' "$ROOT" | \
-            xargs -0 -I{} sed -i -E 's/(Authorization:\s*Bearer\s+)[A-Za-z0-9\.\-_]+/\1***REDACTED***/g' {} || true
-          # WP salts
-          grep -RIl --null -e 'AUTH_KEY' -e 'SECURE_AUTH_KEY' -e 'LOGGED_IN_KEY' -e 'NONCE_KEY' -e 'AUTH_SALT' -e 'SECURE_AUTH_SALT' -e 'LOGGED_IN_SALT' -e 'NONCE_SALT' "$ROOT" | \
-            xargs -0 -I{} sed -i -E 's/(define\(.+,\s*).+(\)\s*;)/\1"***REDACTED***"\2/g' {} || true
-
-          # FAIL SAFE
-          if grep -RIl -e 'ghp_' -e 'github_pat_' -e 'Authorization:' "$ROOT" >/dev/null 2>&1; then
-            echo "::error::Potential secret left after scrub. Aborting push."
-            exit 2
+          # zawsze utwórz katalog .wtp na serwerze
+          sshpass -p "$PASS" ssh -p "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$USER@$HOST" "mkdir -p '$TARGET/.wtp'"
+          # jeśli lokalna lista istnieje – skopiuj; jeśli nie – utwórz pustą zdalnie
+          if [ -f ".wtp/plugins.install.list" ]; then
+            sshpass -p "$PASS" scp -P "$PORT" \
+              -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+              ".wtp/plugins.install.list" "$USER@$HOST:$TARGET/.wtp/plugins.install.list"
+          else
+            sshpass -p "$PASS" ssh -p "$PORT" \
+              -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+              "$USER@$HOST" ": > '$TARGET/.wtp/plugins.install.list'"
           fi
 
-      - name: Commit & push snapshot
+      - name: Create plugin processing script
         run: |
           set -euo pipefail
-          DEST=".wtp/state/ro/public/latest"
-          mkdir -p "$DEST"
-          cp -r _ci_logs/${{ github.run_id }}/snapshot_full/* "$DEST/" || true
-          git config user.name "wtp-ci"
-          git config user.email "wtp-ci@users.noreply.github.com"
-          git add "$DEST"
-          git commit -m "[ci] snapshot_full: refresh state (safe wp-config)" || exit 0
-          git push
+          cat > /tmp/plugins_script.sh <<'SCRIPT'
+          set -euo pipefail
+          cd "$TARGET"
+          export WP_ALLOW_ROOT=1
+          export WTP_CI=1
+
+          mkdir -p .wtp/state/ci_logs .wtp
+          : > .wtp/state/ci_logs/plugins_installed.txt
+          : > .wtp/state/ci_logs/plugins_updated.txt
+          : > .wtp/state/ci_logs/plugins_existing.txt
+          : > .wtp/state/ci_logs/errors.txt
+          : > .wtp/state/ci_logs/active_plugins.csv
+          : > .wtp/state/ci_logs/wpcli_raw.log
+          : > .wtp/state/ci_logs/wpcli_summary.txt
+
+          echo "=== PLUGINS INPUT LIST ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          [ -f .wtp/plugins.install.list ] || : > .wtp/plugins.install.list
+          if [ -s .wtp/plugins.install.list ]; then
+            cat .wtp/plugins.install.list | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          else
+            echo "(empty)" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          fi
+
+          echo "=== ACTIVE PLUGINS (before) ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          php ./wp plugin list --format=csv --path="$TARGET" --skip-plugins \
+            | tee .wtp/state/ci_logs/active_plugins.csv \
+            | tee -a .wtp/state/ci_logs/wpcli_summary.txt >/dev/null \
+            || echo "active-dump-fail:plugin-list-csv" >> .wtp/state/ci_logs/errors.txt
+
+          install_force () {
+            slug="$1"; ver="${2:-}"
+            if [ -n "$ver" ]; then
+              php ./wp --debug plugin install "$slug" --version="$ver" --force --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log
+            else
+              php ./wp --debug plugin install "$slug" --force --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log
+            fi
+            return ${PIPESTATUS[0]}
+          }
+          install_zip_force () {
+            slug="$1"; zip="/tmp/${slug}.zip"; url="https://downloads.wordpress.org/plugin/${slug}.latest-stable.zip"
+            curl -fL -o "$zip" "$url" 2>> .wtp/state/ci_logs/wpcli_raw.log || return 1
+            php ./wp --debug plugin install "$zip" --force --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log
+            return ${PIPESTATUS[0]}
+          }
+
+          # jeśli lista pusta — nie przerywamy, tylko raport
+          if [ ! -s .wtp/plugins.install.list ]; then
+            echo "No plugins to process (empty list)" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          else
+            while IFS= read -r raw; do
+              line="$(echo "$raw" | sed 's/#.*$//' | xargs)"
+              [ -z "$line" ] && continue
+              slug="$line"; ver=""
+              if printf "%s" "$line" | grep -q "@"; then slug="${line%@*}"; ver="${line##*@}"; fi
+
+              if php ./wp plugin is-installed "$slug" --path="$TARGET" --skip-plugins; then
+                echo "$slug" >> .wtp/state/ci_logs/plugins_existing.txt
+                if [ -n "$ver" ]; then
+                  php ./wp --debug plugin update "$slug" --version="$ver" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log \
+                    && echo "updated:$slug@$ver" >> .wtp/state/ci_logs/plugins_updated.txt \
+                    || echo "update-fail:$slug@$ver" >> .wtp/state/ci_logs/errors.txt
+                else
+                  php ./wp --debug plugin update "$slug" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log \
+                    && echo "updated:$slug" >> .wtp/state/ci_logs/plugins_updated.txt \
+                    || echo "update-fail:$slug" >> .wtp/state/ci_logs/errors.txt
+                fi
+              else
+                installed=false
+                if install_force "$slug" "$ver"; then
+                  echo "$slug${ver:+@$ver}" >> .wtp/state/ci_logs/plugins_installed.txt
+                  installed=true
+                else
+                  if install_zip_force "$slug"; then
+                    echo "$slug" >> .wtp/state/ci_logs/plugins_installed.txt
+                    installed=true
+                  fi
+                fi
+                if [ "$installed" = false ]; then
+                  echo "install-fail:$slug${ver:+@$ver}" >> .wtp/state/ci_logs/errors.txt
+                fi
+              fi
+
+              php ./wp --debug plugin activate "$slug" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log \
+                || echo "activate-fail:$slug" >> .wtp/state/ci_logs/errors.txt
+            done < .wtp/plugins.install.list
+          fi
+
+          echo "=== ACTIVE PLUGINS (after) ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+          php ./wp plugin list --format=csv --path="$TARGET" --skip-plugins \
+            | tee .wtp/state/ci_logs/active_plugins.csv \
+            | tee -a .wtp/state/ci_logs/wpcli_summary.txt >/dev/null \
+            || echo "active-dump-fail:plugin-list-csv" >> .wtp/state/ci_logs/errors.txt
+          php ./wp plugin list --status=active --field=name --path="$TARGET" --skip-plugins \
+            > .wtp/state/ci_logs/plugins_active.txt || echo "active-dump-fail:active-field" >> .wtp/state/ci_logs/errors.txt
+          SCRIPT
+
+      - name: Process plugins (install/update/activate)
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" scp -P "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "/tmp/plugins_script.sh" "$USER@$HOST:$TARGET/temp_plugins.sh"
+          sshpass -p "$PASS" ssh -p "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$USER@$HOST" "cd '$TARGET' && TARGET='$TARGET' bash temp_plugins.sh && rm temp_plugins.sh"
+
+      - name: Pull logs back
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${{ github.run_id }}/wpcli"
+          sshpass -p "$PASS" scp -P "$PORT" -r \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            ${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/* "_ci_logs/${{ github.run_id }}/wpcli/" || true
+          ls -la "_ci_logs/${{ github.run_id }}/wpcli" || true
+
+      - name: Sanitize filenames for artifact (replace illegal chars)
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="_ci_logs/${{ github.run_id }}/wpcli"
+          [ -d "$ROOT" ] || exit 0
+          while IFS= read -r -d '' p; do
+            new="$p"
+            new="${new//:/-}"; new="${new//\"/-}"; new="${new//</-}"; new="${new//>/-}"
+            new="${new//|/-}"; new="${new//\*/-}"; new="${new//\?/-}"
+            if [ "$new" != "$p" ]; then mkdir -p "$(dirname "$new")"; mv "$p" "$new"; fi
+          done < <(find "$ROOT" -depth \( -name '*:*' -o -name '*"*' -o -name '*<*' -o -name '*>*' -o -name '*|*' -o -name '*\**' -o -name '*\?*' \) -print0)
+
+      - name: Upload artifact (wpcli logs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wpcli-logs-${{ github.run_id }}
+          path: _ci_logs/${{ github.run_id }}/wpcli/**
+          retention-days: 14
+
+      - name: Publish logs into repo (.wtp/state/ro/public/latest/wpcli)
+        run: |
+          set -euo pipefail
+          RUN_ID="${{ github.run_id }}"
+          RO_DIR=".wtp/state/ro/public/${RUN_ID}/wpcli"
+          RO_LATEST=".wtp/state/ro/public/latest/wpcli"
+          mkdir -p "${RO_DIR}" "${RO_LATEST}"
+          cp -a "_ci_logs/${RUN_ID}/wpcli/." "${RO_DIR}/"
+          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"
+          cp -a "${RO_DIR}/." "${RO_LATEST}/"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."; exit 0
+          fi
+          git commit -m "[ci] wpcli logs ${RUN_ID}"
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
+          for i in 1 2 3; do
+            git fetch origin "$BRANCH"
+            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+            if git push origin "HEAD:$BRANCH"; then
+              echo "::notice::Pushed (attempt $i)"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Failed to push after 3 attempts"; exit 1
+
+      - name: Report errors if any (notice/warn)
+        run: |
+          set -euo pipefail
+          ERR="_ci_logs/${{ github.run_id }}/wpcli/errors.txt"
+          if [ -f "$ERR" ] && [ -s "$ERR" ]; then
+            echo "::group::WP-CLI errors"
+            cat "$ERR" || true
+            echo "::endgroup::"
+            echo "::warning::Some plugins failed. See errors.txt above."
+          else
+            echo "::notice::WP-CLI operations completed successfully"
+          fi
+
+      - name: Failure context (grouped)
+        if: failure()
+        run: |
+          echo "::group::server_info.txt"
+          cat "_ci_logs/${{ github.run_id }}/wpcli/server_info.txt" || true
+          echo "::endgroup::"
+          echo "::group::errors.txt"
+          cat "_ci_logs/${{ github.run_id }}/wpcli/errors.txt" || true
+          echo "::endgroup::"
