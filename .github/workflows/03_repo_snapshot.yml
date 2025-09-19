@@ -11,151 +11,254 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  repo_snapshot:
+  snapshot:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
+    timeout-minutes: 15
     env:
       RUN_ID: ${{ github.run_id }}
 
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - name: Build inventory (files → JSON) + REPO_ARCHITECTURE.md
+      - name: Install PHP CLI (for lint)
         run: |
           set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y php-cli
+
+      - name: Build repo-snapshot.json + REPO_ARCHITECTURE.md
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${RUN_ID}/repo"
           python - << 'PY'
-          import os, json, hashlib, time
+          import os, re, json, time, hashlib
           from pathlib import Path
-          ROOT = Path(".").resolve()
-          out_dir = ROOT / "_ci_logs" / os.environ.get("RUN_ID","0") / "repo"
-          out_dir.mkdir(parents=True, exist_ok=True)
-          def sha256_file(p: Path, chunk=1024*1024):
-            h = hashlib.sha256()
-            try:
-              with p.open("rb") as f:
-                for b in iter(lambda: f.read(chunk), b""): h.update(b)
-              return h.hexdigest()
-            except Exception: return None
-          def count_lines(p: Path, limit=5_000_000):
-            try:
-              with p.open("rb") as f:
-                n=0
-                for _ in f:
-                  n+=1
-                  if n>limit: return n
-              return n
-            except Exception: return None
-          def category(path: Path):
-            s = path.as_posix()
-            if s.startswith(".git/"): return "git"
-            if s.startswith(".github/workflows._quarantine/") and (s.endswith(".yml") or s.endswith(".yaml")): return "workflow-quarantine"
-            if s.startswith(".github/workflows/") and (s.endswith(".yml") or s.endswith(".yaml")): return "workflow-active"
+
+          RUN_ID = os.environ["RUN_ID"]
+          ROOT = Path(".")
+          OUT_DIR = Path(f"_ci_logs/{RUN_ID}/repo")
+          OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+          # Kategoryzacja ścieżek
+          def category(p: Path) -> str:
+            s = str(p).replace("\\","/")
+            if s.startswith(".github/workflows._quarantine/"): return "workflow-quarantine"
+            if s.startswith(".github/workflows/") and s.endswith(".yml"): return "workflow-active"
             if s.startswith("wp-content/mu-plugins/"): return "mu-plugin"
-            if s.startswith("wp-content/plugins/"):    return "plugin"
-            if s.startswith("wp-content/themes/"):     return "theme"
-            if s.startswith(".wtp/"):                  return "wtp"
-            if s.startswith("docs/") or s.endswith(".md"): return "docs"
-            if s.endswith((".json",".yml",".yaml",".toml",".ini",".env",".editorconfig",".gitattributes",".gitignore",".htaccess")): return "config"
+            if s.startswith("wp-content/plugins/"): return "plugin"
+            if s.startswith("wp-content/themes/"): return "theme"
+            if s.startswith(".wtp/"): return ".wtp"
             return "other"
-          files=[]
-          for dp, dn, fn in os.walk(ROOT):
-            if "/.git" in dp or dp.endswith("/.git"): continue
-            if "/_ci_logs" in dp: continue
-            for name in fn:
-              rel = Path(dp).joinpath(name).relative_to(ROOT)
-              files.append(rel)
-          records=[]
-          for rel in sorted(files, key=lambda p: p.as_posix()):
-            p = ROOT / rel
-            cat = category(rel)
-            try: sz = p.stat().st_size
-            except Exception: sz = None
-            digest = sha256_file(p) if (sz is None or sz <= 25*1024*1024) else None
-            is_text = rel.suffix.lower() in {".php",".js",".ts",".css",".scss",".json",".md",".yml",".yaml",".xml",".html",".htm",".txt",".ini",".env",".toml",".py",".sh"}
-            lines = count_lines(p) if is_text and (sz is not None and sz <= 5*1024*1024) else None
-            records.append({"path": rel.as_posix(), "category": cat, "size": sz, "sha256": digest, "lines": lines})
+
+          def md5(path: Path) -> str:
+            try:
+              h = hashlib.md5()
+              with path.open("rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):
+                  h.update(chunk)
+              return h.hexdigest()
+            except Exception:
+              return ""
+
+          # PHP lint (bez wywołania serwera)
+          def php_lint(path: Path) -> dict:
+            try:
+              import subprocess, shlex
+              cmd = f"php -l {shlex.quote(str(path))}"
+              r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=30)
+              ok = (r.returncode == 0)
+              msg = (r.stdout or r.stderr or "").strip()
+              return {"ok": ok, "msg": msg[:5000]}
+            except Exception as e:
+              return {"ok": False, "msg": f"lint-exception: {e}"}
+
+          # Nagłówki pluginów (także MU)
+          header_re = re.compile(r"^\s*\/\*\s*(.*?)\*\/", re.S)
+          field_re = re.compile(r"^\s*([A-Za-z \-]+):\s*(.+)$")
+
+          def read_head(path: Path, n=80) -> str:
+            try:
+              return "\n".join(path.read_text(encoding="utf-8", errors="ignore").splitlines()[:n])
+            except Exception:
+              return ""
+
+          def parse_plugin_header(text: str) -> dict:
+            m = header_re.search(text)
+            blob = m.group(1) if m else ""
+            info = {}
+            for line in blob.splitlines():
+              fm = field_re.match(line)
+              if fm:
+                k = fm.group(1).strip().lower().replace(" ", "_").replace("-", "_")
+                v = fm.group(2).strip()
+                info[k] = v
+            # typowe aliasy
+            info["plugin_name"] = info.get("plugin_name") or info.get("plugin")
+            return {
+              "name": info.get("plugin_name"),
+              "description": info.get("description"),
+              "version": info.get("version"),
+              "author": info.get("author"),
+              "author_uri": info.get("author_uri"),
+              "requires_php": info.get("requires_php"),
+              "requires_at_least": info.get("requires_at_least"),
+              "tested_up_to": info.get("tested_up_to"),
+              "text_domain": info.get("text_domain"),
+            }
+
+          hook_add_action = re.compile(r"\badd_action\s*\(", re.I)
+          hook_add_filter = re.compile(r"\badd_filter\s*\(", re.I)
+          include_re = re.compile(r"\b(require|require_once|include|include_once)\s*\(?\s*['\"]([^'\"]+)['\"]", re.I)
+
+          files = []
+          mu_plugins_meta = []
+
+          for p in ROOT.rglob("*"):
+            if p.is_dir():
+              continue
+            # pomijamy ciężkie artefakty
+            if any(str(p).startswith(x) for x in [
+              ".git", ".github/actions", "_ci_logs", ".wtp/state/ci_logs"
+            ]):
+              # ale .github/workflows* bierzemy
+              if not str(p).startswith(".github/workflows"):
+                continue
+
+            rel = str(p).replace("\\","/")
+            cat = category(Path(rel))
+            size = p.stat().st_size
+            entry = {
+              "path": rel,
+              "size": size,
+              "md5": md5(p),
+              "category": cat
+            }
+
+            # Lintujemy tylko PHP
+            if p.suffix.lower() == ".php":
+              lint = php_lint(p)
+              entry["php_lint_ok"] = lint["ok"]
+              entry["php_lint_msg"] = lint["msg"]
+
+              # Dla MU wyciągamy dodatkowe meta
+              if cat == "mu-plugin":
+                head = read_head(p)
+                hdr = parse_plugin_header(head)
+                text = p.read_text(encoding="utf-8", errors="ignore")
+                hooks_a = len(hook_add_action.findall(text))
+                hooks_f = len(hook_add_filter.findall(text))
+                requires = include_re.findall(text)
+                mu_plugins_meta.append({
+                  "file": rel,
+                  "size": size,
+                  "md5": entry["md5"],
+                  "lint_ok": lint["ok"],
+                  "header": hdr,
+                  "hooks": {"add_action": hooks_a, "add_filter": hooks_f},
+                  "includes": [r[1] for r in requires],
+                })
+
+            files.append(entry)
+
+          # Agregaty
           from collections import defaultdict
-          by_cat = defaultdict(lambda: {"count":0,"size":0})
-          for r in records:
-            by_cat[r["category"]]["count"] += 1
-            by_cat[r["category"]]["size"]  += (r["size"] or 0)
-          important = {}
-          for d in ["wp-content/mu-plugins","wp-content/plugins","wp-content/themes",".github/workflows",".github/workflows._quarantine",".wtp","docs"]:
-            p = ROOT / d
-            if p.exists():
-              files_d = [r for r in records if r["path"].startswith(d + "/")]
-              important[d] = {"files": len(files_d), "size": sum((r["size"] or 0) for r in files_d)}
-          snapshot = {
-            "run_id": os.environ.get("RUN_ID"),
+          by_cat = defaultdict(lambda: {"count":0, "size":0})
+          for f in files:
+            c = f["category"]
+            by_cat[c]["count"] += 1
+            by_cat[c]["size"]  += (f["size"] or 0)
+
+          snap = {
+            "run_id": RUN_ID,
             "run_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "counts": {"files": len(records), "by_category": by_cat},
-            "important_dirs": important,
-            "files": records
+            "counts": {
+              "files": len(files),
+              "by_category": by_cat
+            },
+            "files": files,
+            "mu_plugins": mu_plugins_meta
           }
-          (out_dir / "repo-snapshot.json").write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
+          (OUT_DIR / "repo-snapshot.json").write_text(json.dumps(snap, ensure_ascii=False, indent=2), encoding="utf-8")
+
+          # Markdown – mapa
           def human(n):
             for u in ["B","KB","MB","GB","TB"]:
               if n < 1024: return f"{n:.1f} {u}"
               n/=1024
             return f"{n:.1f} PB"
-          lines=[]
-          lines.append("# REPO ARCHITECTURE")
-          lines.append(f"- Run ID: {snapshot['run_id']}")
-          lines.append(f"- Run TS (UTC): {snapshot['run_ts']}")
-          lines.append(f"- Files total: {snapshot['counts']['files']}")
-          lines.append("")
-          lines.append("## Categories")
-          for k in sorted(snapshot["counts"]["by_category"].keys()):
-            v = snapshot["counts"]["by_category"][k]
-            lines.append(f"- **{k}**: {v['count']} files, {human(v['size'])}")
-          lines.append("")
-          lines.append("## Workflows (active)")
-          wfA = [r for r in records if r["category"]=="workflow-active"]
-          if wfA:
-            lines.append("| File | Size | Lines |")
-            lines.append("|---|---:|---:|")
-            for r in wfA: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
+
+          L = []
+          L.append("# REPO ARCHITECTURE (snapshot)")
+          L.append(f"- Run ID: {RUN_ID}")
+          L.append(f"- Run TS (UTC): {snap['run_ts']}")
+          L.append("")
+          L.append("## Summary")
+          L.append(f"- Files: {snap['counts']['files']}")
+          for k, v in snap["counts"]["by_category"].items():
+            L.append(f"- {k}: {v['count']} • {human(v['size'])}")
+          L.append("")
+          L.append("## MU-Plugins (discovery)")
+          if snap["mu_plugins"]:
+            L.append("| file | lint | actions | filters | version |")
+            L.append("|---|---|---:|---:|---|")
+            for m in snap["mu_plugins"]:
+              v = (m.get("header") or {}).get("version") or ""
+              L.append(f"| {m['file']} | {'OK' if m['lint_ok'] else 'ERR'} | {m['hooks']['add_action']} | {m['hooks']['add_filter']} | {v} |")
           else:
-            lines.append("_none_")
-          lines.append("")
-          lines.append("## Workflows (quarantine)")
-          wfQ = [r for r in records if r["category"]=="workflow-quarantine"]
-          if wfQ:
-            lines.append("| File | Size | Lines |")
-            lines.append("|---|---:|---:|")
-            for r in wfQ: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
-          else:
-            lines.append("_none_")
-          (out_dir / "REPO_ARCHITECTURE.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
+            L.append("_none_")
+          L.append("")
+          L.append("## Workflows (active)")
+          for f in files:
+            if f["category"]=="workflow-active":
+              L.append(f"- {f['path']}")
+          L.append("")
+          L.append("## Workflows (quarantine)")
+          for f in files:
+            if f["category"]=="workflow-quarantine":
+              L.append(f"- {f['path']}")
+          (OUT_DIR / "REPO_ARCHITECTURE.md").write_text("\n".join(L)+"\n", encoding="utf-8")
           PY
 
-      - name: Publish to .wtp/state (RO + latest) with rebase-safe push
+      - name: Publish to .wtp/state (rebase-safe, sanitized)
         run: |
           set -euo pipefail
           RUN_ID="${RUN_ID}"
-          RO_DIR=".wtp/state/ro/public/${RUN_ID}/repo"
+          SRC="_ci_logs/${RUN_ID}/repo"
+          RO_RUN=".wtp/state/ro/public/${RUN_ID}/repo"
           RO_LATEST=".wtp/state/ro/public/latest/repo"
-          mkdir -p "${RO_DIR}"
-          cp -a "_ci_logs/${RUN_ID}/repo/." "${RO_DIR}/"
-          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"; cp -a "${RO_DIR}/." "${RO_LATEST}/"
+
+          mkdir -p "${RO_RUN}" "${RO_LATEST}"
+          cp -f "${SRC}/repo-snapshot.json" "${RO_RUN}/repo-snapshot.json"
+          cp -f "${SRC}/REPO_ARCHITECTURE.md" "${RO_RUN}/REPO_ARCHITECTURE.md"
+          cp -f "${SRC}/REPO_ARCHITECTURE.md" "${RO_LATEST}/REPO_ARCHITECTURE.md"
+          cp -f "${SRC}/repo-snapshot.json" "${RO_LATEST}/repo-snapshot.json"
+
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          if git diff --staged --quiet; then echo "::notice::Nothing to commit."; exit 0; fi
-          git commit -m "Publish repo snapshot ${RUN_ID}"
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."
+            exit 0
+          fi
+          git commit -m "repo snapshot ${RUN_ID}"
           BRANCH="${GITHUB_REF_NAME:-main}"
           git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
           for i in 1 2 3; do
             git fetch origin "$BRANCH"
             git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
-            if git push origin "HEAD:$BRANCH"; then echo "::notice::Pushed (attempt $i)"; exit 0; fi
+            if git push origin "HEAD:$BRANCH"; then
+              echo "::notice::Pushed (attempt $i)"; exit 0
+            fi
             sleep 2
           done
           echo "::error::Push failed after 3 attempts"; exit 1
+
+      - name: Upload artifact (small)
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-snapshot-${{ github.run_id }}
+          path: |
+            _ci_logs/${{ github.run_id }}/repo/repo-snapshot.json
+            _ci_logs/${{ github.run_id }}/repo/REPO_ARCHITECTURE.md
+          retention-days: 7
