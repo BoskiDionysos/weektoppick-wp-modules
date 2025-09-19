@@ -1,0 +1,6 @@
+/home/u493676300/domains/weektoppick.com/public_html/wp-content/plugins/classic-editor/classic-editor.php
+/home/u493676300/domains/weektoppick.com/public_html/wp-content/plugins/classic-editor/js/block-editor-plugin.js
+/home/u493676300/domains/weektoppick.com/public_html/wp-content/plugins/classic-editor/LICENSE.md
+/home/u493676300/domains/weektoppick.com/public_html/wp-content/plugins/classic-editor/readme.txt
+/home/u493676300/domains/weektoppick.com/public_html/wp-content/plugins/classic-editor/scripts/post.js
+/home/u493676300/domains/weektoppick.com/public_html/wp-content/plugins/classic-editor/scripts/post.min.js

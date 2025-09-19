@@ -1,0 +1,70 @@
+HTTP/2 301 
+date: Tue, 16 Sep 2025 05:25:48 GMT
+content-type: text/html
+content-length: 795
+location: https://weektoppick.com/wp-admin/
+platform: hostinger
+panel: hpanel
+content-security-policy: upgrade-insecure-requests
+server: hcdn
+alt-svc: h3=":443"; ma=86400
+x-hcdn-request-id: 348090b1f9319908a6542d7c4fe21b99-fra-edge3
+x-hcdn-cache-status: MISS
+x-hcdn-upstream-rt: 0.008
+
+HTTP/2 302 
+date: Tue, 16 Sep 2025 05:25:48 GMT
+content-type: text/html; charset=UTF-8
+content-length: 0
+location: https://weektoppick.com/wp-login.php?redirect_to=https%3A%2F%2Fweektoppick.com%2Fwp-admin%2F&reauth=1
+x-powered-by: PHP/8.3.22
+expires: Wed, 11 Jan 1984 05:00:00 GMT
+cache-control: no-cache, no-store, must-revalidate, max-age=0
+x-redirect-by: WordPress
+x-litespeed-cache-control: no-cache
+platform: hostinger
+panel: hpanel
+content-security-policy: upgrade-insecure-requests
+server: hcdn
+alt-svc: h3=":443"; ma=86400
+x-hcdn-request-id: 387339be4301b2937cac05fd21add5f5-fra-edge3
+x-hcdn-cache-status: DYNAMIC
+x-hcdn-upstream-rt: 0.125
+
+HTTP/2 200 
+date: Tue, 16 Sep 2025 05:25:48 GMT
+content-type: text/html; charset=UTF-8
+vary: Accept-Encoding
+x-powered-by: PHP/8.3.22
+expires: Wed, 11 Jan 1984 05:00:00 GMT
+set-cookie: wordpress_test_cookie=WP%20Cookie%20check; path=/; secure; HttpOnly
+x-frame-options: SAMEORIGIN
+referrer-policy: strict-origin-when-cross-origin
+set-cookie: wordpress_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/wp-admin; secure
+set-cookie: wordpress_sec_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/wp-admin; secure
+set-cookie: wordpress_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/wp-content/plugins; secure
+set-cookie: wordpress_sec_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/wp-content/plugins; secure
+set-cookie: wordpress_logged_in_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/; secure
+set-cookie: wordpress_logged_in_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/; secure
+set-cookie: wp-settings-0=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/; secure
+set-cookie: wp-settings-time-0=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/; secure
+set-cookie: wordpress_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/; secure
+set-cookie: wordpress_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/; secure
+set-cookie: wordpress_sec_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/; secure
+set-cookie: wordpress_sec_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/; secure
+set-cookie: wordpressuser_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/; secure
+set-cookie: wordpresspass_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/; secure
+set-cookie: wordpressuser_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/; secure
+set-cookie: wordpresspass_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/; secure
+set-cookie: wp-postpass_b2fda8436894afaba024979a5bd1c9e4=%20; expires=Mon, 16 Sep 2024 05:25:48 GMT; Max-Age=0; path=/; secure
+x-litespeed-cache-control: no-cache
+cache-control: no-cache, must-revalidate, max-age=0, no-store, private
+platform: hostinger
+panel: hpanel
+content-security-policy: upgrade-insecure-requests
+server: hcdn
+alt-svc: h3=":443"; ma=86400
+x-hcdn-request-id: 2de10f2a7314e17011381db328129ddb-fra-edge3
+x-hcdn-cache-status: DYNAMIC
+x-hcdn-upstream-rt: 0.102
+
