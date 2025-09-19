@@ -1,30 +1,28 @@
 name: 95_admin_unbrick
-on: workflow_dispatch
+on:
+  workflow_dispatch: {}
 
 jobs:
   fix:
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      HOST:   ${{ secrets.DEPLOY_HOST }}
-      PORT:   ${{ secrets.DEPLOY_PORT }}
-      USER:   ${{ secrets.DEPLOY_USER }}
-      PASS:   ${{ secrets.DEPLOY_PASS }}
-      TARGET: ${{ secrets.DEPLOY_TARGET }}
-
     steps:
       - name: SSH: TT25 + MU OFF + plugins OFF + purge + ping
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host:     ${{ env.HOST }}
-          username: ${{ env.USER }}
-          password: ${{ env.PASS }}
-          port:     ${{ env.PORT }}
-          envs: TARGET
+          host:     ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          password: ${{ secrets.DEPLOY_PASS }}
+          port:     ${{ secrets.DEPLOY_PORT }}
           script: |
             set -euo pipefail
-            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+            TARGET="${{ secrets.DEPLOY_TARGET }}"
+            if [ -z "${TARGET}" ] || [ "${TARGET}" = "null" ]; then
+              TARGET="$HOME/domains/weektoppick.com/public_html"
+            fi
+            echo "[INFO] TARGET=$TARGET"
             cd "$TARGET" || exit 1
+
             rm -f .maintenance || true
 
             # MU-plugins OFF (wszystkie)
@@ -39,10 +37,11 @@ jobs:
               wp plugin deactivate --all --quiet || true
               wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
               wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+            else
+              echo "[WARN] WP-CLI not on PATH"
             fi
 
             # Ping frontu (log)
             HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || echo https://weektoppick.com)"
             curl -ks -o /dev/null -w "STATUS:%{http_code}\n" "$HOMEURL" || true
-
             echo "[DONE] admin unbrick complete"
