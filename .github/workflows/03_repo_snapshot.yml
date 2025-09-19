@@ -1,161 +1,121 @@
-name: 03_repo_snapshot
+name: 03_snapshot_full (server state → repo SSOT, safe wp-config with PR fallback)
 
 on:
   workflow_dispatch: {}
+  workflow_run:
+    workflows: ["02_wpcli (install/update/activate from SSOT, secure SSH)"]
+    types: [completed]
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
-  group: repo-snapshot
+  group: snapshot_full
   cancel-in-progress: true
 
 jobs:
-  repo_snapshot:
+  snapshot_full:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
       RUN_ID: ${{ github.run_id }}
 
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - name: Build inventory (files → JSON) + REPO_ARCHITECTURE.md
+      - name: Setup tools
         run: |
           set -euo pipefail
-          python - << 'PY'
-          import os, json, hashlib, time
-          from pathlib import Path
-          ROOT = Path(".").resolve()
-          out_dir = ROOT / "_ci_logs" / os.environ.get("RUN_ID","0") / "repo"
-          out_dir.mkdir(parents=True, exist_ok=True)
-          def sha256_file(p: Path, chunk=1024*1024):
-            h = hashlib.sha256()
-            try:
-              with p.open("rb") as f:
-                for b in iter(lambda: f.read(chunk), b""): h.update(b)
-              return h.hexdigest()
-            except Exception: return None
-          def count_lines(p: Path, limit=5_000_000):
-            try:
-              with p.open("rb") as f:
-                n=0
-                for _ in f:
-                  n+=1
-                  if n>limit: return n
-              return n
-            except Exception: return None
-          def category(path: Path):
-            s = path.as_posix()
-            if s.startswith(".git/"): return "git"
-            if s.startswith(".github/workflows._quarantine/") and (s.endswith(".yml") or s.endswith(".yaml")): return "workflow-quarantine"
-            if s.startswith(".github/workflows/") and (s.endswith(".yml") or s.endswith(".yaml")): return "workflow-active"
-            if s.startswith("wp-content/mu-plugins/"): return "mu-plugin"
-            if s.startswith("wp-content/plugins/"):    return "plugin"
-            if s.startswith("wp-content/themes/"):     return "theme"
-            if s.startswith(".wtp/"):                  return "wtp"
-            if s.startswith("docs/") or s.endswith(".md"): return "docs"
-            if s.endswith((".json",".yml",".yaml",".toml",".ini",".env",".editorconfig",".gitattributes",".gitignore",".htaccess")): return "config"
-            return "other"
-          files=[]
-          for dp, dn, fn in os.walk(ROOT):
-            if "/.git" in dp or dp.endswith("/.git"): continue
-            if "/_ci_logs" in dp: continue
-            for name in fn:
-              rel = Path(dp).joinpath(name).relative_to(ROOT)
-              files.append(rel)
-          records=[]
-          for rel in sorted(files, key=lambda p: p.as_posix()):
-            p = ROOT / rel
-            cat = category(rel)
-            try: sz = p.stat().st_size
-            except Exception: sz = None
-            digest = sha256_file(p) if (sz is None or sz <= 25*1024*1024) else None
-            is_text = rel.suffix.lower() in {".php",".js",".ts",".css",".scss",".json",".md",".yml",".yaml",".xml",".html",".htm",".txt",".ini",".env",".toml",".py",".sh"}
-            lines = count_lines(p) if is_text and (sz is not None and sz <= 5*1024*1024) else None
-            records.append({"path": rel.as_posix(), "category": cat, "size": sz, "sha256": digest, "lines": lines})
-          from collections import defaultdict
-          by_cat = defaultdict(lambda: {"count":0,"size":0})
-          for r in records:
-            by_cat[r["category"]]["count"] += 1
-            by_cat[r["category"]]["size"]  += (r["size"] or 0)
-          important = {}
-          for d in ["wp-content/mu-plugins","wp-content/plugins","wp-content/themes",".github/workflows",".github/workflows._quarantine",".wtp","docs"]:
-            p = ROOT / d
-            if p.exists():
-              files_d = [r for r in records if r["path"].startswith(d + "/")]
-              important[d] = {"files": len(files_d), "size": sum((r["size"] or 0) for r in files_d)}
-          snapshot = {
-            "run_id": os.environ.get("RUN_ID"),
-            "run_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "counts": {"files": len(records), "by_category": by_cat},
-            "important_dirs": important,
-            "files": records
-          }
-          (out_dir / "repo-snapshot.json").write_text(json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8")
-          def human(n):
-            for u in ["B","KB","MB","GB","TB"]:
-              if n < 1024: return f"{n:.1f} {u}"
-              n/=1024
-            return f"{n:.1f} PB"
-          lines=[]
-          lines.append("# REPO ARCHITECTURE")
-          lines.append(f"- Run ID: {snapshot['run_id']}")
-          lines.append(f"- Run TS (UTC): {snapshot['run_ts']}")
-          lines.append(f"- Files total: {snapshot['counts']['files']}")
-          lines.append("")
-          lines.append("## Categories")
-          for k in sorted(snapshot["counts"]["by_category"].keys()):
-            v = snapshot["counts"]["by_category"][k]
-            lines.append(f"- **{k}**: {v['count']} files, {human(v['size'])}")
-          lines.append("")
-          lines.append("## Workflows (active)")
-          wfA = [r for r in records if r["category"]=="workflow-active"]
-          if wfA:
-            lines.append("| File | Size | Lines |")
-            lines.append("|---|---:|---:|")
-            for r in wfA: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
-          else:
-            lines.append("_none_")
-          lines.append("")
-          lines.append("## Workflows (quarantine)")
-          wfQ = [r for r in records if r["category"]=="workflow-quarantine"]
-          if wfQ:
-            lines.append("| File | Size | Lines |")
-            lines.append("|---|---:|---:|")
-            for r in wfQ: lines.append(f"| {r['path']} | {human(r['size'] or 0)} | {r['lines'] or ''} |")
-          else:
-            lines.append("_none_")
-          (out_dir / "REPO_ARCHITECTURE.md").write_text("\n".join(lines)+"\n", encoding="utf-8")
-          PY
+          sudo apt-get update -y
+          sudo apt-get install -y sshpass curl jq
+          curl -sSL https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -o yq
+          chmod +x yq && sudo mv yq /usr/local/bin/yq
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
-      - name: Publish to .wtp/state (RO + latest) with rebase-safe push
+      - name: (Remote) build snapshot
         run: |
           set -euo pipefail
-          RUN_ID="${RUN_ID}"
-          RO_DIR=".wtp/state/ro/public/${RUN_ID}/repo"
-          RO_LATEST=".wtp/state/ro/public/latest/repo"
-          mkdir -p "${RO_DIR}"
-          cp -a "_ci_logs/${RUN_ID}/repo/." "${RO_DIR}/"
-          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"; cp -a "${RO_DIR}/." "${RO_LATEST}/"
-          git config user.name  "github-actions[bot]"
+          sshpass -p "$PASS" ssh -p "$PORT" \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$USER@$HOST" "cd '$TARGET' && [ -x .wtp/scripts/snapshot_full.sh ] && bash .wtp/scripts/snapshot_full.sh || true"
+
+      - name: Pull snapshot files
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${RUN_ID}/snapshot_full"
+          sshpass -p "$PASS" scp -P "$PORT" -r \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$USER@$HOST:$TARGET/.wtp/state/ro/public/latest/*" \
+            "_ci_logs/${RUN_ID}/snapshot_full/" || true
+
+      - name: Render safe wp-config.php.head.txt
+        run: |
+          RAW="_ci_logs/${RUN_ID}/snapshot_full"
+          mkdir -p "$RAW"
+          if [ -f ".wtp/templates/wp-config.dummy.php" ]; then
+            cp ".wtp/templates/wp-config.dummy.php" "$RAW/wp-config.php.head.txt"
+            sed -i \
+              -e 's/${WP_DB_NAME}/db_name/g' \
+              -e 's/${WP_DB_USER}/db_user/g' \
+              -e 's/${WP_DB_PASSWORD}/***REDACTED***/g' \
+              -e 's/${WP_DB_HOST}/db_host/g' \
+              -e 's#${WP_HOME_URL}#https://weektoppick.com#g' \
+              -e 's#${WP_SITEURL}#https://weektoppick.com#g' \
+              "$RAW/wp-config.php.head.txt"
+          fi
+
+      - name: Scrub secrets (fail-safe)
+        run: |
+          ROOT="_ci_logs/${RUN_ID}/snapshot_full"
+          [ -d "$ROOT" ] || exit 0
+          # GITHUB tokens
+          grep -RIl --null -e 'ghp_' -e 'github_pat_' -e 'gho_' "$ROOT" | \
+            xargs -0 -I{} sed -i -E 's/(ghp_[A-Za-z0-9]{20,})/***REDACTED***/g; s/(github_pat_[A-Za-z0-9_]{20,})/***REDACTED***/g; s/(gho_[A-Za-z0-9]{20,})/***REDACTED***/g' {} || true
+          # WP salts
+          grep -RIl --null -e 'AUTH_KEY' -e 'NONCE_KEY' -e 'AUTH_SALT' -e 'NONCE_SALT' "$ROOT" | \
+            xargs -0 -I{} sed -i -E 's/(define\(.+,\s*).+(\)\s*;)/\1"***REDACTED***"\2/g' {} || true
+          # Final check
+          if grep -RIl -e 'ghp_' -e 'github_pat_' -e 'gho_' "$ROOT"; then
+            echo "::error::Secrets still present, aborting push"
+            exit 2
+          fi
+
+      - name: Stage snapshot
+        run: |
+          DEST=".wtp/state/ro/public/latest"
+          mkdir -p "$DEST"
+          cp -r "_ci_logs/${RUN_ID}/snapshot_full/." "$DEST/"
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --staged --quiet; then echo "::notice::Nothing to commit."; exit 0; fi
-          git commit -m "Publish repo snapshot ${RUN_ID}"
-          BRANCH="${GITHUB_REF_NAME:-main}"
-          git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
-          for i in 1 2 3; do
-            git fetch origin "$BRANCH"
-            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
-            if git push origin "HEAD:$BRANCH"; then echo "::notice::Pushed (attempt $i)"; exit 0; fi
-            sleep 2
-          done
-          echo "::error::Push failed after 3 attempts"; exit 1
+          git add ".wtp/state/ro/public/latest"
+          git commit -m "[ci] snapshot_full ${RUN_ID}" || echo "nothing to commit"
+
+      - name: Push to main
+        id: pushmain
+        continue-on-error: true
+        run: git push origin HEAD:main
+
+      - name: Fallback PR
+        if: steps.pushmain.outcome != 'success'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "[ci] snapshot_full ${RUN_ID}"
+          title: "Snapshot FULL ${RUN_ID}"
+          body: "Main push blocked, opening PR with sanitized snapshot"
+          branch: ci/snapshot-${{ env.RUN_ID }}
+          delete-branch: true
+          labels: ci,snapshot
