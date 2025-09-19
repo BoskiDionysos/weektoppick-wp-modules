@@ -1,3 +1,0 @@
-
-Parse error: Unmatched '}' in wp-content/themes/wtp-core-theme/functions.php on line 1
-Errors parsing wp-content/themes/wtp-core-theme/functions.php
