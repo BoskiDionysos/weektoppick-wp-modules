@@ -1,6 +1,0 @@
-litespeed-cache
-seo-by-rank-math
-pretty-link
-wordfence
-cookie-law-info
-classic-editor

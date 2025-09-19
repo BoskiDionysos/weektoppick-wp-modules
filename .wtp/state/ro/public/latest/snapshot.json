@@ -1,6 +1,6 @@
 {
-  "run_id": "17853607718",
-  "run_ts": "2025-09-19T08:57:40Z",
+  "run_id": "17857261930",
+  "run_ts": "2025-09-19T11:41:11Z",
   "site": {
     "home": "https://weektoppick.com",
     "siteurl": "https://weektoppick.com",
@@ -11,15 +11,15 @@
     "wp_version": "6.8.2",
     "php_version": "8.3.22",
     "hostname": "de-fra-web2061.main-hosting.eu",
-    "timestamp_utc": "2025-09-19T08:57:26Z"
+    "timestamp_utc": "2025-09-19T11:40:56Z"
   },
   "active_theme": {
-    "active": "twentytwentyfive"
+    "active": "wtp-core-theme"
   },
   "plugins": [
     {
       "name": "classic-editor",
-      "status": "inactive",
+      "status": "active",
       "update": "none",
       "version": "1.6.7",
       "update_version": "",
@@ -27,7 +27,7 @@
     },
     {
       "name": "cookie-law-info",
-      "status": "inactive",
+      "status": "active",
       "update": "none",
       "version": "3.3.5",
       "update_version": "",
@@ -35,7 +35,7 @@
     },
     {
       "name": "litespeed-cache",
-      "status": "inactive",
+      "status": "active",
       "update": "none",
       "version": "7.5.0.1",
       "update_version": "",
@@ -43,7 +43,7 @@
     },
     {
       "name": "pretty-link",
-      "status": "inactive",
+      "status": "active",
       "update": "none",
       "version": "3.6.17",
       "update_version": "",
@@ -51,7 +51,7 @@
     },
     {
       "name": "seo-by-rank-math",
-      "status": "inactive",
+      "status": "active",
       "update": "none",
       "version": "1.0.253",
       "update_version": "",
@@ -59,7 +59,7 @@
     },
     {
       "name": "wordfence",
-      "status": "inactive",
+      "status": "active",
       "update": "none",
       "version": "8.1.0",
       "update_version": "",
@@ -69,9 +69,17 @@
   "themes": [
     {
       "name": "twentytwentyfive",
-      "status": "active",
+      "status": "inactive",
       "update": "none",
       "version": "1.3",
+      "update_version": "",
+      "auto_update": "off"
+    },
+    {
+      "name": "wtp-core-theme",
+      "status": "active",
+      "update": "none",
+      "version": "0.0.1",
       "update_version": "",
       "auto_update": "off"
     }
@@ -211,6 +219,14 @@
     {
       "name": "wp_font_face",
       "label": "Font Faces",
+      "description": "",
+      "hierarchical": false,
+      "public": false,
+      "capability_type": "post"
+    },
+    {
+      "name": "pretty-link",
+      "label": "Pretty Links",
       "description": "",
       "hierarchical": false,
       "public": false,
@@ -659,8 +675,8 @@
     "blogdescription": "Your Weekly Top Picks in Tech, Lifestyle &amp; More",
     "timezone_string": "",
     "permalink_structure": "/%postname%/",
-    "template": "twentytwentyfive",
-    "stylesheet": "twentytwentyfive"
+    "template": "wtp-core-theme",
+    "stylesheet": "wtp-core-theme"
   },
   "files": {
     "www": [
@@ -1010,9 +1026,19 @@
         "md5": "ef652f69809613262fef86bd09bf232d"
       },
       {
+        "path": ".wtp/state/ci_logs/try-theme_17853764467/home_after.html",
+        "size": 27686,
+        "md5": "8f49c81cef64be314d720e3f15127d7f"
+      },
+      {
         "path": ".wtp/state/ci_logs/try_theme_17840354760/home_after.html",
         "size": 0,
         "md5": "d41d8cd98f00b204e9800998ecf8427e"
+      },
+      {
+        "path": ".wtp/state/ci_logs/try-theme_17853887465/home_after.html",
+        "size": 27686,
+        "md5": "8f49c81cef64be314d720e3f15127d7f"
       },
       {
         "path": ".wtp/state/ci_logs/auto_upsert_17838417042/home_after.html",
@@ -1033,6 +1059,11 @@
         "path": ".wtp/state/ci_logs/auto_upsert_17852143907/home_after.html",
         "size": 2653,
         "md5": "ca361bd481567872c6748076e5ee415d"
+      },
+      {
+        "path": ".wtp/state/ci_logs/restore_plugins_17854141226/home_sample.html",
+        "size": 54159,
+        "md5": "6c4c9219d59e5057da7b0b14e0341e61"
       },
       {
         "path": ".wtp/state/ci_logs/try_theme_17837573841/home_after.html",
@@ -1058,6 +1089,11 @@
         "path": ".wtp/state/ci_logs/auto_upsert_17839389317/home_after.html",
         "size": 54394,
         "md5": "47afce29b95a6a476b5d1f147625a0be"
+      },
+      {
+        "path": ".wtp/state/ci_logs/try_theme_17854918262/home_after.html",
+        "size": 54159,
+        "md5": "3477295fcdb68b92943b7d7b37e21d03"
       },
       {
         "path": ".wtp/state/ro/public/17755518414/screens/weektoppick.com.html",
