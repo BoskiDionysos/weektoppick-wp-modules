@@ -1,7 +1,14 @@
 name: 94_collect_errors
-on: { workflow_dispatch: {} }
-permissions: { contents: write }
-concurrency: { group: collect-errors, cancel-in-progress: true }
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect-errors
+  cancel-in-progress: true
 
 jobs:
   collect:
@@ -18,86 +25,72 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup sshpass
+      - name: Setup tools
         run: |
           set -euo pipefail
-          sudo apt-get update -y && sudo apt-get install -y sshpass
+          sudo apt-get update -y
+          sudo apt-get install -y sshpass
 
-      - name: Collect on server
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host:     ${{ env.HOST }}
-          username: ${{ env.USER }}
-          password: ${{ env.PASS }}
-          port:     ${{ env.PORT }}
-          request_pty: true
-          envs: TARGET,RUN_ID
-          script: |
-            set -euo pipefail
-            TARGET="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
-            cd "$TARGET" || exit 1
-            OUT="$TARGET/.wtp/state/ci_logs/collect_errors_${RUN_ID}"
-            mkdir -p "$OUT"
-
-            # Wymuś logowanie do pliku (bez wyświetlania na ekranie)
-            if ! grep -q "WP_DEBUG_LOG" wp-config.php 2>/dev/null; then
-              printf "\n/* WTP COLLECT */ define('WP_DEBUG', true); define('WP_DEBUG_LOG', true); define('WP_DEBUG_DISPLAY', false);\n" >> wp-config.php
-              echo "debug_flags_added" > "$OUT/wp_debug_flag.txt"
-            fi
-
-            HOMEURL="$(php -r 'include \"wp-config.php\"; include \"wp-load.php\"; echo get_option(\"home\");' 2>/dev/null || echo https://weektoppick.com)"
-            echo "$HOMEURL" > "$OUT/home_url.txt"
-
-            # Statusy kluczowych endpointów (front, admin, login)
-            curl -ks -o /dev/null -w '%{http_code}\n' "$HOMEURL"               > "$OUT/status_front.txt"  || echo 000 > "$OUT/status_front.txt"
-            curl -ks -o /dev/null -w '%{http_code}\n' "$HOMEURL/wp-admin/"     > "$OUT/status_admin.txt"  || echo 000 > "$OUT/status_admin.txt"
-            curl -ks -o /dev/null -w '%{http_code}\n' "$HOMEURL/wp-login.php"  > "$OUT/status_login.txt"  || echo 000 > "$OUT/status_login.txt"
-
-            # Krótki bootstrap WP przez PHP-CLI (wyłapie fatale na starcie)
-            php -d display_errors=0 -r 'error_reporting(E_ALL); @include "wp-load.php"; echo "BOOT_OK\n";' 1>"$OUT/wp_boot_stdout.txt" 2>"$OUT/wp_boot_stderr.txt" || true
-
-            # Zrzut wersji PHP/WP (jeśli WP-CLI dostępny)
-            php -r 'echo PHP_VERSION;' > "$OUT/php_version.txt" 2>/dev/null || true
-            (command -v wp >/dev/null 2>&1 && wp core version) > "$OUT/wp_version.txt" 2>/dev/null || echo unknown > "$OUT/wp_version.txt"
-
-            # Zbierz logi (ostatnie 300 linii jeśli istnieją)
-            for LOG in wp-content/debug.log error_log logs/error_log ; do
-              [ -f "$LOG" ] && tail -n 300 "$LOG" > "$OUT/$(echo "$LOG" | tr '/' '_')"
-            done
-
-            # Aktywny motyw + lista aktywnych pluginów (jeśli wp-cli jest)
-            (command -v wp >/dev/null 2>&1 && wp theme list --status=active --field=name | head -n1) > "$OUT/active_theme.txt" || true
-            (command -v wp >/dev/null 2>&1 && wp plugin list --status=active --format=json)       > "$OUT/plugins_active.json" || echo "[]" > "$OUT/plugins_active.json"
-
-      - name: Pull logs to runner
-        if: always()
+      - name: Collect errors & admin status
         run: |
           set -euo pipefail
-          mkdir -p "_ci_logs/${RUN_ID}/collect-errors"
-          SVRTGT="${TARGET:-/home/${USER}/domains/weektoppick.com/public_html}"
-          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
-            "${USER}@${HOST}:${SVRTGT}/.wtp/state/ci_logs/collect_errors_${RUN_ID}" \
-            "_ci_logs/${RUN_ID}/collect-errors/" || true
-          # flatten
-          if [ -d "_ci_logs/${RUN_ID}/collect-errors/collect_errors_${RUN_ID}" ]; then
-            shopt -s dotglob || true
-            mv "_ci_logs/${RUN_ID}/collect-errors/collect_errors_${RUN_ID}/"* "_ci_logs/${RUN_ID}/collect-errors/" || true
-            rmdir "_ci_logs/${RUN_ID}/collect-errors/collect_errors_${RUN_ID}" || true
+          mkdir -p "_ci_logs/${RUN_ID}"
+          REMOTE_DIR="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+          OUT="${REMOTE_DIR}/.wtp/state/ci_logs/collect_errors"
+          mkdir -p "${OUT}"
+
+          cd "${REMOTE_DIR}" || exit 0
+
+          # active theme
+          if command -v wp >/dev/null 2>&1; then
+            wp theme list --status=active --field=name 2>/dev/null | head -n1 > "${OUT}/active_theme.txt" || true
+          else
+            : > "${OUT}/active_theme.txt"
           fi
 
-      - name: Publish to RO/latest
-        if: always()
+          # admin status
+          if command -v wp >/dev/null 2>&1; then
+            wp user list --role=administrator --field=user_login --format=json 2>/dev/null > "${OUT}/status_admin.txt" || echo "[]" > "${OUT}/status_admin.txt"
+          else
+            echo "[]" > "${OUT}/status_admin.txt"
+          fi
+
+          # collect logs
+          for LOG in error_log logs/error_log wp-content/debug.log; do
+            [ -f "$LOG" ] && tail -n 200 "$LOG" > "${OUT}/$(echo "$LOG" | tr '/' '_')" || true
+          done
+
+          # stderr during WP bootstrap
+          php -r 'require "wp-load.php";' 2> "${OUT}/wp_boot_stderr.txt" || true
+
+          echo "[INFO] errors collected into ${OUT}"
+
+      - name: Pull collected errors
         run: |
           set -euo pipefail
-          RO_DIR=".wtp/state/ro/public/${RUN_ID}/collect-errors"
-          RO_LATEST=".wtp/state/ro/public/latest/collect-errors"
+          mkdir -p "_ci_logs/${RUN_ID}"
+          REMOTE_DIR="${TARGET:-$HOME/domains/weektoppick.com/public_html}/.wtp/state/ci_logs/collect_errors"
+
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
+            "${USER}@${HOST}:${REMOTE_DIR}" "_ci_logs/${RUN_ID}/" || {
+              echo "::error::no errors pulled"
+              exit 2
+          }
+
+          ls -la "_ci_logs/${RUN_ID}/collect_errors" || true
+
+      - name: Commit & push errors
+        run: |
+          set -euo pipefail
+          RO_DIR=".wtp/state/ro/public/latest/collect-errors"
           mkdir -p "${RO_DIR}"
-          cp -a "_ci_logs/${RUN_ID}/collect-errors/." "${RO_DIR}/" || true
-          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"
-          cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
+          cp -a "_ci_logs/${RUN_ID}/collect_errors/." "${RO_DIR}/"
 
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "collect-errors ${RUN_ID}" || true
-          git push || true
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."; exit 0
+          fi
+          git commit -m "[ci] collected errors (run ${RUN_ID})"
+          git push origin HEAD:${GITHUB_REF_NAME:-main}
