@@ -1,0 +1,369 @@
+name: 03_repo_audit_full (read-only, complete to latest)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repo-audit-full
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RUN_ID: ${{ github.run_id }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Build full repo audit (snapshot, meta, hooks, symbols, includes)
+        run: |
+          set -euo pipefail
+          python - << 'PY'
+          import os, re, json, hashlib
+          from pathlib import Path
+          from datetime import datetime
+
+          RUN_ID = os.environ.get("RUN_ID", "manual")
+          ROOT = Path(".").resolve()
+
+          out_run = Path(f".wtp/state/ro/public/{RUN_ID}/repo")
+          out_latest = Path(".wtp/state/ro/public/latest/repo")
+          out_run.mkdir(parents=True, exist_ok=True)
+          out_latest.mkdir(parents=True, exist_ok=True)
+
+          # ---------- helpers ----------
+          def read_text_safe(p: Path, limit=None):
+            try:
+              if limit is None:
+                return p.read_text(encoding="utf-8", errors="ignore")
+              else:
+                return p.open("r", encoding="utf-8", errors="ignore").read(limit)
+            except Exception:
+              return ""
+
+          def file_size(p: Path):
+            try:
+              return p.stat().st_size
+            except Exception:
+              return 0
+
+          def md5_of_file(p: Path, chunk=65536):
+            m = hashlib.md5()
+            try:
+              with p.open("rb") as f:
+                for b in iter(lambda: f.read(chunk), b""):
+                  m.update(b)
+              return m.hexdigest()
+            except Exception:
+              return None
+
+          def category_for(path: str):
+            if path.startswith(".github/workflows._quarantine/"):
+              return "workflow-quarantine"
+            if path.startswith(".github/workflows/") and path.endswith(".yml"):
+              return "workflow-active"
+            if path.startswith("wp-content/mu-plugins/"):
+              return "mu-plugin"
+            if path.startswith("wp-content/plugins/"):
+              return "plugin"
+            if path.startswith("wp-content/themes/"):
+              return "theme"
+            if path.startswith(".wtp/"):
+              return "wtp"
+            return "other"
+
+          # ---------- collect file list ----------
+          paths = []
+          for p in ROOT.rglob("*"):
+            if p.is_file():
+              rel = str(p.relative_to(ROOT))
+              # pomijamy własny .git
+              if rel.startswith(".git/"):
+                continue
+              paths.append(p)
+
+          files = []
+          totals = {"files": 0, "size": 0}
+          bycat = {}
+          for p in paths:
+            rel = str(p.relative_to(ROOT)).replace("\\","/")
+            cat = category_for(rel)
+            size = file_size(p)
+            files.append({
+              "path": rel,
+              "size": size,
+              "md5": md5_of_file(p),
+              "category": cat
+            })
+            totals["files"] += 1
+            totals["size"]  += size
+            if cat not in bycat:
+              bycat[cat] = {"count": 0, "size": 0}
+            bycat[cat]["count"] += 1
+            bycat[cat]["size"]  += size
+
+          repo_snapshot = {
+            "run_id": RUN_ID,
+            "run_ts": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "counts": {"files": totals["files"], "size": totals["size"], "by_category": bycat},
+            "files": files
+          }
+
+          # ---------- parse plugin headers ----------
+          PLUGINS_DIR = ROOT / "wp-content" / "plugins"
+          MU_DIR      = ROOT / "wp-content" / "mu-plugins"
+
+          header_re = re.compile(r"^\s*/\*.*?\*/", re.S)  # first block comment
+          kv_re = re.compile(r"^\s*([A-Za-z \-]+):\s*(.+)$")
+
+          def parse_headers_from_php(path: Path):
+            head = read_text_safe(path, limit=64*1024)
+            m = header_re.search(head)
+            block = m.group(0) if m else head.split("\n", 40)[0:40]  # fallback: first ~40 lines
+            meta = {}
+            for line in block.splitlines():
+              m2 = kv_re.match(line)
+              if m2:
+                k = m2.group(1).strip().lower()
+                v = m2.group(2).strip()
+                meta[k] = v
+            # normalize common keys
+            norm = {
+              "plugin_name": meta.get("plugin name"),
+              "version": meta.get("version"),
+              "description": meta.get("description"),
+              "author": meta.get("author"),
+              "author_uri": meta.get("author uri") or meta.get("authoruri"),
+              "text_domain": meta.get("text domain") or meta.get("text-domain"),
+              "requires_php": meta.get("requires php"),
+              "requires_at_least": meta.get("requires at least"),
+              "tested_up_to": meta.get("tested up to"),
+            }
+            return norm
+
+          plugin_meta = []
+          if PLUGINS_DIR.is_dir():
+            for plug_dir in sorted(PLUGINS_DIR.iterdir()):
+              if plug_dir.is_dir():
+                # heurystyka: główny plik to {slug}.php lub pierwszy plik z nagłówkiem
+                main_php = plug_dir / f"{plug_dir.name}.php"
+                cand = []
+                if main_php.is_file():
+                  cand.append(main_php)
+                cand += list(plug_dir.glob("*.php"))
+                meta = None
+                main = None
+                for c in cand:
+                  h = parse_headers_from_php(c)
+                  if h.get("plugin_name"):
+                    meta = h
+                    main = c
+                    break
+                if meta:
+                  plugin_meta.append({
+                    "slug": plug_dir.name,
+                    "main_file": str(main.relative_to(ROOT)).replace("\\","/") if main else None,
+                    "headers": meta,
+                    "files": len(list(plug_dir.rglob("*")))
+                  })
+
+          mu_meta = []
+          if MU_DIR.is_dir():
+            # MU może być pojedynczymi plikami .php lub katalogami
+            for p in sorted(MU_DIR.iterdir()):
+              if p.is_file() and p.suffix.lower()==".php":
+                meta = parse_headers_from_php(p)
+                mu_meta.append({
+                  "slug": p.stem,
+                  "main_file": str(p.relative_to(ROOT)).replace("\\","/"),
+                  "headers": meta,
+                  "files": 1
+                })
+              elif p.is_dir():
+                # jak normalny plugin
+                main_php = p / f"{p.name}.php"
+                cand = []
+                if main_php.is_file():
+                  cand.append(main_php)
+                cand += list(p.glob("*.php"))
+                meta = None
+                main = None
+                for c in cand:
+                  h = parse_headers_from_php(c)
+                  if h.get("plugin_name"):
+                    meta = h
+                    main = c
+                    break
+                mu_meta.append({
+                  "slug": p.name,
+                  "main_file": str((main or p).relative_to(ROOT)).replace("\\","/"),
+                  "headers": meta or {},
+                  "files": len(list(p.rglob("*")))
+                })
+
+          # ---------- hooks, symbols, includes ----------
+          php_files = [Path(f["path"]) for f in files if f["path"].endswith(".php")]
+          php_files = [ROOT / p for p in php_files if (ROOT / p).is_file()]
+
+          hook_add_action   = re.compile(r"\badd_action\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
+          hook_add_filter   = re.compile(r"\badd_filter\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
+          hook_do_action    = re.compile(r"\bdo_action\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
+          hook_apply_filter = re.compile(r"\bapply_filters\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
+
+          fn_re    = re.compile(r"\bfunction\s+([A-Za-z0-9_]+)\s*\(", re.I)
+          class_re = re.compile(r"\bclass\s+([A-Za-z0-9_]+)\b", re.I)
+
+          inc_re = re.compile(r"\b(require|require_once|include|include_once)\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
+
+          hooks = {"add_action":{}, "add_filter":{}, "do_action":{}, "apply_filters":{}}
+          symbols = {"functions":{}, "classes":{}}
+          includes = []
+
+          def add_map(dct, key, path):
+            arr = dct.setdefault(key, [])
+            arr.append(path)
+
+          for p in php_files:
+            rel = str(p.relative_to(ROOT)).replace("\\","/")
+            txt = read_text_safe(p)
+            # hooks
+            for m in hook_add_action.finditer(txt):
+              add_map(hooks["add_action"], m.group(1), rel)
+            for m in hook_add_filter.finditer(txt):
+              add_map(hooks["add_filter"], m.group(1), rel)
+            for m in hook_do_action.finditer(txt):
+              add_map(hooks["do_action"], m.group(1), rel)
+            for m in hook_apply_filter.finditer(txt):
+              add_map(hooks["apply_filters"], m.group(1), rel)
+            # symbols
+            for m in fn_re.finditer(txt):
+              add_map(symbols["functions"], m.group(1), rel)
+            for m in class_re.finditer(txt):
+              add_map(symbols["classes"], m.group(1), rel)
+            # includes
+            for m in inc_re.finditer(txt):
+              includes.append({"from": rel, "include": m.group(2)})
+
+          # ---------- REPO_AUDIT.md + ARCH ----------
+          def human(n):
+            for u in ["B","KB","MB","GB","TB"]:
+              if n < 1024:
+                return f"{n:.1f} {u}"
+              n /= 1024
+            return f"{n:.1f} PB"
+
+          md = []
+          md.append("# REPO AUDIT (full)")
+          md.append(f"- Run ID: {RUN_ID}")
+          md.append(f"- Run TS (UTC): {repo_snapshot['run_ts']}")
+          md.append("")
+          md.append("## Summary")
+          md.append(f"- Files: {repo_snapshot['counts']['files']} • Total: {human(repo_snapshot['counts']['size'])}")
+          for k, v in sorted(repo_snapshot["counts"]["by_category"].items()):
+            md.append(f"- {k}: {v['count']} • {human(v['size'])}")
+          md.append("")
+          md.append("## Plugins (detected)")
+          if plugin_meta:
+            for m in plugin_meta:
+              n = m["headers"].get("plugin_name") or m["slug"]
+              v = m["headers"].get("version") or ""
+              md.append(f"- **{n}** ({m['slug']}) {v} — main: `{m['main_file']}`")
+          else:
+            md.append("_none_")
+          md.append("")
+          md.append("## MU-Plugins (detected)")
+          if mu_meta:
+            for m in mu_meta:
+              n = m["headers"].get("plugin_name") or m["slug"]
+              v = m["headers"].get("version") or ""
+              md.append(f"- **{n}** ({m['slug']}) {v} — main: `{m['main_file']}`")
+          else:
+            md.append("_none_")
+          md.append("")
+          md.append("## Hooks (top)")
+          for sec in ["add_action","add_filter","do_action","apply_filters"]:
+            md.append(f"### {sec}")
+            if hooks[sec]:
+              shown = 0
+              for hk, lst in sorted(hooks[sec].items()):
+                md.append(f"- `{hk}` ← {len(lst)} file(s)")
+                shown += 1
+                if shown >= 15:
+                  md.append("…")
+                  break
+            else:
+              md.append("_none_")
+          md_str = "\n".join(md) + "\n"
+
+          arch = []
+          arch.append("# REPO ARCHITECTURE (high-level)")
+          arch.append("")
+          # Prosty listing najważniejszych drzew
+          for prefix in [".github/workflows", "wp-content/mu-plugins", "wp-content/plugins", "wp-content/themes", ".wtp"]:
+            arch.append(f"## {prefix}/")
+            rootp = ROOT / prefix
+            if rootp.exists():
+              for p in sorted(rootp.rglob("*")):
+                if p.is_file():
+                  rel = str(p.relative_to(ROOT)).replace("\\","/")
+                  arch.append(f"- {rel}")
+            else:
+              arch.append("_absent_")
+            arch.append("")
+          arch_str = "\n".join(arch) + "\n"
+
+          # ---------- write all outputs ----------
+          def dump(obj, name):
+            (out_run / name).write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            (out_latest / name).write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+          def write_md(text, name):
+            (out_run / name).write_text(text, encoding="utf-8")
+            (out_latest / name).write_text(text, encoding="utf-8")
+
+          dump(repo_snapshot, "repo-snapshot.json")
+          dump(hooks, "hooks.json")
+          dump(symbols, "symbol_index.json")
+          dump(plugin_meta, "plugin_meta.json")
+          dump(mu_meta, "mu_meta.json")
+          dump(includes, "includes_index.json")
+
+          write_md(md_str, "REPO_AUDIT.md")
+          write_md(arch_str, "REPO_ARCHITECTURE.md")
+          PY
+
+      - name: Commit & push (rebase-safe)
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."
+            exit 0
+          fi
+          git commit -m "repo snapshot + full audit to latest $RUN_ID"
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
+          for i in 1 2 3; do
+            git fetch origin "$BRANCH"
+            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+            if git push origin "HEAD:$BRANCH"; then
+              echo "::notice::Pushed (attempt $i)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Push failed after 3 attempts"
+          exit 1
