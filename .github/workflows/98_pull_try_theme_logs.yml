@@ -1,0 +1,63 @@
+name: 98_pull_try_theme_logs
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pull-try-theme-logs
+  cancel-in-progress: true
+
+jobs:
+  pull-logs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      RUN_ID: ${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y sshpass
+
+      - name: Pull try_theme logs
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${RUN_ID}"
+          REMOTE_DIR="${TARGET:-$HOME/domains/weektoppick.com/public_html}/.wtp/state/ci_logs"
+          echo "[INFO] pulling from $REMOTE_DIR"
+
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
+            "${USER}@${HOST}:${REMOTE_DIR}/try_theme_*" "_ci_logs/${RUN_ID}/" || {
+              echo "::error::no logs pulled"
+              exit 2
+          }
+
+          ls -la "_ci_logs/${RUN_ID}" || true
+
+      - name: Commit & push logs
+        run: |
+          set -euo pipefail
+          RO_DIR=".wtp/state/ro/public/latest/try-theme"
+          mkdir -p "${RO_DIR}"
+          cp -a "_ci_logs/${RUN_ID}/." "${RO_DIR}/"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --staged --quiet; then
+            echo "::notice::Nothing to commit."; exit 0
+          fi
+          git commit -m "[ci] pulled try_theme logs (run ${RUN_ID})"
+          git push origin HEAD:${GITHUB_REF_NAME:-main}
