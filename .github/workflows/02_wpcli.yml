@@ -1,7 +1,12 @@
 name: 02_wpcli (install/update/activate from SSOT, secure SSH)
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      activate_theme:
+        type: boolean
+        description: "Activate wtp-core-theme safely (with health check & rollback)"
+        default: false
   workflow_run:
     workflows: ["01_deploy (single-run, password auth, strict host key, rsync, sanity)"]
     types: [completed]
@@ -15,7 +20,7 @@ concurrency:
 
 jobs:
   wpcli:
-    # Run only when 01_deploy succeeded, or when triggered manually
+    # Działa przy ręcznym uruchomieniu lub po sukcesie 01_deploy
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -26,7 +31,8 @@ jobs:
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
-      WTP_CI: "1"   # bypass LOCKS via MU-plugin
+      WTP_CI: "1"              # pozwala obejść blokady MU (nasz tryb CI)
+      RUN_ID: ${{ github.run_id }}
 
     steps:
       - uses: actions/checkout@v4
@@ -53,9 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f ".wtp/ssot.yml" || { echo "::error::.wtp/ssot.yml not found"; exit 1; }
-          # validate structure
           yq -e '.plugins.install // []' .wtp/ssot.yml >/dev/null || { echo "::error::Invalid SSOT structure"; exit 1; }
-          # extract list (may be empty)
           yq -r '.plugins.install // [] | .[]' .wtp/ssot.yml > .wtp/plugins.install.list || true
           echo "---- plugins.install ----"
           cat .wtp/plugins.install.list || true
@@ -63,7 +67,7 @@ jobs:
       - name: Prepare local logs dir
         run: |
           set -euo pipefail
-          mkdir -p _ci_logs/${{ github.run_id }}/wpcli
+          mkdir -p "_ci_logs/${RUN_ID}/wpcli"
 
       - name: Create remote sanity script
         run: |
@@ -72,7 +76,7 @@ jobs:
           set -euo pipefail
           cd "$TARGET" || { echo "::error::Cannot cd to TARGET"; exit 1; }
           php -v >/dev/null 2>&1 || { echo "::error::php CLI not available"; exit 1; }
-          # WP-CLI (latest release)
+          # WP-CLI (lokalna kopia w webroot)
           if [ ! -x ./wp ]; then
             curl -sS -L -o wp.phar https://github.com/wp-cli/wp-cli/releases/latest/download/wp-cli.phar
             php wp.phar --info >/dev/null 2>&1
@@ -131,6 +135,7 @@ jobs:
             cat .wtp.plugins.install.list | tee -a .wtp/state/ci_logs/wpcli_summary.txt
           else
             echo "(empty)" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
+            exit 0
           fi
 
           echo "=== ACTIVE PLUGINS (before) ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
@@ -151,11 +156,6 @@ jobs:
             php ./wp --debug plugin install "$zip" --force --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log
             return ${PIPESTATUS[0]}
           }
-
-          if [ ! -s .wtp.plugins.install.list ]; then
-            echo "No plugins to process (empty list)" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
-            exit 0
-          fi
 
           while IFS= read -r raw; do
             line="$(echo "$raw" | sed 's/#.*$//' | xargs)"; [ -z "$line" ] && continue
@@ -186,7 +186,7 @@ jobs:
             fi
 
             php ./wp --debug plugin activate "$slug" --path="$TARGET" --skip-plugins 2>&1 | tee -a .wtp/state/ci_logs/wpcli_raw.log || echo "activate-fail:$slug" >> .wtp/state/ci_logs/errors.txt
-          done < .wtp.plugins.install.list
+          done < .wtp/plugins.install.list
 
           echo "=== ACTIVE PLUGINS (after) ===" | tee -a .wtp/state/ci_logs/wpcli_summary.txt
           php ./wp plugin list --format=csv --path="$TARGET" --skip-plugins | tee .wtp/state/ci_logs/active_plugins.csv | tee -a .wtp/state/ci_logs/wpcli_summary.txt >/dev/null || echo "active-dump-fail:plugin-list-csv" >> .wtp/state/ci_logs/errors.txt
@@ -203,31 +203,82 @@ jobs:
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             "$USER@$HOST" "cd '$TARGET' && TARGET='$TARGET' bash temp_plugins.sh && rm temp_plugins.sh"
 
+      # ──────────────────────────────────────────────────────────────────────────
+      # OPCJONALNIE: aktywuj nasz motyw z health-checkiem i rollbackiem
+      # Włącza się tylko przy ręcznym uruchomieniu z zaznaczonym checkboxem
+      # ──────────────────────────────────────────────────────────────────────────
+      - name: (Optional) Activate wtp-core-theme safely (with rollback)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.activate_theme == true }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host:     ${{ env.HOST }}
+          username: ${{ env.USER }}
+          password: ${{ env.PASS }}
+          port:     ${{ env.PORT }}
+          envs: TARGET,RUN_ID
+          script: |
+            set -euo pipefail
+            TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
+            cd "$TARGET"
+
+            OUT="$TARGET/.wtp/state/ci_logs/try_theme_${RUN_ID}"
+            mkdir -p "$OUT"
+
+            # turn off maintenance if present
+            rm -f .maintenance || true
+
+            # try activate our theme
+            if command -v wp >/dev/null 2>&1; then
+              wp theme is-installed wtp-core-theme || wp theme install wtp-core-theme --force || true
+              ACT_RC=0
+              wp theme activate wtp-core-theme || ACT_RC=$?
+              echo "$ACT_RC" > "$OUT/activate_rc.txt"
+            else
+              echo "wp-cli missing" > "$OUT/activate_rc.txt"
+            fi
+
+            # health check
+            HOMEURL="$(php -r 'include "wp-config.php"; include "wp-load.php"; echo get_option("home");' 2>/dev/null || echo https://weektoppick.com)"
+            STATUS=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
+            BODY="$(curl -ks "$HOMEURL" || true)"
+            echo "$STATUS" > "$OUT/http_status_after.txt"
+            printf "%s" "$BODY" > "$OUT/home_after.html"
+            echo "$(printf "%s" "$BODY" | wc -c)" > "$OUT/home_after_size.txt"
+
+            # logs (last 200 lines if exist)
+            for LOG in error_log logs/error_log wp-content/debug.log; do
+              [ -f "$LOG" ] && tail -n 200 "$LOG" > "$OUT/$(echo "$LOG" | tr '/' '_')" || true
+            done
+
+            # rollback if broken
+            SIZE=$(cat "$OUT/home_after_size.txt" || echo 0)
+            if [ "$STATUS" != "200" ] || [ "${SIZE:-0}" -lt 600 ]; then
+              echo "[WARN] broken after activate (status=$STATUS size=$SIZE) → rollback" | tee "$OUT/action.txt"
+              wp theme install twentytwentyfive --activate --force || wp theme activate twentytwentyfive || true
+              wp plugin is-active litespeed-cache && wp litespeed-purge all || true
+            else
+              echo "[OK] wtp-core-theme healthy (status=$STATUS size=$SIZE)" | tee "$OUT/action.txt"
+            fi
+
       - name: Pull logs back
         run: |
           set -euo pipefail
-          mkdir -p "_ci_logs/${{ github.run_id }}/wpcli"
-          # Użyj globu po STRONIE ZDALNEJ (bez cudzysłowów), z -r
+          mkdir -p "_ci_logs/${RUN_ID}/wpcli"
           sshpass -p "$PASS" scp -P "$PORT" -r \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            ${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/* "_ci_logs/${{ github.run_id }}/wpcli/" || true
-          ls -la "_ci_logs/${{ github.run_id }}/wpcli" || true
+            ${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/* "_ci_logs/${RUN_ID}/wpcli/" || true
+          ls -la "_ci_logs/${RUN_ID}/wpcli" || true
 
       - name: Sanitize filenames for artifact (replace illegal chars)
         shell: bash
         run: |
           set -euo pipefail
-          ROOT="_ci_logs/${{ github.run_id }}/wpcli"
+          ROOT="_ci_logs/${RUN_ID}/wpcli"
           [ -d "$ROOT" ] || exit 0
           while IFS= read -r -d '' p; do
             new="$p"
-            new="${new//:/-}"
-            new="${new//\"/-}"
-            new="${new//</-}"
-            new="${new//>/-}"
-            new="${new//|/-}"
-            new="${new//\*/-}"
-            new="${new//\?/-}"
+            new="${new//:/-}"; new="${new//\"/-}"; new="${new//</-}"; new="${new//>/-}"
+            new="${new//|/-}"; new="${new//\*/-}"; new="${new//\?/-}"
             if [ "$new" != "$p" ]; then
               mkdir -p "$(dirname "$new")"
               mv "$p" "$new"
@@ -244,7 +295,7 @@ jobs:
       - name: Report errors if any (notice/warn)
         run: |
           set -euo pipefail
-          ERR="_ci_logs/${{ github.run_id }}/wpcli/errors.txt"
+          ERR="_ci_logs/${RUN_ID}/wpcli/errors.txt"
           if [ -f "$ERR" ] && [ -s "$ERR" ]; then
             echo "::group::WP-CLI errors"
             cat "$ERR" || true
@@ -258,8 +309,8 @@ jobs:
         if: failure()
         run: |
           echo "::group::server_info.txt"
-          cat "_ci_logs/${{ github.run_id }}/wpcli/server_info.txt" || true
+          cat "_ci_logs/${RUN_ID}/wpcli/server_info.txt" || true
           echo "::endgroup::"
           echo "::group::errors.txt"
-          cat "_ci_logs/${{ github.run_id }}/wpcli/errors.txt" || true
+          cat "_ci_logs/${RUN_ID}/wpcli/errors.txt" || true
           echo "::endgroup::"
