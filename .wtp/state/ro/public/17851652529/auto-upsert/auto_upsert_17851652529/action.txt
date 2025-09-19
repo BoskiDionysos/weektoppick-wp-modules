@@ -1,0 +1,2 @@
+[WARN] unhealthy after upsert (status=500 size=2653) -> rollback
+no_backup_to_restore
