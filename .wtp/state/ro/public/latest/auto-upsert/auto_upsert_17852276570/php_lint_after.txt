@@ -1,1 +1,0 @@
-No syntax errors detected in /home/u493676300/domains/weektoppick.com/public_html/wp-content/themes/wtp-core-theme/functions.php
