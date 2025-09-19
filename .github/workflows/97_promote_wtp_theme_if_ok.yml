@@ -1,19 +1,19 @@
-name: 97_promote_wtp_theme
+name: 97_theme_fix_functions
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 concurrency:
-  group: promote-wtp-theme
+  group: theme-fix-functions
   cancel-in-progress: true
 
 jobs:
-  promote:
+  fix:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     env:
       HOST:   ${{ secrets.DEPLOY_HOST }}
       PORT:   ${{ secrets.DEPLOY_PORT }}
@@ -23,10 +23,9 @@ jobs:
       RUN_ID: ${{ github.run_id }}
 
     steps:
-      - name: 1) Checkout repo
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: 2) Attempt promote theme on remote (safe try + logs)
+      - name: Patch functions.php safely
         uses: appleboy/ssh-action@v1.0.3
         with:
           host:     ${{ env.HOST }}
@@ -37,115 +36,67 @@ jobs:
           script: |
             set -euo pipefail
             TARGET="${TARGET:-$HOME/domains/weektoppick.com/public_html}"
-            echo "[INFO] TARGET=${TARGET}"
-            cd "${TARGET}" || { echo "[ERR] target missing: ${TARGET}"; exit 2; }
+            cd "$TARGET"
 
-            OUT="${TARGET}/.wtp/state/ci_logs/try_theme_${RUN_ID}"
-            mkdir -p "${OUT}"
+            THEME_DIR="wp-content/themes/wtp-core-theme"
+            FILE="${THEME_DIR}/functions.php"
+            OUT="$TARGET/.wtp/state/ci_logs/theme_fix_${RUN_ID}"
+            mkdir -p "$OUT"
 
-            # ensure WP not in maintenance
-            rm -f .maintenance || true
-
-            # small php helper to get home url
-            HOMEURL="$(php -r 'if(file_exists("wp-config.php")){ include "wp-config.php"; if(function_exists("get_option")){ include "wp-load.php"; echo get_option("home"); } }' 2>/dev/null || echo "https://weektoppick.com")"
-            HOMEURL="${HOMEURL:-https://weektoppick.com}"
-            echo "$HOMEURL" > "${OUT}/home_url.txt"
-
-            # record active theme before
-            if command -v wp >/dev/null 2>&1; then
-              wp theme list --status=active --field=name 2>/dev/null | head -n1 > "${OUT}/theme_before.txt" || true
-            else
-              : > "${OUT}/theme_before.txt"
+            if [ ! -d "$THEME_DIR" ]; then
+              echo "[ERR] Theme dir not found: $THEME_DIR" | tee "$OUT/action.txt"
+              exit 2
             fi
 
-            # temp enable debug log (non-destructive: append if not present)
-            if ! grep -q "WTP TEMP DEBUG" wp-config.php 2>/dev/null; then
-              printf "\n/* WTP TEMP DEBUG */ define('WP_DEBUG', true); define('WP_DEBUG_LOG', true); define('WP_DEBUG_DISPLAY', false);\n" >> wp-config.php || true
-              echo "added_debug_flags" > "${OUT}/wp_debug_temp.txt" || true
+            if [ -f "$FILE" ]; then
+              cp -f "$FILE" "${FILE}.bak.$(date -u +%Y%m%d%H%M%S)"
             fi
 
-            # try activating wtp-core-theme safely (if WP-CLI present)
-            if command -v wp >/dev/null 2>&1; then
-              wp theme is-installed wtp-core-theme --allow-root >/dev/null 2>&1 || wp theme install wtp-core-theme --force --allow-root >/dev/null 2>&1 || true
-              ACT_RES=0
-              wp theme activate wtp-core-theme --allow-root >/dev/null 2>&1 || ACT_RES=$?
-              echo "${ACT_RES}" > "${OUT}/activate_rc.txt" || true
-            else
-              echo "wp-cli missing" > "${OUT}/activate_rc.txt"
-            fi
+            cat > "$FILE" <<'PHP'
+<?php
+/**
+ * WTP Core Theme — safe bootstrap
+ * (no closing PHP tag on purpose)
+ */
+if ( ! defined( 'ABSPATH' ) ) { exit; }
 
-            # fetch home page after action
-            STATUS=$(curl -ks -o /dev/null -w "%{http_code}" "$HOMEURL" || echo 000)
-            BODY="$(curl -ks "$HOMEURL" || true)"
-            echo "$STATUS" > "${OUT}/http_status_after.txt" || true
-            printf "%s" "$BODY" > "${OUT}/home_after.html" || true
-            echo "$(printf "%s" "$BODY" | wc -c)" > "${OUT}/home_after_size.txt" || true
+add_action( 'after_setup_theme', function () {
+    add_theme_support( 'title-tag' );
+    add_theme_support( 'post-thumbnails' );
+    add_theme_support( 'html5', array(
+        'search-form','comment-form','comment-list','gallery','caption','style','script'
+    ) );
+} );
 
-            # collect last error logs (if exist)
-            for LOG in error_log logs/error_log wp-content/debug.log; do
-              [ -f "$LOG" ] && tail -n 200 "$LOG" > "${OUT}/$(echo "$LOG" | tr '/' '_')" || true
-            done
+add_action( 'wp_enqueue_scripts', function () {
+    // Minimal enqueue placeholder — nothing critical to avoid fatals.
+}, 20 );
+PHP
 
-            # record theme after
-            if command -v wp >/dev/null 2>&1; then
-              wp theme list --status=active --field=name 2>/dev/null | head -n1 > "${OUT}/theme_after.txt" || true
-            fi
+            php -l "$FILE" > "$OUT/functions_php_lint.txt" 2>&1 || true
+            echo "[OK] functions.php replaced with safe stub" | tee "$OUT/action.txt"
 
-            echo "[INFO] try_theme logs: ${OUT}"
-            ls -la "${OUT}" > "${OUT}/ls.txt" || true
+      - name: Install sshpass (for pulling logs)
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y sshpass
 
-            # If site unhealthy -> rollback to twentytwentyfive
-            SIZE=$(cat "${OUT}/home_after_size.txt" || echo 0)
-            if [ "${STATUS}" != "200" ] || [ "${SIZE:-0}" -lt 600 ]; then
-              echo "[WARN] broken after promote (status=${STATUS} size=${SIZE}) -> rollback" | tee "${OUT}/action.txt" || true
-              if command -v wp >/dev/null 2>&1; then
-                wp theme install twentytwentyfive --activate --force --allow-root >/dev/null 2>&1 || wp theme activate twentytwentyfive --allow-root >/dev/null 2>&1 || true
-                wp plugin is-active litespeed-cache --allow-root >/dev/null 2>&1 && wp litespeed-purge all --allow-root >/dev/null 2>&1 || true
-              fi
-            else
-              echo "[OK] promoted wtp-core-theme (status=${STATUS} size=${SIZE})" | tee "${OUT}/action.txt" || true
-            fi
-
-      - name: 3) Pull & publish try-theme logs
-        env:
-          HOST:   ${{ secrets.DEPLOY_HOST }}
-          PORT:   ${{ secrets.DEPLOY_PORT }}
-          USER:   ${{ secrets.DEPLOY_USER }}
-          PASS:   ${{ secrets.DEPLOY_PASS }}
-          TARGET: ${{ secrets.DEPLOY_TARGET }}
-          RUN_ID: ${{ github.run_id }}
+      - name: Pull proof & publish logs
         run: |
           set -euo pipefail
-          mkdir -p "_ci_logs/${RUN_ID}/try-theme"
-          # try to pull logs from server (non-fatal)
-          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no -r \
-            "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/try_theme_${RUN_ID}/" \
-            "_ci_logs/${RUN_ID}/try-theme/" || { echo "[WARN] pull failed (no logs)"; }
+          mkdir -p "_ci_logs/${RUN_ID}"
+          sshpass -p "${PASS}" scp -P "${PORT}" -o StrictHostKeyChecking=no \
+            "${USER}@${HOST}:${TARGET:-$HOME/domains/weektoppick.com/public_html}/.wtp/state/ci_logs/theme_fix_${RUN_ID}/"* \
+            "_ci_logs/${RUN_ID}/" || true
 
-          ls -la "_ci_logs/${RUN_ID}/try-theme" || true
+          RO_DIR=".wtp/state/ro/public/${RUN_ID}/theme-fix"
+          RO_LATEST=".wtp/state/ro/public/latest/theme-fix"
+          mkdir -p "${RO_DIR}" "${RO_LATEST}"
+          cp -a "_ci_logs/${RUN_ID}/." "${RO_DIR}/" || true
+          rm -rf "${RO_LATEST}"; mkdir -p "${RO_LATEST}"; cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
 
-          # publish to repo RO and latest
-          RO_DIR=".wtp/state/ro/public/${RUN_ID}"
-          RO_LATEST=".wtp/state/ro/public/latest"
-          mkdir -p "${RO_DIR}/try-theme"
-          cp -a "_ci_logs/${RUN_ID}/try-theme/." "${RO_DIR}/try-theme/" || true
-
-          rm -rf "${RO_LATEST}"
-          mkdir -p "${RO_LATEST}"
-          cp -a "${RO_DIR}/." "${RO_LATEST}/" || true
-
-      - name: 4) Commit & push logs (best-effort)
-        run: |
-          set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "[ci] publish try-theme logs ${RUN_ID}" || echo "Nothing to commit"
-          # push in best-effort mode (do not fail workflow if push blocked)
-          git push origin HEAD:main || echo "[WARN] push failed"
-
-      - name: 5) Summary
-        if: ${{ always() }}
-        run: |
-          set -euo pipefail
-          echo "::notice::Promote try-theme finished for run ${RUN_ID}"
+          git commit -m "theme_fix_functions: ${RUN_ID}" || true
+          git push || true
