@@ -1,0 +1,147 @@
+[
+  {
+    "type": "add_action",
+    "hook": "muplugins_loaded",
+    "file": "wp-content/mu-plugins/zzz-wtp-emergency-recovery.php"
+  },
+  {
+    "type": "add_filter",
+    "hook": "option_active_plugins",
+    "file": "wp-content/mu-plugins/zzz-wtp-emergency-recovery.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "after_setup_theme",
+    "file": "wp-content/mu-plugins/000-wtp-safemode.php"
+  },
+  {
+    "type": "add_filter",
+    "hook": "pre_option_active_plugins",
+    "file": "wp-content/mu-plugins/000-wtp-safemode.php"
+  },
+  {
+    "type": "add_filter",
+    "hook": "template",
+    "file": "wp-content/mu-plugins/000-wtp-safemode.php"
+  },
+  {
+    "type": "add_filter",
+    "hook": "stylesheet",
+    "file": "wp-content/mu-plugins/000-wtp-safemode.php"
+  },
+  {
+    "type": "do_action",
+    "hook": "wtp_safemode_active",
+    "file": "wp-content/mu-plugins/000-wtp-safemode.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "template_redirect",
+    "file": "mu-plugins/wtp-canonical-redirects.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "wp_head",
+    "file": "mu-plugins/wtp-canonical.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "rest_api_init",
+    "file": "mu-plugins/wtp-dev-bridge.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "init",
+    "file": "mu-plugins/wtp-theme-guardian.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "rest_api_init",
+    "file": "mu-plugins/wtp-ro-exporter.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "admin_menu",
+    "file": "mu-plugins/wtp-deploy-guard.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "rest_api_init",
+    "file": "mu-plugins/wtp-deploy-guard.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "admin_init",
+    "file": "mu-plugins/wtp-deploy-guard.php"
+  },
+  {
+    "type": "add_filter",
+    "hook": "filesystem_method",
+    "file": "mu-plugins/wtp-deploy-guard.php"
+  },
+  {
+    "type": "add_filter",
+    "hook": "automatic_updater_disabled",
+    "file": "mu-plugins/wtp-deploy-guard.php"
+  },
+  {
+    "type": "add_filter",
+    "hook": "auto_update_core",
+    "file": "mu-plugins/wtp-deploy-guard.php"
+  },
+  {
+    "type": "add_filter",
+    "hook": "auto_update_plugin",
+    "file": "mu-plugins/wtp-deploy-guard.php"
+  },
+  {
+    "type": "add_filter",
+    "hook": "auto_update_theme",
+    "file": "mu-plugins/wtp-deploy-guard.php"
+  },
+  {
+    "type": "add_filter",
+    "hook": "plugins_api_result",
+    "file": "mu-plugins/wtp-deploy-guard.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "after_setup_theme",
+    "file": "wp-content/themes/wtp-core-theme/functions.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "wp_enqueue_scripts",
+    "file": "wp-content/themes/wtp-core-theme/functions.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "wp_head",
+    "file": "wp-content/themes/wtp-core-theme/inc/compat-mu.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "wp_head",
+    "file": "wp-content/themes/wtp-core-theme/inc/compat-mu.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "after_setup_theme",
+    "file": "themes/wtp-core-theme/functions.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "wp_enqueue_scripts",
+    "file": "themes/wtp-core-theme/functions.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "wp_footer",
+    "file": "themes/wtp-core-theme/functions.php"
+  },
+  {
+    "type": "add_action",
+    "hook": "init",
+    "file": "themes/wtp-core-theme/functions.php"
+  }
+]
