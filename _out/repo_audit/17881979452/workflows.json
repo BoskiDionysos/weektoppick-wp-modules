@@ -1,0 +1,122 @@
+[
+  {
+    "file": "01_deploy.yml",
+    "name": "01_deploy (single-run, password auth, strict host key, rsync, sanity)",
+    "on": null,
+    "jobs": [
+      "deploy"
+    ]
+  },
+  {
+    "file": "02_server_snapshot.yml",
+    "name": "02a_server_snapshot (read-only, WP core/themes/plugins/options → JSON)",
+    "on": null,
+    "jobs": [
+      "snapshot"
+    ]
+  },
+  {
+    "file": "02_wpcli.yml",
+    "name": "02_wpcli (install/update/activate from SSOT, strict SSH, safe publish)",
+    "on": null,
+    "jobs": [
+      "wpcli"
+    ]
+  },
+  {
+    "file": "03_repo_audit_full.yml",
+    "name": "03_repo_audit_full (read-only, complete)",
+    "on": null,
+    "jobs": [
+      "audit"
+    ]
+  },
+  {
+    "file": "03_repo_snapshot.yml",
+    "name": "03_repo_snapshot",
+    "on": null,
+    "jobs": [
+      "snapshot"
+    ]
+  },
+  {
+    "file": "04_ecosystem_correlate.yml",
+    "name": "04_ecosystem_correlate (repo↔server correlation)",
+    "on": null,
+    "jobs": [
+      "correlate"
+    ]
+  },
+  {
+    "file": "91_restore_plugins_safely.yml",
+    "name": "91_restore_plugins_safely",
+    "on": null,
+    "jobs": [
+      "restore"
+    ]
+  },
+  {
+    "file": "92_root_healthcheck.yml",
+    "name": "92_root_healthcheck",
+    "on": null,
+    "jobs": [
+      "check"
+    ]
+  },
+  {
+    "file": "93_enable_debug_and_collect.yml",
+    "name": "93_enable_debug_and_collect",
+    "on": null,
+    "jobs": [
+      "debug-pack"
+    ]
+  },
+  {
+    "file": "94_collect_errors.yml",
+    "name": "94_collect_errors",
+    "on": null,
+    "jobs": [
+      "collect"
+    ]
+  },
+  {
+    "file": "95_admin_unbrick.yml",
+    "name": "95_admin_unbrick",
+    "on": null,
+    "jobs": [
+      "heal"
+    ]
+  },
+  {
+    "file": "98_promote_theme.yml",
+    "name": "98_promote_theme",
+    "on": null,
+    "jobs": [
+      "promote"
+    ]
+  },
+  {
+    "file": "99_switch_theme_now.yml",
+    "name": "99_switch_theme_now",
+    "on": null,
+    "jobs": [
+      "fix"
+    ]
+  },
+  {
+    "file": "ai-upsert-file.yml",
+    "name": "AI Upsert File",
+    "on": null,
+    "jobs": [
+      "upsert"
+    ]
+  },
+  {
+    "file": "gsc-collector.yml",
+    "name": "GSC collector",
+    "on": null,
+    "jobs": [
+      "gsc"
+    ]
+  }
+]
