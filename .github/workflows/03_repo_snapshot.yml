@@ -6,79 +6,220 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: repo-snapshot
+  cancel-in-progress: true
+
 jobs:
-  repo-snapshot:
+  snapshot:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    env:
+      RUN_ID: ${{ github.run_id }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Python (for simple processing)
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
-      - name: Build filelist + tree + workflows index
+      - name: Install deps
         run: |
           set -euo pipefail
-          RUN_ID="${{ github.run_id }}"
-          OUT_DIR=".wtp/state/ro/public/${RUN_ID}"
-          LATEST_DIR=".wtp/state/ro/public/latest"
-          mkdir -p "${OUT_DIR}"
-          # create raw indexes
-          git ls-files -co --exclude-standard > "${OUT_DIR}/filelist.txt" || true
-          ls -laR > "${OUT_DIR}/tree.txt" || true
+          python -m pip install --upgrade pip
+          pip install pyyaml
 
-          python - <<'PY'
-import glob, json, yaml, pathlib, os
-rid=os.environ["RUN_ID"]
-out=pathlib.Path(f".wtp/state/ro/public/{rid}")
-items=[]
-for p in sorted(glob.glob(".github/workflows/*.yml")):
-    try:
-        with open(p,"r",encoding="utf-8") as f:
-            y=yaml.safe_load(f) or {}
-    except Exception as e:
-        y={"_parse_error": str(e)}
-    items.append({
-        "file": pathlib.Path(p).name,
-        "name": y.get("name", pathlib.Path(p).name),
-        "on": y.get("on"),
-        "jobs": list((y.get("jobs") or {}).keys())
-    })
-out.mkdir(parents=True,exist_ok=True)
-(out/"workflows.json").write_text(json.dumps(items,ensure_ascii=False,indent=2),encoding="utf-8")
-md="# Workflows index\n\n"
-for w in items:
-    md+=f"## {w['name']} ({w['file']})\n- Triggers: `{w['on']}`\n- Jobs: {', '.join(w['jobs']) if w['jobs'] else '-'}\n\n"
-(out/"workflows.md").write_text(md,encoding="utf-8")
-PY
-
-      - name: Mirror light indexes to latest
+      - name: Build repo-snapshot.json + REPO_ARCHITECTURE.md + REPO_AUDIT.md
         run: |
           set -euo pipefail
-          RUN_ID="${{ github.run_id }}"
-          OUT_DIR=".wtp/state/ro/public/${RUN_ID}"
-          LATEST_DIR=".wtp/state/ro/public/latest"
-          mkdir -p "${LATEST_DIR}"
-          for f in filelist.txt tree.txt workflows.json workflows.md; do
-            if [ -f "${OUT_DIR}/${f}" ]; then
-              cp -f "${OUT_DIR}/${f}" "${LATEST_DIR}/${f}"
-            fi
-          done
+          python - << 'PY'
+          import os, json, sys, stat
+          from pathlib import Path
 
-      - name: Commit & push indexes (safe)
+          RUN_ID = os.environ.get("RUN_ID","unknown")
+
+          root = Path(".").resolve()
+
+          # Wykluczenia – żeby nie kopiować „toksycznych”/ciężkich rzeczy:
+          EXCLUDE_DIRS = {
+            ".git", ".github/workflows._quarantine", "_ci_logs",
+            ".wtp/state/ci_logs", ".wtp/state/tmp", ".wtp/snapshots",
+            "node_modules", "vendor", ".idea", ".vscode",
+            # debug packi itp. (mogą zawierać ślady sekretów)
+            ".wtp/state/ro/public/latest/wpcli",
+            ".wtp/state/ro/public/latest/debug-pack",
+          }
+
+          def is_excluded(p: Path) -> bool:
+            parts = set(p.parts)
+            # jeśli którykolwiek element ścieżki zaczyna się jak wykluczenie – pomiń
+            for ex in EXCLUDE_DIRS:
+              ex_parts = Path(ex).parts
+              if p.as_posix().startswith(ex):
+                return True
+              # szybka ścieżka: dopasowanie katalogu top-level
+              if ex_parts and ex_parts[0] in parts and str(p).startswith(ex):
+                return True
+            return False
+
+          def category_for(path: str) -> str:
+            if path.startswith(".github/workflows/"):
+              if "/workflows._quarantine/" in path:
+                return "workflow-quarantine"
+              return "workflow-active"
+            if path.startswith("wp-content/mu-plugins/"):
+              return "mu-plugin"
+            if path.startswith("wp-content/plugins/"):
+              return "plugin"
+            if path.startswith("wp-content/themes/"):
+              return "theme"
+            if path.startswith(".wtp/"):
+              return "wtp-meta"
+            return "other"
+
+          files = []
+          total_size = 0
+
+          for p in root.rglob("*"):
+            if p.is_dir():
+              if is_excluded(p.relative_to(root)):
+                # nie schodzimy głębiej w wykluczony katalog
+                # skip children by modifying generator is hard; instead, rely on startswith check later
+                pass
+              continue
+            rel = p.relative_to(root).as_posix()
+            if any(rel.startswith(ex) for ex in EXCLUDE_DIRS):
+              continue
+            try:
+              st = p.stat()
+              size = st.st_size
+            except Exception:
+              size = 0
+            total_size += size
+            files.append({
+              "path": rel,
+              "size": size,
+              "mode": oct(st.st_mode & 0o777) if 'st' in locals() else None,
+              "category": category_for(rel),
+            })
+
+          # Zliczenia per kategoria
+          by_cat = {}
+          for f in files:
+            c = f["category"]
+            e = by_cat.setdefault(c, {"count":0,"size":0})
+            e["count"] += 1
+            e["size"]  += f["size"]
+
+          snapshot = {
+            "run_id": RUN_ID,
+            "run_ts": __import__("datetime").datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "counts": {
+              "files": len(files),
+              "size": total_size,
+              "by_category": by_cat,
+            },
+            "files": files,
+          }
+
+          out_dir_run   = Path(f".wtp/state/ro/public/{RUN_ID}/repo")
+          out_dir_latest= Path(".wtp/state/ro/public/latest/repo")
+          out_dir_run.mkdir(parents=True, exist_ok=True)
+          out_dir_latest.mkdir(parents=True, exist_ok=True)
+
+          # Zapis JSON
+          (out_dir_run / "repo-snapshot.json").write_text(
+            json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+          (out_dir_latest / "repo-snapshot.json").write_text(
+            json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8"
+          )
+
+          # REPO_ARCHITECTURE.md: prosta mapa wg top-level + krótkie listy
+          def human(n):
+            for u in ["B","KB","MB","GB","TB"]:
+              if n < 1024:
+                return f"{n:.1f} {u}"
+              n /= 1024
+            return f"{n:.1f} PB"
+
+          # grupy top-level
+          top = {}
+          for f in files:
+            parts = f["path"].split("/",1)
+            head = parts[0]
+            g = top.setdefault(head, {"count":0,"size":0,"sample":[]})
+            g["count"] += 1
+            g["size"]  += f["size"]
+            if len(g["sample"])<10:
+              g["sample"].append(f["path"])
+
+          arch = []
+          arch.append("# REPO_ARCHITECTURE")
+          arch.append(f"- Run ID: {RUN_ID}")
+          arch.append("")
+          arch.append("## Top-level directories")
+          arch.append("| Dir | Files | Size |")
+          arch.append("|---|---:|---:|")
+          for k in sorted(top.keys()):
+            arch.append(f"| `{k}` | {top[k]['count']} | {human(top[k]['size'])} |")
+          arch.append("")
+          arch.append("## Samples by directory")
+          for k in sorted(top.keys()):
+            arch.append(f"### `{k}`  ({top[k]['count']} files, {human(top[k]['size'])})")
+            for s in top[k]["sample"]:
+              arch.append(f"- `{s}`")
+            arch.append("")
+          (out_dir_run / "REPO_ARCHITECTURE.md").write_text("\n".join(arch)+"\n", encoding="utf-8")
+          (out_dir_latest / "REPO_ARCHITECTURE.md").write_text("\n".join(arch)+"\n", encoding="utf-8")
+
+          # REPO_AUDIT.md – kompaktowe podsumowanie (w razie gdy poprzedni brakował)
+          L=[]
+          L.append("# REPO_AUDIT")
+          L.append(f"- Run ID: {RUN_ID}")
+          L.append(f"- Files total: {snapshot['counts']['files']}")
+          L.append(f"- Size total: {human(snapshot['counts']['size'])}")
+          L.append("")
+          L.append("## By category")
+          L.append("| Category | Files | Size |")
+          L.append("|---|---:|---:|")
+          for c, v in sorted(by_cat.items()):
+            L.append(f"| {c} | {v['count']} | {human(v['size'])} |")
+          L.append("")
+          L.append("## Recommendations")
+          L.append("- Keep tylko niezbędne workflows aktywne; reszta do `.github/workflows._quarantine/`.")
+          L.append("- Nie commitować ciężkich zrzutów/packów – używać artifacts.")
+          L.append("- Pilnować, by debug-packi nie trafiały do `latest/` (ryzyko secret-scanning).")
+          L.append("")
+          (out_dir_run / "REPO_AUDIT.md").write_text("\n".join(L)+"\n", encoding="utf-8")
+          (out_dir_latest / "REPO_AUDIT.md").write_text("\n".join(L)+"\n", encoding="utf-8")
+          PY
+
+      - name: Commit & push (rebase-safe)
         run: |
           set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .wtp/state/ro/public/${{ github.run_id }} || true
-          git add .wtp/state/ro/public/latest || true
+          git add -A
           if git diff --staged --quiet; then
             echo "::notice::Nothing to commit."
             exit 0
           fi
-          git commit -m "repo snapshot ${GITHUB_RUN_ID}" || true
-          git pull --rebase origin "${GITHUB_REF_NAME:-main}" || true
-          git push origin HEAD:"${GITHUB_REF_NAME:-main}" || true
+          git commit -m "repo snapshot + architecture + audit ${{ env.RUN_ID }}"
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
+          for i in 1 2 3; do
+            git fetch origin "$BRANCH"
+            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+            if git push origin "HEAD:$BRANCH"; then
+              echo "::notice::Pushed (attempt $i)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Push failed after 3 attempts"
+          exit 1
