@@ -39,7 +39,7 @@ jobs:
           need "${LATEST}/repo/hooks.json"
           need "${LATEST}/repo/symbol_index.json"
           need "${LATEST}/repo/includes_index.json"
-          # snapshot server (latest) – miękko, może jeszcze nie istnieć
+          # snapshot serwera: opcjonalny
           if [ ! -s "${LATEST}/snapshot.json" ]; then
             echo "::warning::latest/snapshot.json not found – server-side correlation will be partial"
           fi
@@ -60,68 +60,82 @@ jobs:
 
           def load_json(p: Path, default=None):
               try:
-                  return json.loads(p.read_text(encoding="utf-8"))
+                  txt = p.read_text(encoding="utf-8")
+                  return json.loads(txt)
               except Exception:
                   return default
 
+          def ensure_list(x):
+              return x if isinstance(x, list) else []
+
+          def ensure_dict(x):
+              return x if isinstance(x, dict) else {}
+
           # --- Inputs from repo audit (latest) ---
-          plugin_meta   = load_json(LATEST / "repo" / "plugin_meta.json", [])
-          mu_meta       = load_json(LATEST / "repo" / "mu_meta.json", [])
-          hooks         = load_json(LATEST / "repo" / "hooks.json", [])
-          symbols       = load_json(LATEST / "repo" / "symbol_index.json", {"functions":[], "classes":[]})
-          includes_idx  = load_json(LATEST / "repo" / "includes_index.json", [])
+          plugin_meta   = ensure_list(load_json(LATEST / "repo" / "plugin_meta.json", []))
+          mu_meta       = ensure_list(load_json(LATEST / "repo" / "mu_meta.json", []))
+          hooks         = ensure_list(load_json(LATEST / "repo" / "hooks.json", []))
+          symbols_raw   = load_json(LATEST / "repo" / "symbol_index.json", {"functions":[], "classes":[]})
+          symbols       = ensure_dict(symbols_raw)
+          symbols.setdefault("functions", [])
+          symbols.setdefault("classes", [])
+          includes_idx  = ensure_list(load_json(LATEST / "repo" / "includes_index.json", []))
 
           # --- Optional server snapshot (latest) ---
-          snapshot = load_json(LATEST / "snapshot.json", None)
+          snapshot_raw  = load_json(LATEST / "snapshot.json", None)
+          snapshot      = snapshot_raw if isinstance(snapshot_raw, dict) else None
 
           # Helpers
           def slug_from_path(path: str):
-              # derive plugin "slug" from wp-content/plugins/<slug>/...
               m = re.search(r"wp-content/plugins/([^/]+)/", path)
               if m: 
                   return m.group(1)
-              # single-file plugin in wp-content/plugins/<file>.php
               m = re.search(r"wp-content/plugins/([^/]+)\.php$", path)
               if m:
                   return m.group(1)
               return None
 
           def mu_key_from_path(path: str):
-              # key for MU: path relative to wp-content/mu-plugins
               m = re.search(r"wp-content/mu-plugins/(.+)$", path)
               return m.group(1) if m else path
 
           # Repo sets
           repo_plugin_slugs = set()
           for rec in plugin_meta:
-              p = rec.get("path") or ""
+              p = (rec or {}).get("path") or ""
               s = slug_from_path(p)
               if s: repo_plugin_slugs.add(s)
 
-          repo_mu_keys = set(mu_key_from_path(rec.get("path","")) for rec in mu_meta)
+          repo_mu_keys = set()
+          for rec in mu_meta:
+              p = (rec or {}).get("path") or ""
+              repo_mu_keys.add(mu_key_from_path(p))
 
           # Hooks histogram
           hook_hist = {}
-          for h in hooks or []:
+          for h in hooks:
+              if not isinstance(h, dict): 
+                  continue
               key = h.get("hook")
               if not key: 
                   continue
               hook_hist[key] = hook_hist.get(key, 0) + 1
           hook_conflicts = [{"hook":k,"count":c} for k,c in sorted(hook_hist.items(), key=lambda kv: kv[1], reverse=True) if c>=3]
 
-          # Includes (zwięźle)
+          # Includes (top)
           includes_map = {}
-          for inc in includes_idx or []:
-              tgt = inc.get("target")
-              if not tgt: 
+          for inc in includes_idx:
+              if not isinstance(inc, dict):
                   continue
-              includes_map.setdefault(tgt, 0)
-              includes_map[tgt] += 1
+              tgt = inc.get("target")
+              if not tgt:
+                  continue
+              includes_map[tgt] = includes_map.get(tgt, 0) + 1
           includes_top = [{"target":k,"count":v} for k,v in sorted(includes_map.items(), key=lambda kv: kv[1], reverse=True)[:50]]
 
           # Symbols
-          fn_count = len((symbols or {}).get("functions", []))
-          cls_count = len((symbols or {}).get("classes", []))
+          fn_count = len(symbols.get("functions", []))
+          cls_count = len(symbols.get("classes", []))
 
           # Server view
           server_plugins = []
@@ -130,17 +144,15 @@ jobs:
           server_theme = None
 
           if snapshot:
-              # snapshot format per your earlier example
-              for pl in snapshot.get("plugins", []):
-                  # name is folder slug in most cases for OSS plugins; keep as 'slug' fallback to 'name'
+              for pl in ensure_list(snapshot.get("plugins")):
+                  if not isinstance(pl, dict):
+                      continue
                   slug = pl.get("name") or pl.get("slug") or ""
                   status = pl.get("status")
                   server_plugins.append({"slug": slug, "status": status, "version": pl.get("version")})
-                  if status == "active":
-                      if slug:
-                          server_active.add(slug)
-              # active theme
-              active = snapshot.get("active_theme", {}) or {}
+                  if status == "active" and slug:
+                      server_active.add(slug)
+              active = ensure_dict(snapshot.get("active_theme"))
               server_theme = active.get("active")
 
           # Cross repo vs server
@@ -150,12 +162,11 @@ jobs:
           plugins_server_only = sorted(server_plugin_slugs - repo_plugin_slugs)
           plugins_both        = sorted(repo_plugin_slugs & server_plugin_slugs)
 
-          if server_active:
-              for s in sorted(server_active):
-                  if s not in repo_plugin_slugs:
-                      active_missing_code.append(s)
+          for s in sorted(server_active):
+              if s not in repo_plugin_slugs:
+                  active_missing_code.append(s)
 
-          # Compose aggregate
+          # Aggregate
           aggregate = {
               "run_id": RUN_ID,
               "repo": {
@@ -198,7 +209,7 @@ jobs:
               md.append(f"- Server plugins: **{aggregate['server']['plugins_count']}** (active: **{aggregate['server']['active_count']}**)")
               md.append(f"- Active theme: **{aggregate['server']['active_theme'] or '-'}**")
           else:
-              md.append("- Server snapshot: **not available**")
+              md.append("- Server snapshot: **not available** (report is repo-only)")
           md.append("")
           md.append("## Diff (repo vs server)")
           md.append(f"- Repo-only plugins ({len(plugins_repo_only)}): " + (", ".join(plugins_repo_only) if plugins_repo_only else "_none_"))
