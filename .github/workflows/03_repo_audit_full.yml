@@ -39,17 +39,19 @@ jobs:
       - name: Build extended repo audit (indexes, hooks, symbols, metas)
         run: |
           set -euo pipefail
-          OUT="_out/repo_audit/${RUN_ID}"
-          mkdir -p "$OUT"
+          OUT_DIR="_out/repo_audit/${RUN_ID}"
+          mkdir -p "$OUT_DIR"
 
           # 1) Pełne listy plików
-          git ls-files -co --exclude-standard > "${OUT}/filelist.txt"
-          ls -laR > "${OUT}/tree.txt"
+          git ls-files -co --exclude-standard > "${OUT_DIR}/filelist.txt"
+          ls -laR > "${OUT_DIR}/tree.txt"
 
           # 2) Indeks workflowów
           python - << 'PY'
           import os, glob, json, yaml, pathlib
-          OUT = pathlib.Path(os.environ["OUT"])
+          RUN_ID = os.environ["RUN_ID"]
+          OUT = pathlib.Path(f"_out/repo_audit/{RUN_ID}")
+          OUT.mkdir(parents=True, exist_ok=True)
           items=[]
           for p in sorted(glob.glob(".github/workflows/*.yml")):
               try:
@@ -73,10 +75,13 @@ jobs:
           (OUT/"workflows.md").write_text("\n".join(md)+"\n", encoding="utf-8")
           PY
 
-          # 3) Parsowanie hooków / symboli / includes (heurystyczne, lekko-zachowawcze)
+          # 3) Hooks / symbols / includes
           python - << 'PY'
           import os, re, json, pathlib
-          OUT = pathlib.Path(os.environ["OUT"])
+          RUN_ID = os.environ["RUN_ID"]
+          OUT = pathlib.Path(f"_out/repo_audit/{RUN_ID}")
+          OUT.mkdir(parents=True, exist_ok=True)
+
           hooks = []
           symbols = {"functions":[], "classes":[]}
           includes = []
@@ -97,17 +102,14 @@ jobs:
                       txt = open(p, "r", encoding="utf-8", errors="ignore").read()
                   except:
                       continue
-                  # hooks
                   for m in re_add_action.finditer(txt):
                       hooks.append({"type":"action","hook":m.group(1),"cb":m.group(2).strip(),"file":p})
                   for m in re_add_filter.finditer(txt):
                       hooks.append({"type":"filter","hook":m.group(1),"cb":m.group(2).strip(),"file":p})
-                  # symbols
                   for m in re_fn.finditer(txt):
                       symbols["functions"].append({"name":m.group(1),"file":p})
                   for m in re_class.finditer(txt):
                       symbols["classes"].append({"name":m.group(1),"file":p})
-                  # includes
                   for line in txt.splitlines():
                       mi = re_inc.search(line)
                       if mi:
@@ -118,10 +120,13 @@ jobs:
           (OUT/"includes_index.json").write_text(json.dumps(includes, ensure_ascii=False, indent=2), encoding="utf-8")
           PY
 
-          # 4) Metadane pluginów + MU (statycznie po drzewie repo)
+          # 4) Metadane pluginów + MU
           python - << 'PY'
           import os, json, pathlib, re
-          OUT = pathlib.Path(os.environ["OUT"])
+          RUN_ID = os.environ["RUN_ID"]
+          OUT = pathlib.Path(f"_out/repo_audit/{RUN_ID}")
+          OUT.mkdir(parents=True, exist_ok=True)
+
           def scan_plugins(root):
               rootp = pathlib.Path(root)
               out=[]
@@ -129,20 +134,16 @@ jobs:
               for p in sorted(rootp.glob("*")):
                   if p.is_dir():
                       slug=p.name
-                      main_files=list(p.glob("*.php"))
                       headers={}
-                      for mf in main_files:
+                      for mf in list(p.glob("*.php"))[:10]:
                           try:
                               txt=mf.read_text(encoding="utf-8", errors="ignore")
                               m=re.search(r"Plugin\s*Name\s*:\s*(.+)", txt)
-                              if m:
-                                  headers["PluginName"]=m.group(1).strip()
+                              if m: headers["PluginName"]=m.group(1).strip()
                               m=re.search(r"Version\s*:\s*([0-9A-Za-z\.\-\_]+)", txt)
-                              if m:
-                                  headers["Version"]=m.group(1).strip()
+                              if m: headers["Version"]=m.group(1).strip()
                               m=re.search(r"Description\s*:\s*(.+)", txt)
-                              if m:
-                                  headers["Description"]=m.group(1).strip()
+                              if m: headers["Description"]=m.group(1).strip()
                           except: pass
                       out.append({"slug":slug,"headers":headers})
               return out
@@ -157,16 +158,18 @@ jobs:
           # 5) REPO_AUDIT.md + agregat
           python - << 'PY'
           import os, json, pathlib
-          OUT = pathlib.Path(os.environ["OUT"])
+          RUN_ID = os.environ["RUN_ID"]
+          OUT = pathlib.Path(f"_out/repo_audit/{RUN_ID}")
+          OUT.mkdir(parents=True, exist_ok=True)
+
           L=[]
           L.append("# REPO AUDIT (extended)")
           L.append("")
-          for fname in ["filelist.txt","tree.txt","workflows.md"]:
-            L.append(f"- generated: `{fname}`")
+          L.append("- generated: `filelist.txt`, `tree.txt`, `workflows.*`, `hooks.json`, `symbol_index.json`, `includes_index.json`, `plugin_meta.json`, `mu_meta.json`")
           (OUT/"REPO_AUDIT.md").write_text("\n".join(L)+"\n", encoding="utf-8")
 
           agg = {
-            "run_id": os.environ["RUN_ID"],
+            "run_id": RUN_ID,
             "files_index": "filelist.txt",
             "tree": "tree.txt",
             "workflows": "workflows.json",
@@ -184,40 +187,39 @@ jobs:
           set -euo pipefail
           RUN_DIR=".wtp/state/ro/public/${RUN_ID}"
           LATEST=".wtp/state/ro/public/latest"
+          SRC="_out/repo_audit/${RUN_ID}"
+
           mkdir -p "${RUN_DIR}/repo" "${LATEST}/repo"
 
-          # Kopia wszystkich produktów audytu
-          cp -f "_out/repo_audit/${RUN_ID}/filelist.txt"         "${RUN_DIR}/filelist.txt"
-          cp -f "_out/repo_audit/${RUN_ID}/tree.txt"             "${RUN_DIR}/tree.txt"
-          cp -f "_out/repo_audit/${RUN_ID}/workflows.json"       "${RUN_DIR}/workflows.json"
-          cp -f "_out/repo_audit/${RUN_ID}/workflows.md"         "${RUN_DIR}/workflows.md"
-          cp -f "_out/repo_audit/${RUN_ID}/hooks.json"           "${RUN_DIR}/repo/hooks.json"
-          cp -f "_out/repo_audit/${RUN_ID}/symbol_index.json"    "${RUN_DIR}/repo/symbol_index.json"
-          cp -f "_out/repo_audit/${RUN_ID}/includes_index.json"  "${RUN_DIR}/repo/includes_index.json"
-          cp -f "_out/repo_audit/${RUN_ID}/plugin_meta.json"     "${RUN_DIR}/repo/plugin_meta.json"
-          cp -f "_out/repo_audit/${RUN_ID}/mu_meta.json"         "${RUN_DIR}/repo/mu_meta.json"
-          cp -f "_out/repo_audit/${RUN_ID}/repo-audit.json"      "${RUN_DIR}/repo/repo-audit.json"
-          cp -f "_out/repo_audit/${RUN_ID}/REPO_AUDIT.md"        "${RUN_DIR}/repo/REPO_AUDIT.md"
+          # RUN-ID
+          cp -f "${SRC}/filelist.txt"            "${RUN_DIR}/filelist.txt"
+          cp -f "${SRC}/tree.txt"                "${RUN_DIR}/tree.txt"
+          cp -f "${SRC}/workflows.json"          "${RUN_DIR}/workflows.json"
+          cp -f "${SRC}/workflows.md"            "${RUN_DIR}/workflows.md"
+          cp -f "${SRC}/hooks.json"              "${RUN_DIR}/repo/hooks.json"
+          cp -f "${SRC}/symbol_index.json"       "${RUN_DIR}/repo/symbol_index.json"
+          cp -f "${SRC}/includes_index.json"     "${RUN_DIR}/repo/includes_index.json"
+          cp -f "${SRC}/plugin_meta.json"        "${RUN_DIR}/repo/plugin_meta.json"
+          cp -f "${SRC}/mu_meta.json"            "${RUN_DIR}/repo/mu_meta.json"
+          cp -f "${SRC}/repo-audit.json"         "${RUN_DIR}/repo/repo-audit.json"
+          cp -f "${SRC}/REPO_AUDIT.md"           "${RUN_DIR}/repo/REPO_AUDIT.md"
 
-          # MIRROR do latest
-          mkdir -p "${LATEST}" "${LATEST}/repo"
-          cp -f "${RUN_DIR}/filelist.txt"                         "${LATEST}/filelist.txt"
-          cp -f "${RUN_DIR}/tree.txt"                             "${LATEST}/tree.txt"
-          cp -f "${RUN_DIR}/workflows.json"                       "${LATEST}/workflows.json"
-          cp -f "${RUN_DIR}/workflows.md"                         "${LATEST}/workflows.md"
-          cp -f "${RUN_DIR}/repo/hooks.json"                      "${LATEST}/repo/hooks.json"
-          cp -f "${RUN_DIR}/repo/symbol_index.json"               "${LATEST}/repo/symbol_index.json"
-          cp -f "${RUN_DIR}/repo/includes_index.json"             "${LATEST}/repo/includes_index.json"
-          cp -f "${RUN_DIR}/repo/plugin_meta.json"                "${LATEST}/repo/plugin_meta.json"
-          cp -f "${RUN_DIR}/repo/mu_meta.json"                    "${LATEST}/repo/mu_meta.json"
-          cp -f "${RUN_DIR}/repo/repo-audit.json"                 "${LATEST}/repo/repo-audit.json"
-          cp -f "${RUN_DIR}/repo/REPO_AUDIT.md"                   "${LATEST}/repo/REPO_AUDIT.md"
+          # LATEST
+          cp -f "${RUN_DIR}/filelist.txt"        "${LATEST}/filelist.txt"
+          cp -f "${RUN_DIR}/tree.txt"            "${LATEST}/tree.txt"
+          cp -f "${RUN_DIR}/workflows.json"      "${LATEST}/workflows.json"
+          cp -f "${RUN_DIR}/workflows.md"        "${LATEST}/workflows.md"
+          cp -f "${RUN_DIR}/repo/hooks.json"     "${LATEST}/repo/hooks.json"
+          cp -f "${RUN_DIR}/repo/symbol_index.json"  "${LATEST}/repo/symbol_index.json"
+          cp -f "${RUN_DIR}/repo/includes_index.json" "${LATEST}/repo/includes_index.json"
+          cp -f "${RUN_DIR}/repo/plugin_meta.json"    "${LATEST}/repo/plugin_meta.json"
+          cp -f "${RUN_DIR}/repo/mu_meta.json"        "${LATEST}/repo/mu_meta.json"
+          cp -f "${RUN_DIR}/repo/repo-audit.json"     "${LATEST}/repo/repo-audit.json"
+          cp -f "${RUN_DIR}/repo/REPO_AUDIT.md"       "${LATEST}/repo/REPO_AUDIT.md"
 
-          # JEŚLI snapshot + architektura istnieją w latest z poprzednich biegów — zostawiamy jak jest.
-          # JEŚLI ich nie ma, a istnieją w ostatnim RUN (np. po 03_repo_snapshot) – skopiuj je:
+          # Jeśli snapshot/architektura brakują w latest — spróbuj dociągnąć z najnowszego RUN-u snapshotu
           for f in REPO_ARCHITECTURE.md repo-snapshot.json; do
             if [ ! -f "${LATEST}/repo/${f}" ]; then
-              # spróbuj znaleźć najnowszy plik w .wtp/state/ro/public/*/repo/
               CAND=$(ls -1dt .wtp/state/ro/public/*/repo 2>/dev/null | head -n1 || true)
               if [ -n "${CAND:-}" ] && [ -f "${CAND}/${f}" ]; then
                 cp -f "${CAND}/${f}" "${LATEST}/repo/${f}" || true
@@ -232,7 +234,6 @@ jobs:
             echo "::notice::Nothing to commit."
           else
             git commit -m "repo audit (extended) ${RUN_ID}"
-            # rebase-safe push
             BRANCH="${GITHUB_REF_NAME:-main}"
             git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
             for i in 1 2 3; do
