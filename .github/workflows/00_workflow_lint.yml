@@ -1,18 +1,40 @@
 name: 00_workflow_lint
 
 on:
-  push:
-    paths:
-      - ".github/workflows/*.yml"
+  workflow_dispatch: {}
   pull_request:
     paths:
       - ".github/workflows/*.yml"
-  workflow_dispatch: {}
+      - ".github/workflows/*.yaml"
+
+permissions:
+  contents: read
 
 jobs:
-  actionlint:
+  lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - name: Run actionlint
-        uses: rhysd/actionlint@v1
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download actionlint (pinned)
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="v1.7.1"
+          curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash \
+            | bash -s -- -b ./bin "${VER}"
+          ./bin/actionlint --version
+
+      - name: Lint workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./bin/actionlint -color
+
+      - name: Show found files
+        shell: bash
+        if: failure()
+        run: |
+          ls -la .github/workflows || true
