@@ -1,0 +1,4 @@
+WordPress version: 6.8.2
+Database revision: 60421
+TinyMCE version:   4.9110 (49110-20250317)
+Package language:  en_US
