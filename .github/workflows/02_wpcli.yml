@@ -1,4 +1,4 @@
-name: 02a_deploy (files → server; MU, plugins, themes, wp-config)
+name: 02b_wpcli_ssot (install/update/activate from SSOT, secure SSH)
 
 on:
   workflow_dispatch: {}
