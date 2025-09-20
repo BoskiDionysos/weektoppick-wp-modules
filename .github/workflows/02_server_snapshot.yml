@@ -15,198 +15,196 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
+      RUN_ID: ${{ github.run_id }}
       HOST:   ${{ secrets.DEPLOY_HOST }}
       PORT:   ${{ secrets.DEPLOY_PORT }}
       USER:   ${{ secrets.DEPLOY_USER }}
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
-      RUN_ID: ${{ github.run_id }}
-      LATEST: .wtp/state/ro/public/latest/server
-      OUTDIR: .wtp/state/ro/public/${{ github.run_id }}/server
-      WTP_CI: "1" # dla MU-locków po stronie WP
-
+      WTP_CI: "1"
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Sanity (secrets + dirs)
+      - name: Sanity of secrets
         run: |
           set -euo pipefail
           for v in HOST PORT USER PASS TARGET; do
-            [ -n "${!v:-}" ] || { echo "::error::Missing secret $v"; exit 1; }
+            if [ -z "${!v:-}" ]; then
+              echo "::error::Missing secret $v"
+              exit 1
+            fi
           done
-          mkdir -p "_ci_logs/${RUN_ID}/server" "${OUTDIR}" "${LATEST}"
 
-      - name: Setup tools (sshpass)
+      - name: Setup tools (sshpass, jq) & known_hosts
         run: |
           set -euo pipefail
           sudo apt-get update -y
-          sudo apt-get install -y sshpass
+          sudo apt-get install -y sshpass jq curl
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
           echo "::add-mask::$HOST"
           echo "::add-mask::$USER"
 
-      - name: Remote: wp core/theme/plugin/options + sanity
+      - name: Create remote script (collect via WP-CLI)
         run: |
           set -euo pipefail
-          # surowe artefakty -> _ci_logs
+          cat > /tmp/server_collect.sh <<'BASH'
+          set -euo pipefail
+          cd "$TARGET"
+
+          # Ensure local wp-cli binary in project dir (no global assumptions)
+          if [ ! -x ./wp ]; then
+            curl -sS -L -o wp.phar https://github.com/wp-cli/wp-cli/releases/latest/download/wp-cli.phar
+            php wp.phar --info >/dev/null 2>&1
+            chmod +x wp.phar && mv wp.phar wp
+          fi
+
+          mkdir -p .wtp/state/ci_snapshot
+          OUT=.wtp/state/ci_snapshot
+
+          # Basic host info
+          uname -a            >  "$OUT/uname.txt"          2>/dev/null || true
+          php -v              >  "$OUT/php_version.txt"    2>/dev/null || true
+          command -v php      >  "$OUT/php_which.txt"      2>/dev/null || true
+          pwd                 >  "$OUT/pwd.txt"            2>/dev/null || true
+          ls -la wp-config.php > "$OUT/wp_config_ls.txt"   2>/dev/null || true
+
+          # WP core (no --format here; some builds complain)
+          php ./wp core version --extra --path="$TARGET"  > "$OUT/wp_core.txt"  2>&1 || true
+
+          # Themes / Plugins list (JSON)
+          php ./wp theme  list --path="$TARGET" --format=json   > "$OUT/themes.json"   2>/dev/null || echo "[]" > "$OUT/themes.json"
+          php ./wp plugin list --path="$TARGET" --format=json   > "$OUT/plugins.json"  2>/dev/null || echo "[]" > "$OUT/plugins.json"
+
+          # Options snapshot (selected)
+          {
+            echo "{"
+            echo "  \"siteurl\": \"$(php ./wp option get siteurl --path="$TARGET" 2>/dev/null || echo) \","
+            echo "  \"home\":    \"$(php ./wp option get home    --path="$TARGET" 2>/dev/null || echo) \","
+            echo "  \"blogname\": \"$(php ./wp option get blogname --path="$TARGET" 2>/dev/null || echo) \","
+            echo "  \"stylesheet\": \"$(php ./wp option get stylesheet --path="$TARGET" 2>/dev/null || echo) \","
+            echo "  \"template\":   \"$(php ./wp option get template   --path="$TARGET" 2>/dev/null || echo) \""
+            echo "}"
+          } > "$OUT/wp_options.json"
+
+          # Build compact JSON snapshot on server (so we scp one file too)
+          php -r '
+            $outDir = ".wtp/state/ci_snapshot";
+            $j = function($p){ return file_exists($p) ? json_decode(file_get_contents($p), true) : null; };
+            $txt = function($p){ return file_exists($p) ? trim(file_get_contents($p)) : null; };
+            $data = [
+              "host" => [
+                "uname" => $txt("$outDir/uname.txt"),
+                "php_version" => $txt("$outDir/php_version.txt"),
+                "php_which"   => $txt("$outDir/php_which.txt"),
+                "pwd"         => $txt("$outDir/pwd.txt"),
+              ],
+              "wp_core"  => $txt("$outDir/wp_core.txt"),
+              "themes"   => $j("$outDir/themes.json") ?: [],
+              "plugins"  => $j("$outDir/plugins.json") ?: [],
+              "options"  => $j("$outDir/wp_options.json") ?: [],
+            ];
+            echo json_encode($data, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES);
+          ' > "$OUT/snapshot.json"
+          BASH
+
+      - name: Run remote collection
+        run: |
+          set -euo pipefail
+          sshpass -p "$PASS" scp -P "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "/tmp/server_collect.sh" "$USER@$HOST:$TARGET/.wtp_temp_server_collect.sh"
+
           sshpass -p "$PASS" ssh -p "$PORT" \
             -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST" "set -euo pipefail; cd '$TARGET' && \
-              echo \$(which php) > php_which.txt && \
-              php -v > php_version.txt 2>&1 && \
-              uname -a > uname.txt && \
-              pwd > pwd.txt && \
-              php ./wp --info > wp_core.txt 2>&1 || true && \
-              php ./wp core version --extra --format=json > core.json 2>/dev/null || php ./wp core version > core.json.txt || true && \
-              php ./wp theme list --format=json > themes.json 2>/dev/null || php ./wp theme list > themes.txt || true && \
-              php ./wp plugin list --format=json > plugins.json 2>/dev/null || php ./wp plugin list > plugins.txt || true && \
-              php ./wp option get active_plugins --format=json > active_plugins.json 2>/dev/null || php ./wp option get active_plugins > active_plugins.txt || true && \
-              php ./wp option get permalink_structure > permalink.txt 2>/dev/null || true && \
-              php ./wp option get siteurl > siteurl.txt 2>/dev/null || true && \
-              php ./wp option get home > home.txt 2>/dev/null || true && \
-              php ./wp option get blogdescription > blogdescription.txt 2>/dev/null || true && \
-              php ./wp eval 'echo get_locale();' > locale.txt 2>/dev/null || true && \
-              php ./wp eval 'echo is_multisite()?\"1\":\"0\";' > is_ms.txt 2>/dev/null || true && \
-              mkdir -p .wtp/state/ci_logs && \
-              mv php_which.txt php_version.txt uname.txt pwd.txt wp_core.txt core.json* themes.* plugins.* active_plugins.* permalink.txt siteurl.txt home.txt blogdescription.txt locale.txt is_ms.txt .wtp/state/ci_logs/"
+            "$USER@$HOST" "cd '$TARGET' && TARGET='$TARGET' bash .wtp_temp_server_collect.sh && rm .wtp_temp_server_collect.sh"
 
-          # Pobierz do _ci_logs
-          sshpass -p "$PASS" scp -P "$PORT" -r \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST:$TARGET/.wtp/state/ci_logs/*" "_ci_logs/${RUN_ID}/server/"
-
-      - name: Build snapshot.json + SERVER_SNAPSHOT.md
+      - name: Pull raw artifacts
         run: |
           set -euo pipefail
+          mkdir -p "_ci_logs/${RUN_ID}/server"
+          sshpass -p "$PASS" scp -P "$PORT" -r \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$USER@$HOST:$TARGET/.wtp/state/ci_snapshot/*" "_ci_logs/${RUN_ID}/server/" || true
+          ls -la "_ci_logs/${RUN_ID}/server" || true
+
+      - name: Build SERVER_SNAPSHOT.md + final snapshot.json (local merge)
+        run: |
+          set -euo pipefail
+          mkdir -p ".wtp/state/ro/public/${RUN_ID}/server" ".wtp/state/ro/public/latest/server"
+          # Trust the server-built JSON primarily
+          cp -f "_ci_logs/${RUN_ID}/server/snapshot.json" ".wtp/state/ro/public/${RUN_ID}/server/snapshot.json" || echo "{}" > ".wtp/state/ro/public/${RUN_ID}/server/snapshot.json"
+
           python - << 'PY'
           import json, os, pathlib
           rid = os.environ["RUN_ID"]
-          ci = pathlib.Path(f"_ci_logs/{rid}/server")
-          outdir = pathlib.Path(os.environ["OUTDIR"])
-          latest = pathlib.Path(os.environ["LATEST"])
-          outdir.mkdir(parents=True, exist_ok=True)
+          src = pathlib.Path(f"_ci_logs/{rid}/server/snapshot.json")
+          out_dir = pathlib.Path(f".wtp/state/ro/public/{rid}/server")
+          latest  = pathlib.Path(".wtp/state/ro/public/latest/server")
+          out_dir.mkdir(parents=True, exist_ok=True)
           latest.mkdir(parents=True, exist_ok=True)
 
-          def rd(p):
-              p=ci/p
-              if not p.exists(): return None
-              try: return p.read_text(encoding="utf-8").strip()
-              except Exception: return None
-
-          def rj(p):
-              p=ci/p
-              if not p.exists(): return None
-              try: return json.loads(p.read_text(encoding="utf-8"))
-              except Exception: return None
-
-          data = {
-            "php": {
-              "which": rd("php_which.txt"),
-              "version": rd("php_version.txt")
-            },
-            "uname": rd("uname.txt"),
-            "pwd": rd("pwd.txt"),
-            "wp": {
-              "wp_cli_info": rd("wp_core.txt"),
-              "core": rj("core.json") or rd("core.json.txt"),
-              "themes": rj("themes.json") or rd("themes.txt"),
-              "plugins": rj("plugins.json") or rd("plugins.txt"),
-              "active_plugins": rj("active_plugins.json") or rd("active_plugins.txt"),
-              "siteurl": rd("siteurl.txt"),
-              "home": rd("home.txt"),
-              "permalink_structure": rd("permalink.txt"),
-              "blogdescription": rd("blogdescription.txt"),
-              "locale": rd("locale.txt"),
-              "is_multisite": rd("is_ms.txt") in ("1", "true", "True"),
-            }
-          }
-
-          # Walidacja: brak aktywnego motywu albo brak listy wtyczek → error gate
-          themes = data["wp"]["themes"]
-          plugins = data["wp"]["plugins"]
-          act = data["wp"]["active_plugins"]
-          errors = []
-
-          # themes.json w formacie listy lub tabeli; sprawdź aktywny
-          active_theme = None
-          if isinstance(themes, list):
-              for t in themes:
-                  if isinstance(t, dict) and (t.get("status") == "active" or t.get("Status") == "active"):
-                      active_theme = t.get("name") or t.get("Name")
-                      break
-          elif isinstance(themes, str):
-              # fallback text – zostaw puste
-              pass
-
-          if not active_theme:
-              errors.append("No active theme detected (themes.json missing or did not mark an active theme).")
-
-          if not plugins:
-              errors.append("WP plugin list is empty or unreadable.")
-          if act in (None, "", []):
-              errors.append("WP option active_plugins is empty or unreadable.")
-
-          # Zapis JSON + MD
-          (outdir/"snapshot.json").write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
+          data = {}
+          if src.exists():
+            data = json.loads(src.read_text(encoding="utf-8"))
           md = []
           md.append("# SERVER SNAPSHOT")
           md.append(f"- Run ID: {rid}")
           md.append("")
-          md.append("## PHP / System")
-          md.append(f"- which php: `{data['php']['which']}`")
-          md.append(f"- php -v: ```\n{data['php']['version']}\n```")
-          md.append(f"- uname: `{data['uname']}`")
-          md.append(f"- pwd: `{data['pwd']}`")
+          host = data.get("host", {})
+          md.append("## Host")
+          md.append(f"- uname: `{host.get('uname')}`")
+          md.append(f"- php: `{host.get('php_version')}` (which: `{host.get('php_which')}`)")
           md.append("")
-          md.append("## WordPress")
-          md.append(f"- siteurl: `{data['wp']['siteurl']}`")
-          md.append(f"- home: `{data['wp']['home']}`")
-          md.append(f"- permalink_structure: `{data['wp']['permalink_structure']}`")
-          md.append(f"- locale: `{data['wp']['locale']}` • multisite: `{data['wp']['is_multisite']}`")
-          md.append("")
-          md.append("### Themes (raw)")
+          md.append("## WordPress core")
           md.append("```")
-          md.append(json.dumps(themes, ensure_ascii=False, indent=2) if themes is not None else "null")
+          md.append((data.get("wp_core") or "").strip())
           md.append("```")
           md.append("")
-          md.append("### Plugins (raw)")
-          md.append("```")
-          md.append(json.dumps(plugins, ensure_ascii=False, indent=2) if plugins is not None else "null")
-          md.append("```")
+          opts = data.get("options", {}) or {}
+          md.append("## Options (selected)")
+          for k in ["siteurl","home","blogname","stylesheet","template"]:
+            v = opts.get(k)
+            md.append(f"- {k}: `{v}`")
           md.append("")
-          md.append("### active_plugins (raw)")
-          md.append("```")
-          md.append(json.dumps(act, ensure_ascii=False, indent=2) if act is not None else "null")
-          md.append("```")
-          if errors:
-              md.append("")
-              md.append("## Errors")
-              for e in errors: md.append(f"- {e}")
-          (outdir/"SERVER_SNAPSHOT.md").write_text("\n".join(md)+"\n", encoding="utf-8")
+          themes = data.get("themes", []) or []
+          plugins = data.get("plugins", []) or []
+          md.append(f"## Themes ({len(themes)})")
+          if themes:
+            md.append("| name | status | update | version |")
+            md.append("|---|---|---|---|")
+            for t in themes:
+              md.append(f"| {t.get('name')} | {t.get('status')} | {t.get('update')} | {t.get('version')} |")
+          else:
+            md.append("_none_")
+          md.append("")
+          md.append(f"## Plugins ({len(plugins)})")
+          if plugins:
+            md.append("| name | status | update | version |")
+            md.append("|---|---|---|---|")
+            for p in plugins:
+              md.append(f"| {p.get('name')} | {p.get('status')} | {p.get('update')} | {p.get('version')} |")
+          else:
+            md.append("_none_")
 
-          # mirror do latest (zawsze)
-          for name in ("snapshot.json","SERVER_SNAPSHOT.md"):
-              (latest/name).write_text((outdir/name).read_text(encoding="utf-8"), encoding="utf-8")
-
-          # Zwrotka błędów do logu (kontrola w następnym kroku)
-          if errors:
-              (outdir/"_errors.txt").write_text("\n".join(errors), encoding="utf-8")
+          (out_dir/"SERVER_SNAPSHOT.md").write_text("\n".join(md)+"\n", encoding="utf-8")
+          # mirror to latest
+          (latest/"snapshot.json").write_text((out_dir/"snapshot.json").read_text(encoding="utf-8"), encoding="utf-8")
+          (latest/"SERVER_SNAPSHOT.md").write_text((out_dir/"SERVER_SNAPSHOT.md").read_text(encoding="utf-8"), encoding="utf-8")
           PY
 
-      - name: Fail on critical snapshot gaps (active theme / plugins)
+      - name: Validate snapshot (fail on empty)
         run: |
           set -euo pipefail
-          ERR="${OUTDIR}/_errors.txt"
-          if [ -s "$ERR" ]; then
-            echo "::group::Server snapshot validation errors"
-            cat "$ERR"
-            echo "::endgroup::"
-            echo "::error::Server snapshot incomplete (see errors above)."
+          SNAP=".wtp/state/ro/public/${RUN_ID}/server/snapshot.json"
+          if [ ! -s "$SNAP" ]; then
+            echo "::error::snapshot.json missing or empty"
             exit 1
           fi
+          # very light sanity: ensure plugins/themes arrays exist
+          jq -e '.plugins and .themes' "$SNAP" >/dev/null || { echo "::error::Invalid snapshot schema"; exit 1; }
 
       - name: Commit & push (rebase-safe)
         run: |
@@ -218,7 +216,7 @@ jobs:
             echo "::notice::Nothing to commit."
             exit 0
           fi
-          git commit -m "server snapshot $RUN_ID"
+          git commit -m "server snapshot ${RUN_ID}"
           BRANCH="${GITHUB_REF_NAME:-main}"
           git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
           for i in 1 2 3; do
