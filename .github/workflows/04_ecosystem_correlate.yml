@@ -1,271 +1,197 @@
-name: 04_ecosystem_correlate (merge repo + server -> one report)
+name: 04_server_snapshot (read-only, WP-CLI JSON, strict SSH, validated)
 
 on:
   workflow_dispatch: {}
+  workflow_run:
+    workflows: ["01_deploy (single-run, password auth, strict host key, rsync, sanity)", "02_wpcli (install/update/activate from SSOT, secure SSH)"]
+    types: [completed]
 
 permissions:
   contents: write
 
 concurrency:
-  group: ecosystem-correlate
+  group: server-snapshot
   cancel-in-progress: true
 
 jobs:
-  correlate:
+  snapshot:
+    # odpalamy ręcznie lub po sukcesie 01/02
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
+
     env:
       RUN_ID: ${{ github.run_id }}
-      LATEST: .wtp/state/ro/public/latest
-      OUT: .wtp/state/ro/public/${{ github.run_id }}/ecosystem
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      WTP_CI: "1"
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - name: Ensure inputs exist (latest)
-        shell: bash
+      - name: Setup tools + strict known_hosts
         run: |
           set -euo pipefail
-          need() { [ -s "$1" ] || { echo "::error::missing $1"; exit 1; }; }
-          # repo audit (latest)
-          need "${LATEST}/repo/plugin_meta.json"
-          need "${LATEST}/repo/mu_meta.json"
-          need "${LATEST}/repo/hooks.json"
-          need "${LATEST}/repo/symbol_index.json"
-          need "${LATEST}/repo/includes_index.json"
-          # snapshot serwera: opcjonalny
-          if [ ! -s "${LATEST}/snapshot.json" ]; then
-            echo "::warning::latest/snapshot.json not found – server-side correlation will be partial"
+          for v in HOST PORT USER PASS TARGET; do
+            [ -n "${!v:-}" ] || { echo "::error::Missing secret $v"; exit 1; }
+          done
+          sudo apt-get update -y
+          sudo apt-get install -y sshpass curl
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+          echo "::add-mask::$HOST"
+          echo "::add-mask::$USER"
+
+      - name: Stage remote script (builds snapshot.json on server)
+        run: |
+          set -euo pipefail
+          cat > /tmp/_server_snapshot.sh <<'REMOTE'
+          set -euo pipefail
+
+          TARGET="${TARGET:?missing TARGET}"
+          export WP_ALLOW_ROOT=1
+          export WTP_CI=1
+
+          cd "$TARGET"
+
+          # --- sanity logs ---
+          mkdir -p .wtp/state/ci_logs/server
+          LOG=".wtp/state/ci_logs/server/snapshot_sanity.txt"
+          {
+            echo "date:    $(date -Is)"
+            echo "whoami:  $(whoami)"
+            echo "uname:   $(uname -a)"
+            echo "pwd:     $(pwd)"
+            command -v php >/dev/null 2>&1 && { echo "which php: $(command -v php)"; php -v | head -n 2; } || echo "php: NOT FOUND"
+            ls -la wp-config.php 2>/dev/null || true
+          } > "$LOG"
+
+          # --- WP-CLI ensure ---
+          if [ ! -x ./wp ]; then
+            curl -sS -L -o wp.phar https://github.com/wp-cli/wp-cli/releases/latest/download/wp-cli.phar
+            php wp.phar --info >/dev/null 2>&1
+            chmod +x wp.phar && mv wp.phar wp
           fi
-          mkdir -p "${OUT}" "${LATEST}/ecosystem"
 
-      - name: Build ecosystem correlation (JSON + MD)
-        shell: bash
+          # --- raw json dumps ---
+          php ./wp --path="$TARGET" core version --extra --format=json   > /tmp/wp_core.json
+          php ./wp --path="$TARGET" theme list --format=json             > /tmp/wp_themes.json
+          php ./wp --path="$TARGET" plugin list --format=json            > /tmp/wp_plugins.json
+
+          # --- assemble unified JSON via PHP ---
+          php -d detect_unicode=0 -r '
+            $core   = @json_decode(@file_get_contents("/tmp/wp_core.json"),   true); if(!is_array($core))   $core=[];
+            $themes = @json_decode(@file_get_contents("/tmp/wp_themes.json"), true); if(!is_array($themes)) $themes=[];
+            $plugins= @json_decode(@file_get_contents("/tmp/wp_plugins.json"),true); if(!is_array($plugins))$plugins=[];
+            $active_theme = null;
+            foreach($themes as $t){ if(isset($t["status"]) && $t["status"]==="active"){ $active_theme = $t["name"] ?? $t["theme"]; break; } }
+            $snapshot = [
+              "generated_at" => gmdate("c"),
+              "php" => [
+                "version" => PHP_VERSION,
+                "sapi"    => PHP_SAPI,
+              ],
+              "wp" => [
+                "core"   => $core,
+                "themes" => $themes,
+                "plugins"=> $plugins,
+                "active_theme" => $active_theme
+              ],
+              "env" => [
+                "cwd" => getcwd(),
+              ],
+            ];
+            @mkdir(".wtp/state/ci_logs/server", 0777, true);
+            file_put_contents(".wtp/state/ci_logs/server/snapshot.json", json_encode($snapshot, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
+          '
+
+          echo "Server snapshot built at .wtp/state/ci_logs/server/snapshot.json"
+          REMOTE
+
+      - name: Execute remote script
         run: |
           set -euo pipefail
-          python - << 'PY'
-          import os, json, re
-          from pathlib import Path
+          # upload
+          sshpass -p "$PASS" scp -P "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            /tmp/_server_snapshot.sh "$USER@$HOST:$TARGET/_server_snapshot.sh"
+          # run
+          sshpass -p "$PASS" ssh -p "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "$USER@$HOST" "cd '$TARGET' && TARGET='$TARGET' bash _server_snapshot.sh && rm -f _server_snapshot.sh"
 
-          RUN_ID = os.environ["RUN_ID"]
-          LATEST = Path(os.environ["LATEST"])
-          OUT    = Path(os.environ["OUT"])
-          OUT.mkdir(parents=True, exist_ok=True)
-
-          def load_json(p: Path, default=None):
-              try:
-                  txt = p.read_text(encoding="utf-8")
-                  return json.loads(txt)
-              except Exception:
-                  return default
-
-          def ensure_list(x):
-              return x if isinstance(x, list) else []
-
-          def ensure_dict(x):
-              return x if isinstance(x, dict) else {}
-
-          # --- Inputs from repo audit (latest) ---
-          plugin_meta   = ensure_list(load_json(LATEST / "repo" / "plugin_meta.json", []))
-          mu_meta       = ensure_list(load_json(LATEST / "repo" / "mu_meta.json", []))
-          hooks         = ensure_list(load_json(LATEST / "repo" / "hooks.json", []))
-          symbols_raw   = load_json(LATEST / "repo" / "symbol_index.json", {"functions":[], "classes":[]})
-          symbols       = ensure_dict(symbols_raw)
-          symbols.setdefault("functions", [])
-          symbols.setdefault("classes", [])
-          includes_idx  = ensure_list(load_json(LATEST / "repo" / "includes_index.json", []))
-
-          # --- Optional server snapshot (latest) ---
-          snapshot_raw  = load_json(LATEST / "snapshot.json", None)
-          snapshot      = snapshot_raw if isinstance(snapshot_raw, dict) else None
-
-          # Helpers
-          def slug_from_path(path: str):
-              m = re.search(r"wp-content/plugins/([^/]+)/", path)
-              if m: 
-                  return m.group(1)
-              m = re.search(r"wp-content/plugins/([^/]+)\.php$", path)
-              if m:
-                  return m.group(1)
-              return None
-
-          def mu_key_from_path(path: str):
-              m = re.search(r"wp-content/mu-plugins/(.+)$", path)
-              return m.group(1) if m else path
-
-          # Repo sets
-          repo_plugin_slugs = set()
-          for rec in plugin_meta:
-              p = (rec or {}).get("path") or ""
-              s = slug_from_path(p)
-              if s: repo_plugin_slugs.add(s)
-
-          repo_mu_keys = set()
-          for rec in mu_meta:
-              p = (rec or {}).get("path") or ""
-              repo_mu_keys.add(mu_key_from_path(p))
-
-          # Hooks histogram
-          hook_hist = {}
-          for h in hooks:
-              if not isinstance(h, dict): 
-                  continue
-              key = h.get("hook")
-              if not key: 
-                  continue
-              hook_hist[key] = hook_hist.get(key, 0) + 1
-          hook_conflicts = [{"hook":k,"count":c} for k,c in sorted(hook_hist.items(), key=lambda kv: kv[1], reverse=True) if c>=3]
-
-          # Includes (top)
-          includes_map = {}
-          for inc in includes_idx:
-              if not isinstance(inc, dict):
-                  continue
-              tgt = inc.get("target")
-              if not tgt:
-                  continue
-              includes_map[tgt] = includes_map.get(tgt, 0) + 1
-          includes_top = [{"target":k,"count":v} for k,v in sorted(includes_map.items(), key=lambda kv: kv[1], reverse=True)[:50]]
-
-          # Symbols
-          fn_count = len(symbols.get("functions", []))
-          cls_count = len(symbols.get("classes", []))
-
-          # Server view
-          server_plugins = []
-          server_active  = set()
-          active_missing_code = []
-          server_theme = None
-
-          if snapshot:
-              for pl in ensure_list(snapshot.get("plugins")):
-                  if not isinstance(pl, dict):
-                      continue
-                  slug = pl.get("name") or pl.get("slug") or ""
-                  status = pl.get("status")
-                  server_plugins.append({"slug": slug, "status": status, "version": pl.get("version")})
-                  if status == "active" and slug:
-                      server_active.add(slug)
-              active = ensure_dict(snapshot.get("active_theme"))
-              server_theme = active.get("active")
-
-          # Cross repo vs server
-          server_plugin_slugs = set(p["slug"] for p in server_plugins if p.get("slug"))
-
-          plugins_repo_only   = sorted(repo_plugin_slugs - server_plugin_slugs)
-          plugins_server_only = sorted(server_plugin_slugs - repo_plugin_slugs)
-          plugins_both        = sorted(repo_plugin_slugs & server_plugin_slugs)
-
-          for s in sorted(server_active):
-              if s not in repo_plugin_slugs:
-                  active_missing_code.append(s)
-
-          # Aggregate
-          aggregate = {
-              "run_id": RUN_ID,
-              "repo": {
-                  "plugins_count": len(repo_plugin_slugs),
-                  "mu_count": len(repo_mu_keys),
-                  "functions": fn_count,
-                  "classes": cls_count
-              },
-              "server": {
-                  "has_snapshot": snapshot is not None,
-                  "plugins_count": len(server_plugin_slugs),
-                  "active_count": len(server_active),
-                  "active_theme": server_theme
-              },
-              "diff": {
-                  "plugins_repo_only": plugins_repo_only,
-                  "plugins_server_only": plugins_server_only,
-                  "plugins_both": plugins_both,
-                  "active_missing_code": active_missing_code
-              },
-              "analysis": {
-                  "hook_conflicts_top": hook_conflicts,
-                  "includes_top": includes_top
-              }
-          }
-
-          # Save JSON
-          (OUT/"ecosystem-audit.json").write_text(json.dumps(aggregate, ensure_ascii=False, indent=2), encoding="utf-8")
-
-          # Build MD
-          md = []
-          md.append("# ECOSYSTEM AUDIT (repo ⟷ server)")
-          md.append(f"- Run ID: `{RUN_ID}`")
-          md.append("")
-          md.append("## Totals")
-          md.append(f"- Repo plugins: **{aggregate['repo']['plugins_count']}**")
-          md.append(f"- Repo MU plugins: **{aggregate['repo']['mu_count']}**")
-          md.append(f"- Repo symbols: **{fn_count} functions**, **{cls_count} classes**")
-          if snapshot:
-              md.append(f"- Server plugins: **{aggregate['server']['plugins_count']}** (active: **{aggregate['server']['active_count']}**)")
-              md.append(f"- Active theme: **{aggregate['server']['active_theme'] or '-'}**")
-          else:
-              md.append("- Server snapshot: **not available** (report is repo-only)")
-          md.append("")
-          md.append("## Diff (repo vs server)")
-          md.append(f"- Repo-only plugins ({len(plugins_repo_only)}): " + (", ".join(plugins_repo_only) if plugins_repo_only else "_none_"))
-          md.append(f"- Server-only plugins ({len(plugins_server_only)}): " + (", ".join(plugins_server_only) if plugins_server_only else "_none_"))
-          md.append(f"- Both ({len(plugins_both)}): " + (", ".join(plugins_both) if plugins_both else "_none_"))
-          if active_missing_code:
-              md.append(f"- **Active on server but missing in repo** ({len(active_missing_code)}): " + ", ".join(active_missing_code))
-          md.append("")
-          md.append("## Hook hotspots (count ≥ 3)")
-          if aggregate["analysis"]["hook_conflicts_top"]:
-              for h in aggregate["analysis"]["hook_conflicts_top"][:50]:
-                  md.append(f"- `{h['hook']}` × {h['count']}")
-          else:
-              md.append("_none_")
-          md.append("")
-          md.append("## Includes (top 50 by frequency)")
-          if aggregate["analysis"]["includes_top"]:
-              for inc in aggregate["analysis"]["includes_top"]:
-                  md.append(f"- `{inc['target']}` × {inc['count']}")
-          else:
-              md.append("_none_")
-          md.append("")
-          md.append("> Sources: latest/repo/{plugin_meta.json, mu_meta.json, hooks.json, symbol_index.json, includes_index.json} + latest/snapshot.json")
-          (OUT/"ECOSYSTEM_AUDIT.md").write_text("\n".join(md)+"\n", encoding="utf-8")
-
-          # Copy to latest/ecosystem for stable links
-          LEC = LATEST / "ecosystem"
-          LEC.mkdir(parents=True, exist_ok=True)
-          for name in ["ecosystem-audit.json", "ECOSYSTEM_AUDIT.md"]:
-              src = OUT / name
-              if src.exists():
-                  (LEC / name).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
-          PY
-
-      - name: Commit & push (rebase-safe)
-        shell: bash
+      - name: Pull snapshot + logs to runner
         run: |
           set -euo pipefail
+          mkdir -p "_ci_logs/${RUN_ID}/server"
+          sshpass -p "$PASS" scp -P "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/server/snapshot.json" "_ci_logs/${RUN_ID}/server/snapshot.json"
+          sshpass -p "$PASS" scp -P "$PORT" \
+            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
+            "${USER}@${HOST}:${TARGET}/.wtp/state/ci_logs/server/snapshot_sanity.txt" "_ci_logs/${RUN_ID}/server/snapshot_sanity.txt"
+          jq --version >/dev/null 2>&1 || sudo apt-get install -y jq
+
+      - name: Validate snapshot.json (plugins not empty & active_theme present)
+        run: |
+          set -euo pipefail
+          SNAP="_ci_logs/${RUN_ID}/server/snapshot.json"
+          test -s "$SNAP" || { echo "::error::snapshot.json missing"; exit 1; }
+          PLUGS=$(jq '.wp.plugins | length' "$SNAP" || echo 0)
+          THEME=$(jq -r '.wp.active_theme // ""' "$SNAP" || echo "")
+          echo "plugins count: $PLUGS"
+          echo "active_theme:  $THEME"
+          if [ "${PLUGS:-0}" -le 0 ]; then
+            echo "::error::Empty plugins list in snapshot.json"
+            exit 1
+          fi
+          if [ -z "$THEME" ] || [ "$THEME" = "null" ]; then
+            echo "::error::No active_theme in snapshot.json"
+            exit 1
+          fi
+
+      - name: Publish snapshot into repo (RUN + latest)
+        run: |
+          set -euo pipefail
+          RUN_DIR=".wtp/state/ro/public/${RUN_ID}/server"
+          LATEST=".wtp/state/ro/public/latest/server"
+          mkdir -p "$RUN_DIR" "$LATEST"
+          cp -f "_ci_logs/${RUN_ID}/server/snapshot.json" "$RUN_DIR/snapshot.json"
+          cp -f "_ci_logs/${RUN_ID}/server/snapshot.json" "$LATEST/snapshot.json"
+          # krótkie MD z nagłówkiem (ułatwia szybki podgląd)
+          {
+            echo "# SERVER_SNAPSHOT"
+            echo "- Run ID: ${RUN_ID}"
+            echo "- Generated: $(date -Is --utc) (UTC)"
+          } > ".wtp/state/ro/public/${RUN_ID}/server/SERVER_SNAPSHOT.md"
+
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if git diff --staged --quiet; then
             echo "::notice::Nothing to commit."
-            exit 0
+          else
+            git commit -m "server snapshot ${RUN_ID}"
+            BRANCH="${GITHUB_REF_NAME:-main}"
+            git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
+            for i in 1 2 3; do
+              git fetch origin "$BRANCH"
+              git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+              if git push origin "HEAD:$BRANCH"; then
+                echo "::notice::Pushed (attempt $i)"
+                break
+              fi
+              sleep 2
+            done
           fi
-          git commit -m "ecosystem correlate ${RUN_ID}"
-          BRANCH="${GITHUB_REF_NAME:-main}"
-          git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
-          for i in 1 2 3; do
-            git fetch origin "$BRANCH"
-            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
-            if git push origin "HEAD:$BRANCH"; then
-              echo "::notice::Pushed (attempt $i)"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "::error::Push failed after 3 attempts"
-          exit 1
+
+      - name: Upload artifact (server snapshot logs)
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-snapshot-${{ github.run_id }}
+          path: _ci_logs/${{ github.run_id }}/server/**
+          retention-days: 14
