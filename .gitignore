@@ -3,3 +3,11 @@
 .wtp/snapshots/*.tar.gz
 .wtp/state/ro/public/*/repo-full.tar.gz
 plugins-bundle.json
+
+# Nigdy nie commitujemy surowych logów/packów
+_ci_logs/
+**/debug_pack_*/
+**/wp-config.php
+**/wp-config.php.head.txt
+**/wp-config.php.tail.txt
+**/*.env
