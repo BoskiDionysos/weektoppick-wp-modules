@@ -1,4 +1,4 @@
-name: 04_server_snapshot (read-only, strict JSON, validated)
+name: 04_server_snapshot (read-only, strict JSON, validated, wp-options)
 
 on:
   workflow_dispatch: {}
@@ -25,6 +25,7 @@ jobs:
       PASS:   ${{ secrets.DEPLOY_PASS }}
       TARGET: ${{ secrets.DEPLOY_TARGET }}
       WTP_CI: "1"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -53,7 +54,7 @@ jobs:
           export WP_ALLOW_ROOT=1
           export WTP_CI=1
 
-          # WP-CLI (local copy)
+          # WP-CLI
           if [ ! -x ./wp ]; then
             curl -sS -L -o wp.phar https://github.com/wp-cli/wp-cli/releases/latest/download/wp-cli.phar
             php wp.phar --info >/dev/null 2>&1
@@ -70,18 +71,21 @@ jobs:
           (uname -a  || true)            >  /tmp/uname.txt || true
           (pwd       || true)            >  /tmp/pwd.txt || true
 
-          # WP core/version – UWAGA: bez --format=json
+          # WP core/version – bez --format=json (WP-CLI core version nie zwraca JSON)
           php ./wp --path="$TARGET" core version --extra > /tmp/wp_core.txt
 
-          # Site/Home
+          # Site/Home + kluczowe opcje (JSON)
           php ./wp --path="$TARGET" option get siteurl > /tmp/siteurl.txt || true
           php ./wp --path="$TARGET" option get home    > /tmp/home.txt || true
+          php ./wp --path="$TARGET" option list --format=json \
+            --search='blogname|blogdescription|timezone_string|WPLANG|permalink_structure|users_can_register|default_role' \
+            > /tmp/wp_options.json || echo "[]" > /tmp/wp_options.json
 
           # Themes / Plugins – JSON
           php ./wp --path="$TARGET" theme  list   --format=json > /tmp/themes.json
           php ./wp --path="$TARGET" plugin list   --format=json > /tmp/plugins.json
 
-          # Build snapshot.json via PHP (parsing core text)
+          # Build snapshot.json (PHP łączy wszystko)
           php -d detect_unicode=0 -r '
             function txt($p){return @is_file($p)?trim(@file_get_contents($p)):"";}
             function parse_pairs($txt){
@@ -96,19 +100,23 @@ jobs:
               return $out;
             }
             $core=parse_pairs(txt("/tmp/wp_core.txt"));
-            $themes=json_decode(@file_get_contents("/tmp/themes.json"),true); if(!$themes){$themes=[];}
-            $plugins=json_decode(@file_get_contents("/tmp/plugins.json"),true); if(!$plugins){$plugins=[];}
-
-            // detect active theme
+            $themes=json_decode(@file_get_contents("/tmp/themes.json"),true) ?: [];
+            $plugins=json_decode(@file_get_contents("/tmp/plugins.json"),true) ?: [];
+            $opts=json_decode(@file_get_contents("/tmp/wp_options.json"),true) ?: [];
+            // zamień listę opcji (tablicę rekordów) na słownik option_name=>option_value
+            $opts_map=[];
+            foreach($opts as $row){
+              if(isset($row["option_name"])){
+                $opts_map[$row["option_name"]] = $row["option_value"] ?? null;
+              }
+            }
             $active_theme="";
             foreach($themes as $t){
-              // WP-CLI returns keys: name, status, update, version (status: active/inactive)
               if(isset($t["status"]) && strtolower($t["status"])==="active"){
-                $active_theme=isset($t["name"])?$t["name"]:"";
+                $active_theme=$t["name"] ?? "";
                 break;
               }
             }
-
             $snap=[
               "ts_utc" => gmdate("c"),
               "paths"  => ["target"=>getenv("TARGET")?:null],
@@ -123,21 +131,19 @@ jobs:
                 "core" => $core,
                 "siteurl" => txt("/tmp/siteurl.txt"),
                 "home"    => txt("/tmp/home.txt"),
+                "options" => $opts_map,
                 "active_theme" => $active_theme,
                 "themes"  => $themes,
                 "plugins" => $plugins
               ],
             ];
-            $json=json_encode($snap, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
             if(!is_dir("/tmp/wtp_ss")){mkdir("/tmp/wtp_ss",0777,true);}
-            file_put_contents("/tmp/wtp_ss/snapshot.json",$json);
+            file_put_contents("/tmp/wtp_ss/snapshot.json", json_encode($snap, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE));
           '
 
-          # Basic validation (fail fast)
+          # Walidacja
           SNAP="/tmp/wtp_ss/snapshot.json"
           test -s "$SNAP" || { echo "::error::snapshot.json not created"; exit 2; }
-
-          # Ensure we have active theme & some plugins (allow >=0 but warn if 0)
           ACTIVE=$(php -r '$j=json_decode(file_get_contents("/tmp/wtp_ss/snapshot.json"),true); echo $j["wordpress"]["active_theme"]??"";')
           PLUGS=$(php -r '$j=json_decode(file_get_contents("/tmp/wtp_ss/snapshot.json"),true); echo is_array($j["wordpress"]["plugins"])?count($j["wordpress"]["plugins"]):0;')
           if [ -z "$ACTIVE" ]; then
@@ -149,15 +155,16 @@ jobs:
             exit 4
           fi
 
-          # Save raw probes too (for debugging)
+          # Zapis surowych wyników + snapshot
           mkdir -p "$OUTDIR/$RUN_ID"
-          cp -f /tmp/php_which.txt    "$OUTDIR/$RUN_ID/php_which.txt"    || true
-          cp -f /tmp/php_version.txt  "$OUTDIR/$RUN_ID/php_version.txt"  || true
-          cp -f /tmp/uname.txt        "$OUTDIR/$RUN_ID/uname.txt"        || true
-          cp -f /tmp/pwd.txt          "$OUTDIR/$RUN_ID/pwd.txt"          || true
-          cp -f /tmp/wp_core.txt      "$OUTDIR/$RUN_ID/wp_core.txt"      || true
-          cp -f /tmp/themes.json      "$OUTDIR/$RUN_ID/themes.json"      || true
-          cp -f /tmp/plugins.json     "$OUTDIR/$RUN_ID/plugins.json"     || true
+          cp -f /tmp/php_which.txt       "$OUTDIR/$RUN_ID/php_which.txt"     || true
+          cp -f /tmp/php_version.txt     "$OUTDIR/$RUN_ID/php_version.txt"   || true
+          cp -f /tmp/uname.txt           "$OUTDIR/$RUN_ID/uname.txt"         || true
+          cp -f /tmp/pwd.txt             "$OUTDIR/$RUN_ID/pwd.txt"           || true
+          cp -f /tmp/wp_core.txt         "$OUTDIR/$RUN_ID/wp_core.txt"       || true
+          cp -f /tmp/themes.json         "$OUTDIR/$RUN_ID/themes.json"       || true
+          cp -f /tmp/plugins.json        "$OUTDIR/$RUN_ID/plugins.json"      || true
+          cp -f /tmp/wp_options.json     "$OUTDIR/$RUN_ID/wp_options.json"   || true
           cp -f /tmp/wtp_ss/snapshot.json "$OUTDIR/$RUN_ID/snapshot.json"
           RS
           chmod +x /tmp/wtp_server_snapshot.sh
@@ -167,7 +174,6 @@ jobs:
           set -euo pipefail
           sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             /tmp/wtp_server_snapshot.sh "$USER@$HOST:$TARGET/.wtp_ss.sh"
-          # RUN_ID propagujemy do środowiska zdalnego
           sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
             "$USER@$HOST" "export RUN_ID='${RUN_ID}' TARGET='${TARGET}' WTP_CI=1; bash '$TARGET/.wtp_ss.sh'"; rc=$?
           if [ "$rc" -ne 0 ]; then
@@ -193,7 +199,7 @@ jobs:
           cp -f "$SRC" "${RO_RUN}/snapshot.json"
           cp -f "$SRC" "${RO_LATEST}/snapshot.json"
 
-          # krótkie README/MD
+          # krótkie podsumowanie MD
           python - << 'PY'
           import json, os, pathlib
           rid=os.environ["RUN_ID"]
@@ -203,6 +209,7 @@ jobs:
           core=wp.get("core",{})
           active=wp.get("active_theme","")
           plugs=wp.get("plugins",[])
+          opts =wp.get("options",{})
           md=[]
           md.append("# SERVER_SNAPSHOT")
           md.append(f"- Run ID: {rid}")
@@ -210,6 +217,12 @@ jobs:
           md.append(f"- Active theme: {active or '?'}")
           md.append(f"- Plugins (total): {len(plugs)}")
           md.append("")
+          if opts:
+            md.append("## Options (key ones)")
+            for k in ["blogname","blogdescription","timezone_string","WPLANG","permalink_structure","users_can_register","default_role"]:
+              if k in opts:
+                md.append(f"- {k}: `{opts[k]}`")
+            md.append("")
           md.append("## Sample plugins (first 20)")
           for x in plugs[:20]:
             name=x.get("name") or x.get("plugin")
@@ -251,5 +264,5 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::snapshot.json (head)"
-          head -n 60 "_ci_logs/${RUN_ID}/server/snapshot.json" || true
+          head -n 80 "_ci_logs/${RUN_ID}/server/snapshot.json" || true
           echo "::endgroup::"
