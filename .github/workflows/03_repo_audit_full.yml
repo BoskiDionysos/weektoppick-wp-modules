@@ -13,17 +13,15 @@ concurrency:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       RUN_ID: ${{ github.run_id }}
       OUT: .wtp/state/ro/public/${{ github.run_id }}/repo
       LATEST: .wtp/state/ro/public/latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
@@ -47,12 +45,10 @@ jobs:
           import os, glob, json, yaml, pathlib
           rid = os.environ["RUN_ID"]
           out = pathlib.Path(f"_out/repo_audit/{rid}")
-          out.mkdir(parents=True, exist_ok=True)
           items=[]
           for p in sorted(glob.glob(".github/workflows/*.yml")):
               try:
-                  with open(p, "r", encoding="utf-8") as f:
-                      y = yaml.safe_load(f) or {}
+                  y = yaml.safe_load(open(p,encoding="utf-8")) or {}
               except Exception as e:
                   y = {"_parse_error": str(e)}
               items.append({
@@ -65,12 +61,10 @@ jobs:
           with open(out/"workflows.md","w",encoding="utf-8") as f:
               f.write("# Workflows index\n\n")
               for w in items:
-                  f.write(f"## {w['name']} ({w['file']})\n")
-                  f.write(f"- Triggers: `{w['on']}`\n")
-                  f.write(f"- Jobs: {', '.join(w['jobs']) if w['jobs'] else '-'}\n\n")
+                  f.write(f"## {w['name']} ({w['file']})\n- Triggers: `{w['on']}`\n- Jobs: {', '.join(w['jobs']) if w['jobs'] else '-'}\n\n")
           PY
 
-      - name: Scan repo -> plugin/mu meta + hooks/symbols/includes
+      - name: Scan repo -> plugin/mu meta + hooks/symbols/includes + deps
         run: |
           set -euo pipefail
           python - << 'PY'
@@ -79,196 +73,153 @@ jobs:
 
           RUN_ID = os.environ["RUN_ID"]
           OUT = Path(os.environ["OUT"])
+          LATEST = Path(os.environ["LATEST"])
           AUX = Path(f"_out/repo_audit/{RUN_ID}")
           OUT.mkdir(parents=True, exist_ok=True)
 
-          # ---------- helpers ----------
-          def read_head_lines(p, n=40):
-            try:
-              with open(p, "r", encoding="utf-8", errors="ignore") as f:
-                return [next(f) for _ in range(n)]
-            except Exception:
-              return []
+          def walk_php(paths):
+              for base in paths:
+                  p = Path(base)
+                  if not p.exists(): continue
+                  for f in p.rglob("*.php"):
+                      s = str(f)
+                      if "/vendor/" in s or "/node_modules/" in s: continue
+                      yield f
 
-          header_line = re.compile(r"^\s*(?P<key>[A-Za-z][A-Za-z \-]+):\s*(?P<val>.+?)\s*$")
+          hdr = re.compile(r"^\s*(?P<key>[A-Za-z][A-Za-z \-]+):\s*(?P<val>.+?)\s*$")
+          def parse_headers(fp):
+              h={}
+              try:
+                  with open(fp,"r",encoding="utf-8",errors="ignore") as f:
+                      for i,ln in enumerate(f):
+                          if i>60: break
+                          m=hdr.match(ln)
+                          if m: h[m.group("key").strip()] = m.group("val").strip()
+              except Exception: pass
+              return h
 
-          def parse_headers(p):
-            headers = {}
-            for ln in read_head_lines(p, 60):
-              m = header_line.match(ln)
-              if m:
-                headers[m.group("key").strip()] = m.group("val").strip()
-            return headers
+          def rec(path,headers,kind):
+              return {
+                "kind": kind, "path": str(path),
+                "name": headers.get("Plugin Name"),
+                "plugin_uri": headers.get("Plugin URI"),
+                "description": headers.get("Description"),
+                "version": headers.get("Version"),
+                "author": headers.get("Author"),
+                "author_uri": headers.get("Author URI"),
+                "text_domain": headers.get("Text Domain"),
+                "requires_wp": headers.get("Requires at least"),
+                "requires_php": headers.get("Requires PHP"),
+              }
 
-          def plugin_record(path, headers, kind, where, active):
-            return {
-              "kind": kind,                       # plugin | mu
-              "path": str(path),
-              "where": where,                     # folder bazowy
-              "active": bool(active),
-              "status": "on" if active else "off",
-              "name": headers.get("Plugin Name"),
-              "plugin_uri": headers.get("Plugin URI"),
-              "description": headers.get("Description"),
-              "version": headers.get("Version"),
-              "author": headers.get("Author"),
-              "author_uri": headers.get("Author URI"),
-              "text_domain": headers.get("Text Domain"),
-              "domain_path": headers.get("Domain Path"),
-              "requires_wp": headers.get("Requires at least"),
-              "tested_wp": headers.get("Tested up to"),
-              "requires_php": headers.get("Requires PHP"),
-              "network": headers.get("Network"),
-            }
+          # plugins in BOTH layouts: plugins/ and wp-content/plugins/
+          plugin_meta=[]
+          for base in ["plugins","wp-content/plugins"]:
+              bp=Path(base)
+              if not bp.exists(): continue
+              for entry in sorted(bp.iterdir()):
+                  if entry.is_dir():
+                      # guess main file
+                      main=None
+                      for cand in list(entry.glob("*.php")) + list(entry.rglob("*.php")):
+                          h=parse_headers(cand)
+                          if "Plugin Name" in h:
+                              main=cand; plugin_meta.append(rec(main,h,"plugin")); break
+                  elif entry.suffix==".php":
+                      h=parse_headers(entry)
+                      if "Plugin Name" in h: plugin_meta.append(rec(entry,h,"plugin"))
 
-          # ---------- regular plugins (repo/plugins/ – u Ciebie pusto, ale zostawiamy) ----------
-          plugin_meta = []
-          plugins_dir = Path("plugins")
-          if plugins_dir.exists():
-            for entry in sorted(plugins_dir.iterdir()):
-              if entry.is_dir():
-                main = None
-                for p in entry.glob("*.php"):
-                  h = parse_headers(p)
-                  if "Plugin Name" in h:
-                    main = p; break
-                if not main:
-                  for p in entry.rglob("*.php"):
-                    h = parse_headers(p)
-                    if "Plugin Name" in h:
-                      main = p; break
-                if main:
-                  plugin_meta.append(plugin_record(main, parse_headers(main), "plugin", "plugins", True))
-              elif entry.is_file() and entry.suffix == ".php":
-                h = parse_headers(entry)
-                if "Plugin Name" in h:
-                  plugin_meta.append(plugin_record(entry, h, "plugin", "plugins", True))
+          # mu-plugins in BOTH layouts: mu-plugins/ and wp-content/mu-plugins/
+          mu_meta=[]
+          for base in ["mu-plugins","wp-content/mu-plugins"]:
+              bp=Path(base)
+              if not bp.exists(): continue
+              for f in bp.rglob("*.php"):
+                  mu_meta.append(rec(f, parse_headers(f), "mu"))
 
-          # ---------- MU plugins (zarówno wp-content/mu-plugins jak i mu-plugins w korzeniu) ----------
-          mu_meta = []
-          mu_roots = [("wp-content/mu-plugins", "wp-content/mu-plugins"), ("mu-plugins", "mu-plugins")]
-          for mu_root, where in mu_roots:
-            d = Path(mu_root)
-            if not d.exists():
-              continue
-            # bierzemy .php i .php.off
-            for p in sorted(list(d.rglob("*.php")) + list(d.rglob("*.php.off"))):
-              # ignoruj vendor/node_modules
-              sp = str(p)
-              if "/vendor/" in sp or "/node_modules/" in sp:
-                continue
-              active = not sp.endswith(".off")
-              h = parse_headers(p)
-              # w MU nagłówki bywają ubogie – i tak zbieramy rekord
-              mu_meta.append(plugin_record(p, h, "mu", where, active))
-
-          # ---------- grep: hooki, funkcje, klasy, includes ----------
-          hook_calls = []
-          sym_index = {"functions": [], "classes": []}
-          includes = []
+          # hooks / symbols / includes
+          hook_calls=[]
+          sym={"functions":[], "classes":[]}
+          includes=[]
 
           re_add_action  = re.compile(r"\badd_action\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
           re_add_filter  = re.compile(r"\badd_filter\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
           re_do_action   = re.compile(r"\bdo_action\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
           re_apply_filt  = re.compile(r"\bapply_filters\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
-          re_func = re.compile(r"\bfunction\s+([a-zA-Z0-9_]+)\s*\(", re.I)
-          re_class = re.compile(r"\bclass\s+([a-zA-Z0-9_]+)\b", re.I)
+          re_func = re.compile(r"\bfunction\s+([A-Za-z0-9_]+)\s*\(", re.I)
+          re_class = re.compile(r"\bclass\s+([A-Za-z0-9_]+)\b", re.I)
           re_inc = re.compile(r"\b(require|require_once|include|include_once)\s*\(\s*['\"]([^'\"]+)['\"]\s*\)", re.I)
 
-          scan_roots = [
-            "plugins",
-            "wp-content/mu-plugins",
-            "mu-plugins",
-            "wp-content/themes",
-            ".wtp", "inc", "includes",
-          ]
+          scan_roots=["plugins","wp-content/plugins","mu-plugins","wp-content/mu-plugins","wp-content/themes",".wtp","inc","includes"]
+          for php in walk_php(scan_roots):
+              try: src=php.read_text(encoding="utf-8",errors="ignore")
+              except Exception: continue
+              for m in re_add_action.finditer(src):  hook_calls.append({"type":"add_action","hook":m.group(1),"file":str(php)})
+              for m in re_add_filter.finditer(src):  hook_calls.append({"type":"add_filter","hook":m.group(1),"file":str(php)})
+              for m in re_do_action.finditer(src):   hook_calls.append({"type":"do_action","hook":m.group(1),"file":str(php)})
+              for m in re_apply_filt.finditer(src):  hook_calls.append({"type":"apply_filters","hook":m.group(1),"file":str(php)})
+              for m in re_func.finditer(src):        sym["functions"].append({"name":m.group(1),"file":str(php)})
+              for m in re_class.finditer(src):       sym["classes"].append({"name":m.group(1),"file":str(php)})
+              for m in re_inc.finditer(src):         includes.append({"type":m.group(1),"target":m.group(2),"file":str(php)})
 
-          def candidate_files(root):
-            r = Path(root)
-            if not r.exists(): return []
-            files = list(r.rglob("*.php")) + list(r.rglob("*.php.off"))
-            return [f for f in files if "/vendor/" not in str(f) and "/node_modules/" not in str(f)]
+          # simple dependency map (per file -> included targets)
+          deps={}
+          for inc in includes:
+              deps.setdefault(inc["file"], []).append(inc["target"])
 
-          for base in scan_roots:
-            for php in candidate_files(base):
-              try:
-                src = php.read_text(encoding="utf-8", errors="ignore")
-              except Exception:
-                continue
+          # write
+          (OUT/"plugin_meta.json").write_text(json.dumps(plugin_meta,ensure_ascii=False,indent=2),encoding="utf-8")
+          (OUT/"mu_meta.json").write_text(json.dumps(mu_meta,ensure_ascii=False,indent=2),encoding="utf-8")
+          (OUT/"hooks.json").write_text(json.dumps(hook_calls,ensure_ascii=False,indent=2),encoding="utf-8")
+          (OUT/"symbol_index.json").write_text(json.dumps(sym,ensure_ascii=False,indent=2),encoding="utf-8")
+          (OUT/"includes_index.json").write_text(json.dumps(includes,ensure_ascii=False,indent=2),encoding="utf-8")
+          (OUT/"dependencies.json").write_text(json.dumps(deps,ensure_ascii=False,indent=2),encoding="utf-8")
 
-              for m in re_add_action.finditer(src):
-                hook_calls.append({"type":"add_action","hook":m.group(1),"file":str(php)})
-              for m in re_add_filter.finditer(src):
-                hook_calls.append({"type":"add_filter","hook":m.group(1),"file":str(php)})
-              for m in re_do_action.finditer(src):
-                hook_calls.append({"type":"do_action","hook":m.group(1),"file":str(php)})
-              for m in re_apply_filt.finditer(src):
-                hook_calls.append({"type":"apply_filters","hook":m.group(1),"file":str(php)})
-
-              for m in re_func.finditer(src):
-                sym_index["functions"].append({"name":m.group(1),"file":str(php)})
-              for m in re_class.finditer(src):
-                sym_index["classes"].append({"name":m.group(1),"file":str(php)})
-
-              for m in re_inc.finditer(src):
-                includes.append({"type":m.group(1),"target":m.group(2),"file":str(php)})
-
-          # ---------- write outputs ----------
-          OUT.joinpath("plugin_meta.json").write_text(json.dumps(plugin_meta, ensure_ascii=False, indent=2), encoding="utf-8")
-          OUT.joinpath("mu_meta.json").write_text(json.dumps(mu_meta, ensure_ascii=False, indent=2), encoding="utf-8")
-          OUT.joinpath("hooks.json").write_text(json.dumps(hook_calls, ensure_ascii=False, indent=2), encoding="utf-8")
-          OUT.joinpath("symbol_index.json").write_text(json.dumps(sym_index, ensure_ascii=False, indent=2), encoding="utf-8")
-          OUT.joinpath("includes_index.json").write_text(json.dumps(includes, ensure_ascii=False, indent=2), encoding="utf-8")
-
-          repo_audit = {
+          agg={
             "run_id": RUN_ID,
-            "counts": {
-              "plugins": len(plugin_meta),
-              "mu_plugins_total": len(mu_meta),
-              "mu_plugins_active": sum(1 for x in mu_meta if x.get("active")),
-              "hooks": len(hook_calls),
-              "functions": len(sym_index["functions"]),
-              "classes": len(sym_index["classes"]),
-              "includes": len(includes),
+            "counts":{
+              "plugins":len(plugin_meta),"mu_plugins":len(mu_meta),
+              "hooks":len(hook_calls),"functions":len(sym["functions"]),
+              "classes":len(sym["classes"]),"includes":len(includes)
             }
           }
-          OUT.joinpath("repo-audit.json").write_text(json.dumps(repo_audit, ensure_ascii=False, indent=2), encoding="utf-8")
+          (OUT/"repo-audit.json").write_text(json.dumps(agg,ensure_ascii=False,indent=2),encoding="utf-8")
 
-          md = []
-          md.append("# REPO AUDIT (full)")
-          md.append(f"- Run ID: {RUN_ID}")
-          md.append("")
-          md.append("## Totals")
-          for k,v in repo_audit["counts"].items():
-            md.append(f"- {k}: **{v}**")
-          md.append("")
-          md.append("## Notes")
-          md.append("- MU: liczymy też *.php.off (status=off) oraz oba katalogi: wp-content/mu-plugins i mu-plugins/.")
-          md.append("- Zwykłe wtyczki: repo/plugins (u Ciebie pusto – to OK).")
-          OUT.joinpath("REPO_AUDIT.md").write_text("\n".join(md)+"\n", encoding="utf-8")
+          md=["# REPO AUDIT (full)", f"- Run ID: {RUN_ID}", "", "## Totals"]
+          for k,v in agg["counts"].items(): md.append(f"- {k}: **{v}**")
+          (OUT/"REPO_AUDIT.md").write_text("\n".join(md)+"\n",encoding="utf-8")
+
+          # sanity (fail if clearly empty)
+          if agg["counts"]["mu_plugins"]==0 and agg["counts"]["plugins"]==0:
+              raise SystemExit("::error::No plugins or MU-plugins detected in repo layout (plugins/, mu-plugins/).")
+
+          # copy stable indexes to latest
+          LATEST.mkdir(parents=True, exist_ok=True); (LATEST/"repo").mkdir(parents=True,exist_ok=True)
+          for src,dst in [
+            (Path(f"_out/repo_audit/{RUN_ID}/filelist.txt"), LATEST/"filelist.txt"),
+            (Path(f"_out/repo_audit/{RUN_ID}/tree.txt"),     LATEST/"tree.txt"),
+            (Path(f"_out/repo_audit/{RUN_ID}/workflows.json"), LATEST/"workflows.json"),
+            (Path(f"_out/repo_audit/{RUN_ID}/workflows.md"),   LATEST/"workflows.md"),
+          ]:
+              if src.exists(): dst.write_text(src.read_text(encoding="utf-8"),encoding="utf-8")
+          for name in ["REPO_AUDIT.md","repo-audit.json","plugin_meta.json","mu_meta.json","hooks.json","symbol_index.json","includes_index.json","dependencies.json"]:
+              p=OUT/name
+              (LATEST/"repo"/name).write_text(p.read_text(encoding="utf-8"),encoding="utf-8")
           PY
-          
+
       - name: Commit & push (rebase-safe)
         run: |
           set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          if git diff --staged --quiet; then
-            echo "::notice::Nothing to commit."
-            exit 0
-          fi
-          git commit -m "repo audit (full) ${RUN_ID}"
+          git diff --staged --quiet || git commit -m "repo audit (full) ${RUN_ID}"
           BRANCH="${GITHUB_REF_NAME:-main}"
           git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
           for i in 1 2 3; do
             git fetch origin "$BRANCH"
             git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
-            if git push origin "HEAD:$BRANCH"; then
-              echo "::notice::Pushed (attempt $i)"
-              exit 0
-            fi
+            git push origin "HEAD:$BRANCH" && exit 0
             sleep 2
           done
-          echo "::error::Push failed after 3 attempts"
-          exit 1
+          echo "::error::Push failed after 3 attempts"; exit 1
