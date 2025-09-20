@@ -1,8 +1,12 @@
 name: 00_workflow_lint
 
 on:
-  pull_request:
   workflow_dispatch: {}
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - "**/*.yml"
+      - "**/*.yaml"
 
 permissions:
   contents: read
@@ -15,18 +19,19 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (full)
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # ACTIONLINT (pin do działającego wrappera)
-      - name: Actionlint
+      # ACTIONLINT (stabilny wrapper)
+      - name: Actionlint via reviewdog
         uses: reviewdog/action-actionlint@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          reporter: github-check   # działa także dla workflow_dispatch
           level: error
-          reporter: github-pr-check
+          fail_on_error: true
 
-      # YAMLLINT (podstawowa walidacja składni YAML)
+      # YAMLLINT (składnia YAML)
       - name: Yamllint
         uses: ibiqlik/action-yamllint@v3
         with:
