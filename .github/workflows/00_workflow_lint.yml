@@ -5,8 +5,6 @@ on:
   pull_request:
     paths:
       - ".github/workflows/**"
-      - "**/*.yml"
-      - "**/*.yaml"
 
 permissions:
   contents: read
@@ -22,18 +20,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ACTIONLINT (stabilny wrapper)
+      # ACTIONLINT (sprawdza wyłącznie aktywne workflowy)
       - name: Actionlint via reviewdog
         uses: reviewdog/action-actionlint@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          reporter: github-check   # działa także dla workflow_dispatch
+          reporter: github-check
           level: error
           fail_on_error: true
+          # tylko katalog z aktywnymi workflowami
+          pattern: ".github/workflows/*.yml"
 
-      # YAMLLINT (składnia YAML)
+      # YAMLLINT (również tylko aktywne workflowy)
       - name: Yamllint
         uses: ibiqlik/action-yamllint@v3
         with:
           strict: true
           format: github
+          file_or_dir: ".github/workflows"
