@@ -1,0 +1,270 @@
+{
+  "functions": [
+    {
+      "name": "boot",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "register_routes",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "auth_secret_path",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "collect_theme",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "collect_plugins_full",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "collect_from_base",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "chunk_map",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "push_to_github",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "push_chunks_and_index",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "gh_put_file",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "http",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "err",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "answer",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "res_map",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "wtp_ro_public_base_abs",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "wtp_ro_allowed_filenames",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "wtp_ro_list_public_files",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "wtp_ro_open_ls",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "wtp_ro_open_get",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "wtp_ro_open_emit_logs",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "wtp_ro_first_existing_file",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "str_ends_with",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "wtp_patch_mu_log_probe",
+      "file": "mu-plugins/wtp-patch-safe-loader-log.php"
+    },
+    {
+      "name": "wtp_patch_theme_run",
+      "file": "mu-plugins/wtp-patcher-theme.php.off"
+    },
+    {
+      "name": "wtp_seo_is_front",
+      "file": "mu-plugins/wtp-seo.php.off"
+    },
+    {
+      "name": "wtp_seo_lang_current",
+      "file": "mu-plugins/wtp-seo.php.off"
+    },
+    {
+      "name": "wtp_seo_h",
+      "file": "mu-plugins/wtp-seo.php.off"
+    },
+    {
+      "name": "wtp_seo_trim",
+      "file": "mu-plugins/wtp-seo.php.off"
+    },
+    {
+      "name": "wtp_seo_site_name",
+      "file": "mu-plugins/wtp-seo.php.off"
+    },
+    {
+      "name": "wtp_seo_clean_canonical",
+      "file": "mu-plugins/wtp-seo.php.off"
+    },
+    {
+      "name": "wtp_seo_current_canonical",
+      "file": "mu-plugins/wtp-seo.php.off"
+    },
+    {
+      "name": "wtp_seo_build_title",
+      "file": "mu-plugins/wtp-seo.php.off"
+    },
+    {
+      "name": "wtp_seo_build_desc",
+      "file": "mu-plugins/wtp-seo.php.off"
+    },
+    {
+      "name": "wtp_seo_hreflangs",
+      "file": "mu-plugins/wtp-seo.php.off"
+    },
+    {
+      "name": "wtp_tax_key_name",
+      "file": "mu-plugins/wtp-tax-i18n-seo.php.off"
+    },
+    {
+      "name": "wtp_tax_key_desc",
+      "file": "mu-plugins/wtp-tax-i18n-seo.php.off"
+    },
+    {
+      "name": "wtp_tax_key_seo_t",
+      "file": "mu-plugins/wtp-tax-i18n-seo.php.off"
+    },
+    {
+      "name": "wtp_tax_key_seo_d",
+      "file": "mu-plugins/wtp-tax-i18n-seo.php.off"
+    },
+    {
+      "name": "wtp_tax_langs",
+      "file": "mu-plugins/wtp-tax-i18n-seo.php.off"
+    },
+    {
+      "name": "wtp_tax_current_lang",
+      "file": "mu-plugins/wtp-tax-i18n-seo.php.off"
+    },
+    {
+      "name": "wtp_tax_get_tr_settings",
+      "file": "mu-plugins/wtp-tax-i18n-seo.php.off"
+    },
+    {
+      "name": "wtp_tax_enqueue",
+      "file": "mu-plugins/wtp-tax-i18n-seo.php.off"
+    },
+    {
+      "name": "wtp_tax_process_batch",
+      "file": "mu-plugins/wtp-tax-i18n-seo.php.off"
+    },
+    {
+      "name": "wtp_tax_process_term_all_langs",
+      "file": "mu-plugins/wtp-tax-i18n-seo.php.off"
+    },
+    {
+      "name": "wtp_tax_ai_translate",
+      "file": "mu-plugins/wtp-tax-i18n-seo.php.off"
+    },
+    {
+      "name": "wtp_tax_ai_make_seo",
+      "file": "mu-plugins/wtp-tax-i18n-seo.php.off"
+    },
+    {
+      "name": "wtp_tr_defaults",
+      "file": "mu-plugins/wtp-translate.php.off"
+    },
+    {
+      "name": "wtp_tr_getopt",
+      "file": "mu-plugins/wtp-translate.php.off"
+    },
+    {
+      "name": "wtp_tr_sanitize",
+      "file": "mu-plugins/wtp-translate.php.off"
+    },
+    {
+      "name": "wtp_tr_tools_page",
+      "file": "mu-plugins/wtp-translate.php.off"
+    },
+    {
+      "name": "wtp_tr_run_batch",
+      "file": "mu-plugins/wtp-translate.php.off"
+    },
+    {
+      "name": "wtp_pp_auth_ok",
+      "file": "mu-plugins/wtp-patcher-plugins.php.off"
+    },
+    {
+      "name": "wtp_pp_apply_from_index",
+      "file": "mu-plugins/wtp-patcher-plugins.php.off"
+    },
+    {
+      "name": "wtp_pp_http_get_json",
+      "file": "mu-plugins/wtp-patcher-plugins.php.off"
+    },
+    {
+      "name": "wtp_collect_plugins_fs_map",
+      "file": "mu-plugins/wtp-exporter-chunked.php.off"
+    },
+    {
+      "name": "wtp_collect_from_base",
+      "file": "mu-plugins/wtp-exporter-chunked.php.off"
+    },
+    {
+      "name": "wtp_chunk_map",
+      "file": "mu-plugins/wtp-exporter-chunked.php.off"
+    },
+    {
+      "name": "wtp_push_chunks_and_index_to_github",
+      "file": "mu-plugins/wtp-exporter-chunked.php.off"
+    },
+    {
+      "name": "wtp_gh_put_file",
+      "file": "mu-plugins/wtp-exporter-chunked.php.off"
+    },
+    {
+      "name": "wtp_http",
+      "file": "mu-plugins/wtp-exporter-chunked.php.off"
+    },
+    {
+      "name": "wtp_runner_check_and_dispatch",
+      "file": "mu-plugins/wtp-push-runner-cron.php.off"
+    },
+    {
+      "name": "wtp_runner_dispatch_workflow",
+      "file": "mu-plugins/wtp-push-runner-cron.php.off"
+    },
+    {
+      "name": "wtpseo_bridge_detect_lang",
+      "file": "mu-plugins/wtp-theme-seo-bridge.php.off"
+    },
+    {
+      "name": "wtp_render_top3_shortcode",
+      "file": "wp-content/themes/wtp-core-theme/functions.php"
+    }
+  ],
+  "classes": [
+    {
+      "name": "WTP_Dev_Bridge",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "exists",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    }
+  ]
+}

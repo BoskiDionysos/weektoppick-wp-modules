@@ -1,0 +1,12 @@
+{
+  "run_id": "17881205907",
+  "counts": {
+    "plugins": 0,
+    "mu_plugins_total": 21,
+    "mu_plugins_active": 10,
+    "hooks": 57,
+    "functions": 64,
+    "classes": 2,
+    "includes": 0
+  }
+}
