@@ -1,0 +1,120 @@
+name: 04_server_snapshot (wp core/themes/plugins → snapshot.json, safe, validated)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: server-snapshot
+  cancel-in-progress: true
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      HOST:   ${{ secrets.DEPLOY_HOST }}
+      PORT:   ${{ secrets.DEPLOY_PORT }}
+      USER:   ${{ secrets.DEPLOY_USER }}
+      PASS:   ${{ secrets.DEPLOY_PASS }}
+      TARGET: ${{ secrets.DEPLOY_TARGET }}
+      WTP_CI: "1"
+      RUN_ID: ${{ github.run_id }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup tools
+        run: |
+          set -euo pipefail
+          for v in HOST PORT USER PASS TARGET; do
+            [ -n "${!v:-}" ] || { echo "::error::Missing $v"; exit 1; }
+          done
+          sudo apt-get update -y
+          sudo apt-get install -y sshpass jq curl
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Remote gather (wp core/themes/plugins + sanity)
+        run: |
+          set -euo pipefail
+          cat > /tmp/snap.sh <<'SCRIPT'
+          set -euo pipefail
+          cd "$TARGET"
+          if [ ! -x ./wp ]; then
+            curl -sS -L -o wp.phar https://github.com/wp-cli/wp-cli/releases/latest/download/wp-cli.phar
+            php wp.phar --info >/dev/null 2>&1
+            chmod +x wp.phar && mv wp.phar wp
+          fi
+          mkdir -p .wtp/state/ci_logs/server
+
+          # raw facts
+          echo "$(which php)" > .wtp/state/ci_logs/server/php_which.txt || true
+          php -v > .wtp/state/ci_logs/server/php_version.txt || true
+          uname -a > .wtp/state/ci_logs/server/uname.txt || true
+          pwd > .wtp/state/ci_logs/server/pwd.txt || true
+
+          # wp-cli dumps (NOTE: core version has no --format)
+          php ./wp core version > .wtp/state/ci_logs/server/wp_core.txt
+          php ./wp theme list --format=json > .wtp/state/ci_logs/server/themes.json
+          php ./wp plugin list --format=json > .wtp/state/ci_logs/server/plugins.json
+          php ./wp option get blogname --format=json > .wtp/state/ci_logs/server/wp_options.json || true
+
+          # build snapshot.json
+          php -r '
+          $snap = [
+            "ts"=>gmdate("c"),
+            "pwd"=>getcwd(),
+            "php_which"=>@file_get_contents(".wtp/state/ci_logs/server/php_which.txt"),
+            "php_version"=>@file_get_contents(".wtp/state/ci_logs/server/php_version.txt"),
+            "uname"=>@file_get_contents(".wtp/state/ci_logs/server/uname.txt"),
+            "core_version"=>trim(@file_get_contents(".wtp/state/ci_logs/server/wp_core.txt")),
+            "themes"=>json_decode(@file_get_contents(".wtp/state/ci_logs/server/themes.json"), true),
+            "plugins"=>json_decode(@file_get_contents(".wtp/state/ci_logs/server/plugins.json"), true),
+            "blogname"=>json_decode(@file_get_contents(".wtp/state/ci_logs/server/wp_options.json"), true)
+          ];
+          file_put_contents(".wtp/state/ci_logs/server/snapshot.json", json_encode($snap, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES));
+          ' || exit 1
+          SCRIPT
+          sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=yes /tmp/snap.sh "$USER@$HOST:$TARGET/.wtp_snap.sh"
+          sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=yes "$USER@$HOST" "TARGET='$TARGET' bash '$TARGET/.wtp_snap.sh' && rm -f '$TARGET/.wtp_snap.sh'"
+
+      - name: Pull SAFE results
+        run: |
+          set -euo pipefail
+          mkdir -p "_ci_logs/${RUN_ID}/server"
+          for f in php_which.txt php_version.txt uname.txt pwd.txt wp_core.txt themes.json plugins.json wp_options.json snapshot.json; do
+            sshpass -p "$PASS" scp -P "$PORT" -o StrictHostKeyChecking=yes "$USER@$HOST:$TARGET/.wtp/state/ci_logs/server/$f" "_ci_logs/${RUN_ID}/server/$f" || true
+          done
+
+      - name: Validate snapshot
+        run: |
+          set -euo pipefail
+          test -s "_ci_logs/${RUN_ID}/server/snapshot.json" || { echo "::error::missing snapshot.json"; exit 1; }
+          jq -e '.plugins | length > 0' "_ci_logs/${RUN_ID}/server/snapshot.json" >/dev/null || { echo "::error::plugins list empty"; exit 1; }
+          jq -e '.themes | length >= 0' "_ci_logs/${RUN_ID}/server/snapshot.json" >/dev/null || { echo "::error::themes missing"; exit 1; }
+
+      - name: Publish (allowlist) to repo
+        run: |
+          set -euo pipefail
+          RUN=".wtp/state/ro/public/${RUN_ID}/server"
+          LATEST=".wtp/state/ro/public/latest/server"
+          mkdir -p "$RUN" "$LATEST"
+          cp -f "_ci_logs/${RUN_ID}/server/snapshot.json" "$RUN/snapshot.json"
+          cp -f "_ci_logs/${RUN_ID}/server/snapshot.json" "$LATEST/snapshot.json"
+          # (opcjonalnie) krótkie MD
+          {
+            echo "# SERVER SNAPSHOT"
+            echo "- Run ID: ${RUN_ID}"
+            echo "- Core: $(cat _ci_logs/${RUN_ID}/server/wp_core.txt)"
+          } > "$RUN/SERVER_SNAPSHOT.md"
+          cp -f "$RUN/SERVER_SNAPSHOT.md" "$LATEST/SERVER_SNAPSHOT.md" || true
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$RUN" "$LATEST"
+          git diff --staged --quiet || git commit -m "server snapshot ${RUN_ID}"
+          git push || true
