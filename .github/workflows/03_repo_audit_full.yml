@@ -2,9 +2,6 @@ name: 03_repo_audit_full (read-only, complete)
 
 on:
   workflow_dispatch: {}
-  workflow_run:
-    workflows: ["03_repo_snapshot"]
-    types: [completed]
 
 permissions:
   contents: write
@@ -16,13 +13,13 @@ concurrency:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
+    timeout-minutes: 15
     env:
       RUN_ID: ${{ github.run_id }}
-
+      OUT: .wtp/state/ro/public/${{ github.run_id }}/repo
+      LATEST: .wtp/state/ro/public/latest
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -36,213 +33,267 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyyaml
 
-      - name: Build extended repo audit (indexes, hooks, symbols, metas)
+      - name: Ensure dirs
         run: |
           set -euo pipefail
-          OUT_DIR="_out/repo_audit/${RUN_ID}"
-          mkdir -p "$OUT_DIR"
+          mkdir -p "_out/repo_audit/${RUN_ID}" "${OUT}" "${LATEST}/repo"
 
-          # 1) Pełne listy plików
-          git ls-files -co --exclude-standard > "${OUT_DIR}/filelist.txt"
-          ls -laR > "${OUT_DIR}/tree.txt"
-
-          # 2) Indeks workflowów
+      - name: Build file/workflow indexes
+        run: |
+          set -euo pipefail
+          git ls-files -co --exclude-standard > "_out/repo_audit/${RUN_ID}/filelist.txt"
+          ls -laR > "_out/repo_audit/${RUN_ID}/tree.txt"
           python - << 'PY'
           import os, glob, json, yaml, pathlib
-          RUN_ID = os.environ["RUN_ID"]
-          OUT = pathlib.Path(f"_out/repo_audit/{RUN_ID}")
-          OUT.mkdir(parents=True, exist_ok=True)
+          rid = os.environ["RUN_ID"]
+          out = pathlib.Path(f"_out/repo_audit/{rid}")
+          out.mkdir(parents=True, exist_ok=True)
           items=[]
           for p in sorted(glob.glob(".github/workflows/*.yml")):
               try:
-                  with open(p,"r",encoding="utf-8") as f:
+                  with open(p, "r", encoding="utf-8") as f:
                       y = yaml.safe_load(f) or {}
               except Exception as e:
                   y = {"_parse_error": str(e)}
               items.append({
-                  "file": pathlib.Path(p).name,
-                  "name": y.get("name", pathlib.Path(p).name),
+                  "file": os.path.basename(p),
+                  "name": y.get("name", os.path.basename(p)),
                   "on": y.get("on"),
                   "jobs": list((y.get("jobs") or {}).keys())
               })
-          (OUT/"workflows.json").write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
-          md = ["# Workflows index","","(auto)"]
-          for w in items:
-              md.append(f"## {w['name']} ({w['file']})")
-              md.append(f"- Triggers: `{w['on']}`")
-              md.append(f"- Jobs: {', '.join(w['jobs']) if w['jobs'] else '-'}")
-              md.append("")
-          (OUT/"workflows.md").write_text("\n".join(md)+"\n", encoding="utf-8")
+          (out/"workflows.json").write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+          with open(out/"workflows.md","w",encoding="utf-8") as f:
+              f.write("# Workflows index\n\n")
+              for w in items:
+                  f.write(f"## {w['name']} ({w['file']})\n")
+                  f.write(f"- Triggers: `{w['on']}`\n")
+                  f.write(f"- Jobs: {', '.join(w['jobs']) if w['jobs'] else '-'}\n\n")
           PY
 
-          # 3) Hooks / symbols / includes
-          python - << 'PY'
-          import os, re, json, pathlib
-          RUN_ID = os.environ["RUN_ID"]
-          OUT = pathlib.Path(f"_out/repo_audit/{RUN_ID}")
-          OUT.mkdir(parents=True, exist_ok=True)
-
-          hooks = []
-          symbols = {"functions":[], "classes":[]}
-          includes = []
-
-          php_like = re.compile(r'.*\.(php|inc)$', re.I)
-          re_add_action = re.compile(r'add_action\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*([^\)]+)\)', re.I)
-          re_add_filter = re.compile(r'add_filter\s*\(\s*[\'"]([^\'"]+)[\'"]\s*,\s*([^\)]+)\)', re.I)
-          re_fn = re.compile(r'function\s+([a-zA-Z0-9_]+)\s*\(', re.I)
-          re_class = re.compile(r'class\s+([a-zA-Z0-9_]+)\s', re.I)
-          re_inc = re.compile(r'^\s*(require|require_once|include|include_once)\s*\(?\s*[\'"]([^\'"]+)[\'"]', re.I)
-
-          for root,dirs,files in os.walk("."):
-              for fn in files:
-                  p = os.path.join(root,fn)
-                  if not php_like.match(p):
-                      continue
-                  try:
-                      txt = open(p, "r", encoding="utf-8", errors="ignore").read()
-                  except:
-                      continue
-                  for m in re_add_action.finditer(txt):
-                      hooks.append({"type":"action","hook":m.group(1),"cb":m.group(2).strip(),"file":p})
-                  for m in re_add_filter.finditer(txt):
-                      hooks.append({"type":"filter","hook":m.group(1),"cb":m.group(2).strip(),"file":p})
-                  for m in re_fn.finditer(txt):
-                      symbols["functions"].append({"name":m.group(1),"file":p})
-                  for m in re_class.finditer(txt):
-                      symbols["classes"].append({"name":m.group(1),"file":p})
-                  for line in txt.splitlines():
-                      mi = re_inc.search(line)
-                      if mi:
-                          includes.append({"file":p,"stmt":mi.group(1),"target":mi.group(2)})
-
-          (OUT/"hooks.json").write_text(json.dumps(hooks, ensure_ascii=False, indent=2), encoding="utf-8")
-          (OUT/"symbol_index.json").write_text(json.dumps(symbols, ensure_ascii=False, indent=2), encoding="utf-8")
-          (OUT/"includes_index.json").write_text(json.dumps(includes, ensure_ascii=False, indent=2), encoding="utf-8")
-          PY
-
-          # 4) Metadane pluginów + MU
-          python - << 'PY'
-          import os, json, pathlib, re
-          RUN_ID = os.environ["RUN_ID"]
-          OUT = pathlib.Path(f"_out/repo_audit/{RUN_ID}")
-          OUT.mkdir(parents=True, exist_ok=True)
-
-          def scan_plugins(root):
-              rootp = pathlib.Path(root)
-              out=[]
-              if not rootp.exists(): return out
-              for p in sorted(rootp.glob("*")):
-                  if p.is_dir():
-                      slug=p.name
-                      headers={}
-                      for mf in list(p.glob("*.php"))[:10]:
-                          try:
-                              txt=mf.read_text(encoding="utf-8", errors="ignore")
-                              m=re.search(r"Plugin\s*Name\s*:\s*(.+)", txt)
-                              if m: headers["PluginName"]=m.group(1).strip()
-                              m=re.search(r"Version\s*:\s*([0-9A-Za-z\.\-\_]+)", txt)
-                              if m: headers["Version"]=m.group(1).strip()
-                              m=re.search(r"Description\s*:\s*(.+)", txt)
-                              if m: headers["Description"]=m.group(1).strip()
-                          except: pass
-                      out.append({"slug":slug,"headers":headers})
-              return out
-
-          mu = scan_plugins("wp-content/mu-plugins")
-          norm = scan_plugins("wp-content/plugins")
-
-          (OUT/"mu_meta.json").write_text(json.dumps(mu, ensure_ascii=False, indent=2), encoding="utf-8")
-          (OUT/"plugin_meta.json").write_text(json.dumps(norm, ensure_ascii=False, indent=2), encoding="utf-8")
-          PY
-
-          # 5) REPO_AUDIT.md + agregat
-          python - << 'PY'
-          import os, json, pathlib
-          RUN_ID = os.environ["RUN_ID"]
-          OUT = pathlib.Path(f"_out/repo_audit/{RUN_ID}")
-          OUT.mkdir(parents=True, exist_ok=True)
-
-          L=[]
-          L.append("# REPO AUDIT (extended)")
-          L.append("")
-          L.append("- generated: `filelist.txt`, `tree.txt`, `workflows.*`, `hooks.json`, `symbol_index.json`, `includes_index.json`, `plugin_meta.json`, `mu_meta.json`")
-          (OUT/"REPO_AUDIT.md").write_text("\n".join(L)+"\n", encoding="utf-8")
-
-          agg = {
-            "run_id": RUN_ID,
-            "files_index": "filelist.txt",
-            "tree": "tree.txt",
-            "workflows": "workflows.json",
-            "hooks": "hooks.json",
-            "symbols": "symbol_index.json",
-            "includes": "includes_index.json",
-            "mu_meta": "mu_meta.json",
-            "plugin_meta": "plugin_meta.json"
-          }
-          (OUT/"repo-audit.json").write_text(json.dumps(agg, ensure_ascii=False, indent=2), encoding="utf-8")
-          PY
-
-      - name: Publish to .wtp/state (RUN-ID and latest)
+      - name: Scan repo -> plugin/mu meta + hooks/symbols/includes
         run: |
           set -euo pipefail
-          RUN_DIR=".wtp/state/ro/public/${RUN_ID}"
-          LATEST=".wtp/state/ro/public/latest"
-          SRC="_out/repo_audit/${RUN_ID}"
+          python - << 'PY'
+          import os, re, json
+          from pathlib import Path
 
-          mkdir -p "${RUN_DIR}/repo" "${LATEST}/repo"
+          RUN_ID = os.environ["RUN_ID"]
+          OUT = Path(os.environ["OUT"])
+          AUX = Path(f"_out/repo_audit/{RUN_ID}")
+          OUT.mkdir(parents=True, exist_ok=True)
 
-          # RUN-ID
-          cp -f "${SRC}/filelist.txt"            "${RUN_DIR}/filelist.txt"
-          cp -f "${SRC}/tree.txt"                "${RUN_DIR}/tree.txt"
-          cp -f "${SRC}/workflows.json"          "${RUN_DIR}/workflows.json"
-          cp -f "${SRC}/workflows.md"            "${RUN_DIR}/workflows.md"
-          cp -f "${SRC}/hooks.json"              "${RUN_DIR}/repo/hooks.json"
-          cp -f "${SRC}/symbol_index.json"       "${RUN_DIR}/repo/symbol_index.json"
-          cp -f "${SRC}/includes_index.json"     "${RUN_DIR}/repo/includes_index.json"
-          cp -f "${SRC}/plugin_meta.json"        "${RUN_DIR}/repo/plugin_meta.json"
-          cp -f "${SRC}/mu_meta.json"            "${RUN_DIR}/repo/mu_meta.json"
-          cp -f "${SRC}/repo-audit.json"         "${RUN_DIR}/repo/repo-audit.json"
-          cp -f "${SRC}/REPO_AUDIT.md"           "${RUN_DIR}/repo/REPO_AUDIT.md"
+          root = Path(".")
 
-          # LATEST
-          cp -f "${RUN_DIR}/filelist.txt"        "${LATEST}/filelist.txt"
-          cp -f "${RUN_DIR}/tree.txt"            "${LATEST}/tree.txt"
-          cp -f "${RUN_DIR}/workflows.json"      "${LATEST}/workflows.json"
-          cp -f "${RUN_DIR}/workflows.md"        "${LATEST}/workflows.md"
-          cp -f "${RUN_DIR}/repo/hooks.json"     "${LATEST}/repo/hooks.json"
-          cp -f "${RUN_DIR}/repo/symbol_index.json"  "${LATEST}/repo/symbol_index.json"
-          cp -f "${RUN_DIR}/repo/includes_index.json" "${LATEST}/repo/includes_index.json"
-          cp -f "${RUN_DIR}/repo/plugin_meta.json"    "${LATEST}/repo/plugin_meta.json"
-          cp -f "${RUN_DIR}/repo/mu_meta.json"        "${LATEST}/repo/mu_meta.json"
-          cp -f "${RUN_DIR}/repo/repo-audit.json"     "${LATEST}/repo/repo-audit.json"
-          cp -f "${RUN_DIR}/repo/REPO_AUDIT.md"       "${LATEST}/repo/REPO_AUDIT.md"
+          # ---------- helpers ----------
+          def walk_php(paths):
+              for base in paths:
+                  base_p = Path(base)
+                  if not base_p.exists(): 
+                      continue
+                  for p in base_p.rglob("*.php"):
+                      # pomijamy vendor/ i node_modules
+                      if "/vendor/" in str(p) or "/node_modules/" in str(p):
+                          continue
+                      yield p
 
-          # Jeśli snapshot/architektura brakują w latest — spróbuj dociągnąć z najnowszego RUN-u snapshotu
-          for f in REPO_ARCHITECTURE.md repo-snapshot.json; do
-            if [ ! -f "${LATEST}/repo/${f}" ]; then
-              CAND=$(ls -1dt .wtp/state/ro/public/*/repo 2>/dev/null | head -n1 || true)
-              if [ -n "${CAND:-}" ] && [ -f "${CAND}/${f}" ]; then
-                cp -f "${CAND}/${f}" "${LATEST}/repo/${f}" || true
-              fi
-            fi
-          done
+          header_re = re.compile(r"^\s*/*\s*\*\s*|\s*")  # nieistotne; tylko by nie mylić
+          # WP style header lines key: value
+          header_line = re.compile(r"^\s*(?P<key>[A-Za-z][A-Za-z \-]+):\s*(?P<val>.+)\s*$")
+          # parse first ~40 lines for headers
+          def parse_headers(php_file):
+              headers = {}
+              try:
+                  with open(php_file, "r", encoding="utf-8", errors="ignore") as f:
+                      lines = [next(f) for _ in range(40)]
+              except StopIteration:
+                  pass
+              except Exception:
+                  return headers
+              else:
+                  for ln in lines:
+                      m = header_line.match(ln)
+                      if m:
+                          k = m.group("key").strip()
+                          v = m.group("val").strip()
+                          headers[k] = v
+              return headers
 
+          def plugin_record(path, headers, kind):
+              # kind: plugin/mu
+              return {
+                  "kind": kind,
+                  "path": str(path),
+                  "name": headers.get("Plugin Name"),
+                  "plugin_uri": headers.get("Plugin URI"),
+                  "description": headers.get("Description"),
+                  "version": headers.get("Version"),
+                  "author": headers.get("Author"),
+                  "author_uri": headers.get("Author URI"),
+                  "text_domain": headers.get("Text Domain"),
+                  "domain_path": headers.get("Domain Path"),
+                  "requires_wp": headers.get("Requires at least"),
+                  "tested_wp": headers.get("Tested up to"),
+                  "requires_php": headers.get("Requires PHP"),
+                  "network": headers.get("Network"),
+              }
+
+          # ---------- collect plugin_meta (regular plugins) ----------
+          plugin_meta = []
+          # heurystyka: wtyczka = katalog w wp-content/plugins/*, szukamy pliku głównego = taki z nagłówkiem
+          plugins_dir = Path("wp-content/plugins")
+          if plugins_dir.exists():
+              for entry in sorted(plugins_dir.iterdir()):
+                  if entry.is_dir():
+                      # szukamy pierwszego php z "Plugin Name:"
+                      found = None
+                      for p in entry.glob("*.php"):
+                          h = parse_headers(p)
+                          if "Plugin Name" in h:
+                              plugin_meta.append(plugin_record(p, h, "plugin"))
+                              found = True
+                              break
+                      if not found:
+                          # czasem plik główny jest w subdirze
+                          for p in entry.rglob("*.php"):
+                              h = parse_headers(p)
+                              if "Plugin Name" in h:
+                                  plugin_meta.append(plugin_record(p, h, "plugin"))
+                                  break
+                  elif entry.is_file() and entry.suffix==".php":
+                      # plugin w pojedynczym pliku w katalogu plugins
+                      h = parse_headers(entry)
+                      if "Plugin Name" in h:
+                          plugin_meta.append(plugin_record(entry, h, "plugin"))
+
+          # ---------- collect mu_meta ----------
+          mu_meta = []
+          mu_dir = Path("wp-content/mu-plugins")
+          if mu_dir.exists():
+              # MU mogą być pojedynczymi plikami lub folderami
+              for p in sorted(mu_dir.rglob("*.php")):
+                  h = parse_headers(p)
+                  # w MU-pluginach nagłówek bywa różny/ubogi, ale i tak zbieramy
+                  rec = plugin_record(p, h, "mu")
+                  if rec.get("name") or True:  # nawet gdy brak nagłówka, przyda się ścieżka
+                      mu_meta.append(rec)
+
+          # ---------- hooks / symbols / includes ----------
+          hook_calls = []
+          sym_index = {"functions": [], "classes": []}
+          includes = []
+
+          re_add_action  = re.compile(r"\badd_action\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
+          re_add_filter  = re.compile(r"\badd_filter\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
+          re_do_action   = re.compile(r"\bdo_action\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
+          re_apply_filt  = re.compile(r"\bapply_filters\s*\(\s*['\"]([^'\"]+)['\"]", re.I)
+
+          re_func = re.compile(r"\bfunction\s+([a-zA-Z0-9_]+)\s*\(", re.I)
+          re_class = re.compile(r"\bclass\s+([a-zA-Z0-9_]+)\b", re.I)
+
+          re_inc = re.compile(r"\b(require|require_once|include|include_once)\s*\(\s*['\"]([^'\"]+)['\"]\s*\)", re.I)
+
+          for php in walk_php(["wp-content/plugins", "wp-content/mu-plugins", "wp-content/themes", ".wtp", "inc", "includes"]):
+              try:
+                  src = php.read_text(encoding="utf-8", errors="ignore")
+              except Exception:
+                  continue
+
+              for m in re_add_action.finditer(src):
+                  hook_calls.append({"type":"add_action","hook":m.group(1),"file":str(php)})
+              for m in re_add_filter.finditer(src):
+                  hook_calls.append({"type":"add_filter","hook":m.group(1),"file":str(php)})
+              for m in re_do_action.finditer(src):
+                  hook_calls.append({"type":"do_action","hook":m.group(1),"file":str(php)})
+              for m in re_apply_filt.finditer(src):
+                  hook_calls.append({"type":"apply_filters","hook":m.group(1),"file":str(php)})
+
+              for m in re_func.finditer(src):
+                  sym_index["functions"].append({"name":m.group(1),"file":str(php)})
+              for m in re_class.finditer(src):
+                  sym_index["classes"].append({"name":m.group(1),"file":str(php)})
+
+              for m in re_inc.finditer(src):
+                  includes.append({"type":m.group(1),"target":m.group(2),"file":str(php)})
+
+          # ---------- write outputs ----------
+          (OUT/"plugin_meta.json").write_text(json.dumps(plugin_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+          (OUT/"mu_meta.json").write_text(json.dumps(mu_meta, ensure_ascii=False, indent=2), encoding="utf-8")
+          (OUT/"hooks.json").write_text(json.dumps(hook_calls, ensure_ascii=False, indent=2), encoding="utf-8")
+          (OUT/"symbol_index.json").write_text(json.dumps(sym_index, ensure_ascii=False, indent=2), encoding="utf-8")
+          (OUT/"includes_index.json").write_text(json.dumps(includes, ensure_ascii=False, indent=2), encoding="utf-8")
+
+          # agregat
+          repo_audit = {
+              "run_id": RUN_ID,
+              "counts": {
+                  "plugins": len(plugin_meta),
+                  "mu_plugins": len(mu_meta),
+                  "hooks": len(hook_calls),
+                  "functions": len(sym_index["functions"]),
+                  "classes": len(sym_index["classes"]),
+                  "includes": len(includes)
+              }
+          }
+          (OUT/"repo-audit.json").write_text(json.dumps(repo_audit, ensure_ascii=False, indent=2), encoding="utf-8")
+
+          # REPO_AUDIT.md
+          md = []
+          md.append("# REPO AUDIT (full)")
+          md.append(f"- Run ID: {RUN_ID}")
+          md.append("")
+          md.append("## Totals")
+          for k,v in repo_audit["counts"].items():
+              md.append(f"- {k}: **{v}**")
+          md.append("")
+          md.append("## Notes")
+          md.append("- MU-plugins and regular plugins parsed from headers; hooks/symbols/includes are grep-based.")
+          md.append("- Use these JSONs to decide activation order & conflicts.")
+          (OUT/"REPO_AUDIT.md").write_text("\n".join(md)+"\n", encoding="utf-8")
+
+          # skopiuj też lekkie indeksy do latest (żeby były stałe linki)
+          latest = Path(os.environ["LATEST"])
+          latest.mkdir(parents=True, exist_ok=True)
+          (latest/"repo").mkdir(parents=True, exist_ok=True)
+
+          # filelist/tree/workflows do latest (z AUX)
+          for src, dst in [
+              (Path(f"_out/repo_audit/{RUN_ID}/filelist.txt"), latest/"filelist.txt"),
+              (Path(f"_out/repo_audit/{RUN_ID}/tree.txt"), latest/"tree.txt"),
+              (Path(f"_out/repo_audit/{RUN_ID}/workflows.json"), latest/"workflows.json"),
+              (Path(f"_out/repo_audit/{RUN_ID}/workflows.md"), latest/"workflows.md"),
+          ]:
+              if src.exists():
+                  dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+
+          # do latest/repo
+          for name in ["REPO_AUDIT.md","repo-audit.json","plugin_meta.json","mu_meta.json","hooks.json","symbol_index.json","includes_index.json"]:
+              src = OUT/name
+              dst = latest/"repo"/name
+              if src.exists():
+                  dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+          PY
+
+      - name: Commit & push (rebase-safe)
+        run: |
+          set -euo pipefail
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if git diff --staged --quiet; then
             echo "::notice::Nothing to commit."
-          else
-            git commit -m "repo audit (extended) ${RUN_ID}"
-            BRANCH="${GITHUB_REF_NAME:-main}"
-            git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
-            for i in 1 2 3; do
-              git fetch origin "$BRANCH"
-              git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
-              if git push origin "HEAD:$BRANCH"; then
-                echo "Notice: Pushed (attempt $i)"; exit 0
-              fi
-              sleep 2
-            done
-            echo "::error::Push failed after 3 attempts"; exit 1
+            exit 0
           fi
+          git commit -m "repo audit (full) ${RUN_ID}"
+          BRANCH="${GITHUB_REF_NAME:-main}"
+          git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
+          for i in 1 2 3; do
+            git fetch origin "$BRANCH"
+            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
+            if git push origin "HEAD:$BRANCH"; then
+              echo "::notice::Pushed (attempt $i)"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Push failed after 3 attempts"
+          exit 1
