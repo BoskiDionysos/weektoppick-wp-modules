@@ -1,0 +1,383 @@
+{
+  "run_id": "17877829253",
+  "server": {
+    "run_id": 17755518414,
+    "timestamp": "2025-09-16T05:25:49+00:00",
+    "site": {
+      "url": "https://weektoppick.com",
+      "home": "https://weektoppick.com",
+      "wp_version": "6.8.2",
+      "table_prefix": "wp_",
+      "language": "",
+      "timezone": "1",
+      "php_version": "8.3.22"
+    },
+    "server": {
+      "user": "u493676300",
+      "uname": "Linux de-fra-web2061.main-hosting.eu 5.14.0-570.28.1.el9_6.x86_64 #1 SMP PREEMPT_DYNAMIC Tue Jul 22 07:56:01 EDT 2025 x86_64 x86_64 x86_64 GNU/Linux",
+      "datetime": "2025-09-16T05:25:48+00:00",
+      "cwd": "/home/u493676300/domains/weektoppick.com/public_html"
+    },
+    "theme": {
+      "active": [
+        {
+          "name": "twentytwentyfive",
+          "status": "active",
+          "update": "none",
+          "version": "1.3",
+          "update_version": "",
+          "auto_update": "off"
+        }
+      ],
+      "all": [
+        {
+          "name": "twentytwentyfive",
+          "status": "active",
+          "update": "none",
+          "version": "1.3",
+          "update_version": "",
+          "auto_update": "off"
+        }
+      ],
+      "tree": {
+        "files": 0,
+        "sha1": ""
+      }
+    },
+    "plugins": {
+      "standard": [
+        {
+          "name": "classic-editor",
+          "status": "active",
+          "update": "none",
+          "version": "1.6.7",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "cookie-law-info",
+          "status": "active",
+          "update": "none",
+          "version": "3.3.5",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "litespeed-cache",
+          "status": "active",
+          "update": "none",
+          "version": "7.5.0.1",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "pretty-link",
+          "status": "active",
+          "update": "none",
+          "version": "3.6.17",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "seo-by-rank-math",
+          "status": "active",
+          "update": "none",
+          "version": "1.0.253",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "wordfence",
+          "status": "active",
+          "update": "none",
+          "version": "8.1.0",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "00-mu-safe-loader",
+          "status": "must-use",
+          "update": false,
+          "version": "",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "wtp-canonical",
+          "status": "must-use",
+          "update": false,
+          "version": "",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "wtp-canonical-redirects",
+          "status": "must-use",
+          "update": false,
+          "version": "",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "wtp-deploy-guard",
+          "status": "must-use",
+          "update": false,
+          "version": "1.0.0",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "wtp-dev-bridge",
+          "status": "must-use",
+          "update": false,
+          "version": "4.0.0",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "wtp-patch-safe-loader-log",
+          "status": "must-use",
+          "update": false,
+          "version": "0.1.0",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "wtp-ro-exporter",
+          "status": "must-use",
+          "update": false,
+          "version": "1.2.0",
+          "update_version": "",
+          "auto_update": "off"
+        }
+      ],
+      "must_use": [
+        {
+          "name": "00-mu-safe-loader",
+          "status": "must-use",
+          "update": false,
+          "version": "",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "wtp-canonical",
+          "status": "must-use",
+          "update": false,
+          "version": "",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "wtp-canonical-redirects",
+          "status": "must-use",
+          "update": false,
+          "version": "",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "wtp-deploy-guard",
+          "status": "must-use",
+          "update": false,
+          "version": "1.0.0",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "wtp-dev-bridge",
+          "status": "must-use",
+          "update": false,
+          "version": "4.0.0",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "wtp-patch-safe-loader-log",
+          "status": "must-use",
+          "update": false,
+          "version": "0.1.0",
+          "update_version": "",
+          "auto_update": "off"
+        },
+        {
+          "name": "wtp-ro-exporter",
+          "status": "must-use",
+          "update": false,
+          "version": "1.2.0",
+          "update_version": "",
+          "auto_update": "off"
+        }
+      ],
+      "trees": [],
+      "mu_trees": {
+        "00-mu-safe-loader": {
+          "files": 1,
+          "sha1": "227f803186ba0d8f623bcf9830f6db69d86dc370"
+        },
+        "wtp-canonical": {
+          "files": 1,
+          "sha1": "68eac9e921073d8fe6890d92b30bb4e93700088f"
+        },
+        "wtp-canonical-redirects": {
+          "files": 1,
+          "sha1": "1d66e6e60bc47cb5baf3ddb92f2cc498283b121f"
+        },
+        "wtp-deploy-guard": {
+          "files": 1,
+          "sha1": "9fd2172fd6e7d66dcf3574a0467eb732732f7fc9"
+        },
+        "wtp-dev-bridge": {
+          "files": 1,
+          "sha1": "bada40f541af19d090d572b223554c3bb33f8acb"
+        },
+        "wtp-patch-safe-loader-log": {
+          "files": 1,
+          "sha1": "7b97240d81e98a2a6759ee20d3e5d115789c836e"
+        },
+        "wtp-ro-exporter": {
+          "files": 1,
+          "sha1": "0cfb9013306ecc461cc578eebd957fa275361df1"
+        }
+      },
+      "mu_off": [
+        "wtp-exporter-chunked.php.off",
+        "wtp-log-mirror.php.off",
+        "wtp-logs-export.php.off",
+        "wtp-patcher-plugins.php.off",
+        "wtp-patcher-theme.php.off",
+        "wtp-plugins-manifest.php.off",
+        "wtp-push-runner-cron.php.off",
+        "wtp-seo.php.off",
+        "wtp-tax-i18n-seo.php.off",
+        "wtp-theme-seo-bridge.php.off",
+        "wtp-translate.php.off"
+      ]
+    },
+    "admins": [
+      "bmpanek@gmail.com"
+    ],
+    "summary": {
+      "plugins_active": [
+        "classic-editor",
+        "cookie-law-info",
+        "litespeed-cache",
+        "pretty-link",
+        "seo-by-rank-math",
+        "wordfence"
+      ],
+      "counts": {
+        "themes_total": 1,
+        "plugins_total": 13,
+        "plugins_active": 6,
+        "plugins_mu": 7,
+        "admins": 1
+      },
+      "errors": [
+        "active theme directory not found",
+        "wkhtmltoimage not found – screenshots PNG skipped (HTML saved)."
+      ]
+    },
+    "wtp": {
+      "ssot_path": ".wtp/ssot.yml",
+      "ssot_sha1": "ee6f4152c78b717a7afcabdd474717d9fe17f457",
+      "ssot_b64": "ZGVwbG95OgogIGhvc3Rfc2VjcmV0OiBERVBMT1lfSE9TVAogIHBvcnRfc2VjcmV0OiBERVBMT1lfUE9SVAogIHVzZXJfc2VjcmV0OiBERVBMT1lfVVNFUgogIHBhc3Nfc2VjcmV0OiBERVBMT1lfUEFTUwogIHRhcmdldF9zZWNyZXQ6IERFUExPWV9UQVJHRVQKc2l0ZToKICBiYXNlX3VybDogaHR0cHM6Ly93ZWVrdG9wcGljay5jb20KcGx1Z2luczoKICBpbnN0YWxsOgogICAgLSBjbGFzc2ljLWVkaXRvcgogICAgLSBsaXRlc3BlZWQtY2FjaGUKICAgIC0gd29yZGZlbmNlCiAgICAtIGNvb2tpZS1sYXctaW5mbwogICAgLSBzZW8tYnktcmFuay1tYXRoCiAgICAtIHByZXR0eS1saW5rCmNpOgogIGxvY2tzX2J5cGFzczogImVudjpXVFBfQ0kiCg=="
+    },
+    "web": {
+      "capture": []
+    }
+  },
+  "repo": {
+    "plugins": [],
+    "mu_plugins": [
+      {
+        "kind": "mu",
+        "path": "mu-plugins/00-mu-safe-loader.php",
+        "name": null,
+        "plugin_uri": null,
+        "description": null,
+        "version": null,
+        "author": null,
+        "author_uri": null,
+        "text_domain": null
+      },
+      {
+        "kind": "mu",
+        "path": "mu-plugins/wtp-canonical-redirects.php",
+        "name": null,
+        "plugin_uri": null,
+        "description": null,
+        "version": null,
+        "author": null,
+        "author_uri": null,
+        "text_domain": null
+      },
+      {
+        "kind": "mu",
+        "path": "mu-plugins/wtp-canonical.php",
+        "name": null,
+        "plugin_uri": null,
+        "description": null,
+        "version": null,
+        "author": null,
+        "author_uri": null,
+        "text_domain": null
+      },
+      {
+        "kind": "mu",
+        "path": "mu-plugins/wtp-deploy-guard.php",
+        "name": null,
+        "plugin_uri": null,
+        "description": null,
+        "version": null,
+        "author": null,
+        "author_uri": null,
+        "text_domain": null
+      },
+      {
+        "kind": "mu",
+        "path": "mu-plugins/wtp-dev-bridge.php",
+        "name": null,
+        "plugin_uri": null,
+        "description": null,
+        "version": null,
+        "author": null,
+        "author_uri": null,
+        "text_domain": null
+      },
+      {
+        "kind": "mu",
+        "path": "mu-plugins/wtp-patch-safe-loader-log.php",
+        "name": null,
+        "plugin_uri": null,
+        "description": null,
+        "version": null,
+        "author": null,
+        "author_uri": null,
+        "text_domain": null
+      },
+      {
+        "kind": "mu",
+        "path": "mu-plugins/wtp-ro-exporter.php",
+        "name": null,
+        "plugin_uri": null,
+        "description": null,
+        "version": null,
+        "author": null,
+        "author_uri": null,
+        "text_domain": null
+      },
+      {
+        "kind": "mu",
+        "path": "mu-plugins/wtp-theme-guardian.php",
+        "name": null,
+        "plugin_uri": null,
+        "description": null,
+        "version": null,
+        "author": null,
+        "author_uri": null,
+        "text_domain": null
+      }
+    ]
+  }
+}

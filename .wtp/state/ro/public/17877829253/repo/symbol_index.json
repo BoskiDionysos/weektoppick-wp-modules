@@ -1,0 +1,110 @@
+{
+  "functions": [
+    {
+      "name": "wtp_render_top3_shortcode",
+      "file": "wp-content/themes/wtp-core-theme/functions.php"
+    },
+    {
+      "name": "boot",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "register_routes",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "auth_secret_path",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "collect_theme",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "collect_plugins_full",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "collect_from_base",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "chunk_map",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "push_to_github",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "push_chunks_and_index",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "gh_put_file",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "http",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "err",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "answer",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "res_map",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "wtp_ro_public_base_abs",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "wtp_ro_allowed_filenames",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "wtp_ro_list_public_files",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "wtp_ro_open_ls",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "wtp_ro_open_get",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "wtp_ro_open_emit_logs",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "wtp_ro_first_existing_file",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "str_ends_with",
+      "file": "mu-plugins/wtp-ro-exporter.php"
+    },
+    {
+      "name": "wtp_patch_mu_log_probe",
+      "file": "mu-plugins/wtp-patch-safe-loader-log.php"
+    }
+  ],
+  "classes": [
+    {
+      "name": "WTP_Dev_Bridge",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    },
+    {
+      "name": "exists",
+      "file": "mu-plugins/wtp-dev-bridge.php"
+    }
+  ]
+}

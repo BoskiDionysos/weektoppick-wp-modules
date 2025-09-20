@@ -1,0 +1,90 @@
+[
+  {
+    "kind": "mu",
+    "path": "mu-plugins/00-mu-safe-loader.php",
+    "name": null,
+    "plugin_uri": null,
+    "description": null,
+    "version": null,
+    "author": null,
+    "author_uri": null,
+    "text_domain": null
+  },
+  {
+    "kind": "mu",
+    "path": "mu-plugins/wtp-canonical-redirects.php",
+    "name": null,
+    "plugin_uri": null,
+    "description": null,
+    "version": null,
+    "author": null,
+    "author_uri": null,
+    "text_domain": null
+  },
+  {
+    "kind": "mu",
+    "path": "mu-plugins/wtp-canonical.php",
+    "name": null,
+    "plugin_uri": null,
+    "description": null,
+    "version": null,
+    "author": null,
+    "author_uri": null,
+    "text_domain": null
+  },
+  {
+    "kind": "mu",
+    "path": "mu-plugins/wtp-deploy-guard.php",
+    "name": null,
+    "plugin_uri": null,
+    "description": null,
+    "version": null,
+    "author": null,
+    "author_uri": null,
+    "text_domain": null
+  },
+  {
+    "kind": "mu",
+    "path": "mu-plugins/wtp-dev-bridge.php",
+    "name": null,
+    "plugin_uri": null,
+    "description": null,
+    "version": null,
+    "author": null,
+    "author_uri": null,
+    "text_domain": null
+  },
+  {
+    "kind": "mu",
+    "path": "mu-plugins/wtp-patch-safe-loader-log.php",
+    "name": null,
+    "plugin_uri": null,
+    "description": null,
+    "version": null,
+    "author": null,
+    "author_uri": null,
+    "text_domain": null
+  },
+  {
+    "kind": "mu",
+    "path": "mu-plugins/wtp-ro-exporter.php",
+    "name": null,
+    "plugin_uri": null,
+    "description": null,
+    "version": null,
+    "author": null,
+    "author_uri": null,
+    "text_domain": null
+  },
+  {
+    "kind": "mu",
+    "path": "mu-plugins/wtp-theme-guardian.php",
+    "name": null,
+    "plugin_uri": null,
+    "description": null,
+    "version": null,
+    "author": null,
+    "author_uri": null,
+    "text_domain": null
+  }
+]
