@@ -1,4 +1,4 @@
-name: 02_server_snapshot (WP-CLI read-only, SSH)
+name: 02a_server_snapshot (read-only, WP core/themes/plugins/options → JSON)
 
 on:
   workflow_dispatch: {}
