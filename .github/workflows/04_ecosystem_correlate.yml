@@ -1,4 +1,4 @@
-name: 04_server_snapshot (read-only, SSH, WP-CLI)
+name: 04_ecosystem_correlate (repo↔server correlation)
 
 on:
   workflow_dispatch: {}
@@ -7,202 +7,85 @@ permissions:
   contents: write
 
 concurrency:
-  group: server-snapshot
+  group: ecosystem-corr
   cancel-in-progress: true
 
 jobs:
-  snapshot:
+  correlate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-
+    timeout-minutes: 8
     env:
-      HOST:   ${{ secrets.DEPLOY_HOST }}
-      PORT:   ${{ secrets.DEPLOY_PORT }}
-      USER:   ${{ secrets.DEPLOY_USER }}
-      PASS:   ${{ secrets.DEPLOY_PASS }}
-      TARGET: ${{ secrets.DEPLOY_TARGET }}
       RUN_ID: ${{ github.run_id }}
-
+      OUT: .wtp/state/ro/public/${{ github.run_id }}/ecosystem
+      LATEST: .wtp/state/ro/public/latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup tools & known_hosts (STRICT)
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Ensure inputs exist
         run: |
           set -euo pipefail
-          for v in HOST PORT USER PASS TARGET; do
-            [ -n "${!v:-}" ] || { echo "::error::Missing $v"; exit 1; }
-          done
-          sudo apt-get update -y
-          sudo apt-get install -y curl sshpass jq
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
-          chmod 644 ~/.ssh/known_hosts
-          echo "::add-mask::$HOST"
-          echo "::add-mask::$USER"
+          test -f "${LATEST}/repo/plugin_meta.json" || { echo "::error::missing repo/plugin_meta.json (run 03)"; exit 1; }
+          test -f "${LATEST}/repo/mu_meta.json" || { echo "::error::missing repo/mu_meta.json (run 03)"; exit 1; }
+          test -f "${LATEST}/server/snapshot.json" || { echo "::error::missing server/snapshot.json (run 04)"; exit 1; }
+          mkdir -p "${OUT}" "${LATEST}/ecosystem"
 
-      - name: Create remote snapshot script
+      - name: Correlate & publish
         run: |
           set -euo pipefail
-          cat > /tmp/remote_snapshot.sh <<'SCRIPT'
-          set -euo pipefail
-          TARGET="${TARGET:?missing TARGET}"
-          cd "$TARGET"
+          python - << 'PY'
+          import json, os, pathlib
+          OUT = pathlib.Path(os.environ["OUT"])
+          L = pathlib.Path(os.environ["LATEST"])
+          repo_plugins = json.load(open(L/"repo/plugin_meta.json",encoding="utf-8"))
+          repo_mu      = json.load(open(L/"repo/mu_meta.json",encoding="utf-8"))
+          snap         = json.load(open(L/"server/snapshot.json",encoding="utf-8"))
 
-          mkdir -p .wtp/state/ci_logs .wtp/state/tmp
+          active = set([p.get("name") or p.get("plugin") or p.get("title") for p in snap.get("plugins",[]) if str(p.get("status","")).lower()=="active"])
+          installed = set([p.get("name") or p.get("plugin") or p.get("title") for p in snap.get("plugins",[])])
 
-          # Ensure WP-CLI present (local copy in docroot)
-          if [ ! -x ./wp ]; then
-            curl -sS -L -o wp.phar https://github.com/wp-cli/wp-cli/releases/latest/download/wp-cli.phar
-            php wp.phar --info >/dev/null 2>&1
-            chmod +x wp.phar && mv wp.phar wp
-          fi
+          repo_names = set([ (p.get("name") or p.get("path")) for p in repo_plugins ])
+          mu_names   = set([ (p.get("name") or p.get("path")) for p in repo_mu ])
 
-          export WP_ALLOW_ROOT=1
-          export WTP_CI=1
+          missing_in_repo = sorted(list(active - repo_names))
+          mu_present = sorted(list(mu_names))
+          active_count = len(active)
 
-          # Raw probes (for debugging)
-          uname -a      > .wtp/state/ci_logs/uname.txt  || true
-          which php     > .wtp/state/ci_logs/php_which.txt || true
-          php -v        > .wtp/state/ci_logs/php_version.txt || true
-          pwd           > .wtp/state/ci_logs/pwd.txt || true
-
-          # Core / themes / plugins / options
-          # NOTE: 'wp core version --extra' nie wspiera --format=json → pakujemy do JSON ręcznie
-          CORE_TXT="$(php ./wp core version --extra --path="$TARGET" 2>/dev/null || true)"
-          printf '%s\n' "$CORE_TXT" > .wtp/state/ci_logs/wp_core.txt
-
-          php ./wp theme list   --format=json --path="$TARGET" > .wtp/state/ci_logs/themes.json  || echo "[]" > .wtp/state/ci_logs/themes.json
-          php ./wp plugin list  --format=json --path="$TARGET" > .wtp/state/ci_logs/plugins.json || echo "[]" > .wtp/state/ci_logs/plugins.json
-
-          # Wyciągamy podstawowe opcje (home/siteurl/active theme)
-          HOME_URL=$(php ./wp option get home --path="$TARGET" 2>/dev/null || true)
-          SITE_URL=$(php ./wp option get siteurl --path="$TARGET" 2>/dev/null || true)
-          TEMPLATE=$(php ./wp option get template --path="$TARGET" 2>/dev/null || true)
-          STYLESHEET=$(php ./wp option get stylesheet --path="$TARGET" 2>/dev/null || true)
-
-          # Pakowanie do JSON
-          # core_extra (tekst) parsujemy do prostych linii klucz:wartość, potem do JSON
-          CORE_JSON=$(printf '%s\n' "$CORE_TXT" | awk -F': ' 'NF>=2 {gsub(/\r/,""); k=$1; $1=""; sub(/^: /,""); v=$0; gsub(/^[ \t]+|[ \t]+$/,"",k); gsub(/^[ \t]+|[ \t]+$/,"",v); printf "\"%s\":\"%s\",\n", k, v }' | sed 's/\\n/ /g' | sed '$s/,$//')
-          CORE_JSON="{${CORE_JSON}}"
-
-          THEMES_JSON="$(cat .wtp/state/ci_logs/themes.json)"
-          PLUGINS_JSON="$(cat .wtp/state/ci_logs/plugins.json)"
-
-          # Walidacja minimalna: aktywny theme + lista pluginów
-          # Jeśli brak aktywnego motywu albo pusta lista pluginów → błąd (fail fast)
-          ACTIVE_THEME="$STYLESHEET"
-          if [ -z "$ACTIVE_THEME" ]; then
-            echo "::error::No active theme detected (stylesheet empty)"
-            exit 2
-          fi
-
-          # Sprawdź czy JSON listy pluginów ma jakiekolwiek rekordy
-          HAS_PLUGINS=$(php -r 'echo (json_decode(file_get_contents(".wtp/state/ci_logs/plugins.json"), true) ?: []) ? 1 : 0;')
-          if [ "$HAS_PLUGINS" != "1" ]; then
-            echo "::error::Plugin list is empty (wp plugin list returned no entries)"
-            exit 3
-          fi
-
-          # Zbuduj snapshot.json
-          SNAP_JSON=$(cat <<JSON
-          {
-            "timestamp": "$(date -Is)",
-            "pwd": "$(pwd)",
-            "core_extra": $CORE_JSON,
-            "urls": {
-              "home": "$HOME_URL",
-              "siteurl": "$SITE_URL"
-            },
-            "theme": {
-              "template": "$TEMPLATE",
-              "stylesheet": "$STYLESHEET"
-            },
-            "themes": $THEMES_JSON,
-            "plugins": $PLUGINS_JSON
+          agg = {
+            "server_active_plugins": active_count,
+            "server_installed_plugins": len(installed),
+            "repo_plugins": len(repo_names),
+            "repo_mu": len(mu_names),
+            "missing_active_in_repo": missing_in_repo,
           }
-          JSON
-          )
-          printf '%s\n' "$SNAP_JSON" > .wtp/state/ci_logs/snapshot.json
-          SCRIPT
+          (OUT/"ecosystem-audit.json").write_text(json.dumps(agg,ensure_ascii=False,indent=2),encoding="utf-8")
 
-      - name: Run remote snapshot
+          md=[]
+          md += ["# ECOSYSTEM AUDIT",
+                 f"- Active on server: **{active_count}**",
+                 f"- Repo plugins: **{len(repo_names)}**, MU: **{len(mu_names)}**",
+                 "",
+                 "## Missing active plugins in repo (by name)",
+                 *(["- "+x for x in missing_in_repo] or ["_none_"]),
+                 "",
+                 "## MU present in repo",
+                 *(["- "+x for x in mu_present] or ["_none_"])]
+          (OUT/"ECOSYSTEM_AUDIT.md").write_text("\n".join(md)+"\n",encoding="utf-8")
+
+          # mirror to latest
+          (L/"ecosystem").mkdir(parents=True, exist_ok=True)
+          for n in ["ecosystem-audit.json","ECOSYSTEM_AUDIT.md"]:
+              (L/"ecosystem"/n).write_text((OUT/n).read_text(encoding="utf-8"),encoding="utf-8")
+          PY
+
+      - name: Commit & push (rebase-safe)
         run: |
           set -euo pipefail
-          sshpass -p "$PASS" scp -P "$PORT" \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "/tmp/remote_snapshot.sh" "$USER@$HOST:$TARGET/.wtp_remote_snapshot.sh"
-
-          # uruchomienie skryptu na serwerze
-          sshpass -p "$PASS" ssh -p "$PORT" \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST" "TARGET='$TARGET' bash '$TARGET/.wtp_remote_snapshot.sh' && rm -f '$TARGET/.wtp_remote_snapshot.sh'"
-
-      - name: Pull snapshot artifacts
-        run: |
-          set -euo pipefail
-          mkdir -p "_ci_logs/${RUN_ID}/server"
-          sshpass -p "$PASS" scp -P "$PORT" -r \
-            -o StrictHostKeyChecking=yes -o UserKnownHostsFile=~/.ssh/known_hosts \
-            "$USER@$HOST:$TARGET/.wtp/state/ci_logs/*" "_ci_logs/${RUN_ID}/server/"
-
-      - name: Publish to repo (RUN_ID + latest)
-        run: |
-          set -euo pipefail
-          RUN_DIR=".wtp/state/ro/public/${RUN_ID}/server"
-          LATEST=".wtp/state/ro/public/latest/server"
-          mkdir -p "$RUN_DIR" "$LATEST"
-
-          # Kopiujemy snapshot.json + krótkie MD
-          cp -f "_ci_logs/${RUN_ID}/server/snapshot.json" "$RUN_DIR/snapshot.json"
-
-          {
-            echo "# SERVER SNAPSHOT"
-            echo ""
-            echo "- Run ID: ${RUN_ID}"
-            echo "- Generated: $(date -Is) (runner UTC)"
-            echo ""
-            echo "## Quick facts"
-            echo ""
-            echo "\`\`\`"
-            sed -n '1,40p' "_ci_logs/${RUN_ID}/server/wp_core.txt" 2>/dev/null || true
-            echo "\`\`\`"
-            echo ""
-            echo "Artifacts (raw):"
-            echo "- php_which.txt, php_version.txt, uname.txt, pwd.txt"
-            echo "- wp_core.txt, themes.json, plugins.json"
-          } > "$RUN_DIR/SERVER_SNAPSHOT.md"
-
-          # Mirror do latest/
-          cp -f "$RUN_DIR/snapshot.json" "$LATEST/snapshot.json"
-          cp -f "$RUN_DIR/SERVER_SNAPSHOT.md" "$LATEST/SERVER_SNAPSHOT.md"
-
-          # Commit push
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          if git diff --staged --quiet; then
-            echo "::notice::Nothing to commit."
-          else
-            git commit -m "server snapshot ${RUN_ID}"
-            BRANCH="${GITHUB_REF_NAME:-main}"
-            git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
-            for i in 1 2 3; do
-              git fetch origin "$BRANCH"
-              git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
-              if git push origin "HEAD:$BRANCH"; then
-                echo "::notice::Pushed (attempt $i)"
-                exit 0
-              fi
-              sleep 2
-            done
-            echo "::error::Push failed after 3 attempts"
-            exit 1
-          fi
-
-      - name: Upload artifact (raw server snapshot)
-        uses: actions/upload-artifact@v4
-        with:
-          name: server-snapshot-${{ github.run_id }}
-          path: _ci_logs/${{ github.run_id }}/server/**
-          retention-days: 7
+          git diff --staged --quiet || git commit -m "ecosystem correlate ${RUN_ID}"
+          git push || true
