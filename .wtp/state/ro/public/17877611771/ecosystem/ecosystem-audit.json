@@ -1,0 +1,38 @@
+{
+  "run_id": "17877611771",
+  "repo": {
+    "plugins_count": 0,
+    "mu_count": 10,
+    "functions": 30,
+    "classes": 2
+  },
+  "server": {
+    "has_snapshot": true,
+    "plugins_count": 0,
+    "active_count": 0,
+    "active_theme": null
+  },
+  "diff": {
+    "plugins_repo_only": [],
+    "plugins_server_only": [],
+    "plugins_both": [],
+    "active_missing_code": []
+  },
+  "analysis": {
+    "hook_conflicts_top": [
+      {
+        "hook": "after_setup_theme",
+        "count": 3
+      },
+      {
+        "hook": "wp_head",
+        "count": 3
+      },
+      {
+        "hook": "rest_api_init",
+        "count": 3
+      }
+    ],
+    "includes_top": []
+  }
+}
