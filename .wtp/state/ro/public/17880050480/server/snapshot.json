@@ -1,0 +1,239 @@
+{
+    "generated_at": "2025-09-20T12:50:21+00:00",
+    "site": {
+        "siteurl": "https://weektoppick.com",
+        "home": "https://weektoppick.com",
+        "blogname": "WeekTopPick",
+        "blogdesc": "Your Weekly Top Picks in Tech, Lifestyle &amp; More"
+    },
+    "versions": {
+        "wp": "6.8.2",
+        "php": "8.3.22"
+    },
+    "theme": {
+        "name": "WTP Core Theme",
+        "template": "wtp-core-theme",
+        "stylesheet": "wtp-core-theme",
+        "version": "0.0.1",
+        "status": "active"
+    },
+    "plugins": [
+        {
+            "file": "classic-editor/classic-editor.php",
+            "name": "Classic Editor",
+            "version": "1.6.7",
+            "author": "WordPress Contributors",
+            "uri": "https://wordpress.org/plugins/classic-editor/",
+            "active": true
+        },
+        {
+            "file": "cookie-law-info/cookie-law-info.php",
+            "name": "CookieYes | GDPR Cookie Consent",
+            "version": "3.3.5",
+            "author": "CookieYes",
+            "uri": "https://www.cookieyes.com/",
+            "active": true
+        },
+        {
+            "file": "litespeed-cache/litespeed-cache.php",
+            "name": "LiteSpeed Cache",
+            "version": "7.5.0.1",
+            "author": "LiteSpeed Technologies",
+            "uri": "https://www.litespeedtech.com/products/cache-plugins/wordpress-acceleration",
+            "active": true
+        },
+        {
+            "file": "pretty-link/pretty-link.php",
+            "name": "PrettyLinks",
+            "version": "3.6.17",
+            "author": "Pretty Links",
+            "uri": "https://prettylinks.com/pl/plugin-uri",
+            "active": true
+        },
+        {
+            "file": "seo-by-rank-math/rank-math.php",
+            "name": "Rank Math SEO",
+            "version": "1.0.253",
+            "author": "Rank Math SEO",
+            "uri": "https://rankmath.com/",
+            "active": true
+        },
+        {
+            "file": "wordfence/wordfence.php",
+            "name": "Wordfence Security",
+            "version": "8.1.0",
+            "author": "Wordfence",
+            "uri": "https://www.wordfence.com/",
+            "active": true
+        }
+    ],
+    "mu_plugins": [],
+    "options": {
+        "timezone_string": "",
+        "date_format": "d/m/Y",
+        "time_format": "g:i A",
+        "permalink_structure": "/%postname%/",
+        "admin_email": "bmpanek@gmail.com"
+    },
+    "menus": [],
+    "taxonomies": [
+        {
+            "name": "category",
+            "label": "Categories",
+            "public": true
+        },
+        {
+            "name": "post_tag",
+            "label": "Tags",
+            "public": true
+        },
+        {
+            "name": "nav_menu",
+            "label": "Navigation Menus",
+            "public": false
+        },
+        {
+            "name": "link_category",
+            "label": "Link Categories",
+            "public": false
+        },
+        {
+            "name": "post_format",
+            "label": "Formats",
+            "public": true
+        },
+        {
+            "name": "wp_theme",
+            "label": "Themes",
+            "public": false
+        },
+        {
+            "name": "wp_template_part_area",
+            "label": "Template Part Areas",
+            "public": false
+        },
+        {
+            "name": "wp_pattern_category",
+            "label": "Pattern Categories",
+            "public": false
+        }
+    ],
+    "post_types": [
+        {
+            "name": "post",
+            "label": "Posts",
+            "public": true
+        },
+        {
+            "name": "page",
+            "label": "Pages",
+            "public": true
+        },
+        {
+            "name": "attachment",
+            "label": "Media",
+            "public": true
+        },
+        {
+            "name": "revision",
+            "label": "Revisions",
+            "public": false
+        },
+        {
+            "name": "nav_menu_item",
+            "label": "Navigation Menu Items",
+            "public": false
+        },
+        {
+            "name": "custom_css",
+            "label": "Custom CSS",
+            "public": false
+        },
+        {
+            "name": "customize_changeset",
+            "label": "Changesets",
+            "public": false
+        },
+        {
+            "name": "oembed_cache",
+            "label": "oEmbed Responses",
+            "public": false
+        },
+        {
+            "name": "user_request",
+            "label": "User Requests",
+            "public": false
+        },
+        {
+            "name": "wp_block",
+            "label": "Patterns",
+            "public": false
+        },
+        {
+            "name": "wp_template",
+            "label": "Templates",
+            "public": false
+        },
+        {
+            "name": "wp_template_part",
+            "label": "Template Parts",
+            "public": false
+        },
+        {
+            "name": "wp_global_styles",
+            "label": "Global Styles",
+            "public": false
+        },
+        {
+            "name": "wp_navigation",
+            "label": "Navigation Menus",
+            "public": false
+        },
+        {
+            "name": "wp_font_family",
+            "label": "Font Families",
+            "public": false
+        },
+        {
+            "name": "wp_font_face",
+            "label": "Font Faces",
+            "public": false
+        },
+        {
+            "name": "pretty-link",
+            "label": "Pretty Links",
+            "public": false
+        }
+    ],
+    "counts": {
+        "users": 1,
+        "posts": {
+            "publish": "2",
+            "future": 0,
+            "draft": 0,
+            "pending": 0,
+            "private": 0,
+            "trash": "1",
+            "auto-draft": "2",
+            "inherit": 0,
+            "request-pending": 0,
+            "request-confirmed": 0,
+            "request-failed": 0,
+            "request-completed": 0
+        },
+        "pages": {
+            "publish": 0,
+            "future": 0,
+            "draft": "1",
+            "pending": 0,
+            "private": 0,
+            "trash": 0,
+            "auto-draft": 0,
+            "inherit": 0,
+            "request-pending": 0,
+            "request-confirmed": 0,
+            "request-failed": 0,
+            "request-completed": 0
+        }
+    }
+}
