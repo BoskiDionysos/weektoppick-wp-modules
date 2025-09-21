@@ -1,0 +1,17 @@
+{
+  "run_id": "17891957539",
+  "server": {
+    "uname": "",
+    "php_version": ""
+  },
+  "wp": {
+    "version": "",
+    "siteurl": "",
+    "path": "",
+    "active_theme": ""
+  },
+  "themes": [],
+  "plugins": [],
+  "active_plugins": [],
+  "active_plugins_meta": []
+}
