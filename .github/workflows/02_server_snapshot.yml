@@ -108,21 +108,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          shopt -s nullglob  # <— kluczowe: globy bez dopasowań dają pustą listę
           ROOT="_ci_logs/${RUN_ID}/server"
           mkdir -p "$ROOT" ".wtp/state/ro/public/${RUN_ID}/server" ".wtp/state/ro/public/latest/server"
 
-          # active plugins meta – dla każdego sluga z listy aktywnych
-          mapfile -t SLUGS < <(jq -r '.[]?' "$ROOT/active_plugins.json" 2>/dev/null | sed 's/\.php$//' | sed 's#.*/##' | sort -u)
+          # Zbierz slugi z active_plugins.json (tablica lub pustka)
+          if jq -e 'type=="array"' "$ROOT/active_plugins.json" >/dev/null 2>&1; then
+            mapfile -t SLUGS < <(jq -r '.[] | strings' "$ROOT/active_plugins.json" | sed 's/\.php$//' | sed 's#.*/##' | sort -u)
+          else
+            SLUGS=()
+          fi
+
           mkdir -p "$ROOT/active_meta"
           if [ "${#SLUGS[@]}" -gt 0 ]; then
             for sl in "${SLUGS[@]}"; do
-              # Pobieramy meta z WP-CLI na serwerze i kopiujemy lokalnie
               sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
                 "cd '$TARGET' && php ./wp plugin get '${sl}' --fields=name,version,author,plugin_uri,requires,requires_php,update,title,description,slug,status --format=json --path='$TARGET' 2>/dev/null || echo '{}'" \
                 > "$ROOT/active_meta/${sl}.json" || echo "{}" > "$ROOT/active_meta/${sl}.json"
             done
           fi
-          jq -s 'map(select(type=="object"))' "$ROOT/active_meta/"*.json 2>/dev/null > "$ROOT/active_plugins_meta.json" || echo "[]" > "$ROOT/active_plugins_meta.json"
+
+          # Agregacja meta aktywnych wtyczek — bezpieczna gdy brak plików
+          META_FILES=("$ROOT/active_meta/"*.json)
+          if [ ${#META_FILES[@]} -gt 0 ]; then
+            jq -s 'map(select(type=="object"))' "${META_FILES[@]}" > "$ROOT/active_plugins_meta.json"
+          else
+            echo "[]" > "$ROOT/active_plugins_meta.json"
+          fi
 
           # themes.json → active_theme (fallback: option stylesheet)
           ACTIVE_THEME="$(cat "$ROOT/active_theme.txt" 2>/dev/null || true)"
@@ -130,7 +142,6 @@ jobs:
             ACTIVE_THEME="$(jq -r '.[] | select(.status=="active") | .stylesheet' "$ROOT/themes.json" 2>/dev/null | head -n1)"
           fi
 
-          # Zbuduj snapshot.json
           SITEURL="$(cat "$ROOT/siteurl.txt" 2>/dev/null || true)"
           WP_VERSION="$(cat "$ROOT/wp_version.txt" 2>/dev/null || true)"
           PHPV="$(head -n1 "$ROOT/php_version.txt" 2>/dev/null || true)"
@@ -159,7 +170,6 @@ jobs:
               active_plugins_meta: ( ($apm|first)//[] )
             }' > ".wtp/state/ro/public/${RUN_ID}/server/snapshot.json"
 
-          # MD summary
           {
             echo "# SERVER SNAPSHOT"
             echo "- Run ID: ${RUN_ID}"
@@ -172,12 +182,10 @@ jobs:
             for sl in "${SLUGS[@]}"; do echo "- ${sl}"; done
           } > ".wtp/state/ro/public/${RUN_ID}/server/SERVER_SNAPSHOT.md"
 
-          # mirror to latest
           cp -f ".wtp/state/ro/public/${RUN_ID}/server/snapshot.json" ".wtp/state/ro/public/latest/server/snapshot.json"
           cp -f ".wtp/state/ro/public/${RUN_ID}/server/SERVER_SNAPSHOT.md" ".wtp/state/ro/public/latest/server/SERVER_SNAPSHOT.md"
           cp -f "$ROOT/active_plugins_meta.json" ".wtp/state/ro/public/${RUN_ID}/server/active_plugins_meta.json"
           cp -f "$ROOT/active_plugins_meta.json" ".wtp/state/ro/public/latest/server/active_plugins_meta.json"
-
       - name: Commit & push (rebase-safe)
         shell: bash
         run: |
