@@ -13,7 +13,7 @@ concurrency:
 jobs:
   snapshot:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     env:
       RUN_ID: ${{ github.run_id }}
@@ -38,59 +38,59 @@ jobs:
           echo "::add-mask::$HOST"
           echo "::add-mask::$USER"
           echo "::add-mask::$PASS"
+          echo "::add-mask::$TARGET"
 
       - name: Install tools
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update -y
-          sudo apt-get install -y sshpass jq
+          sudo apt-get install -y sshpass jq rsync
 
       - name: Prepare local log dir
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "_ci_logs/${RUN_ID}/server"
+          mkdir -p "_ci_logs/${RUN_ID}/server" ".wtp/state/ro/public/${RUN_ID}/server"
 
       - name: Create remote gather script
         shell: bash
         run: |
           set -euo pipefail
           cat > /tmp/remote_gather.sh <<'SH'
+          #!/usr/bin/env bash
           set -euo pipefail
-          cd "$TARGET"
+          # TARGET must be provided in environment when executing remotely
+          cd "$TARGET" || exit 1
 
-          # sanity
-          which php   >/dev/null 2>&1 || { echo "::error::php CLI not available"; exit 1; }
-          php -v      >/dev/null 2>&1 || true
+          # ensure WP-CLI (local in project) or download temporary wp.phar
+          if ! command -v php >/dev/null 2>&1; then
+            echo "::error::php CLI not available"; exit 1
+          fi
 
-          # ensure WP-CLI (local)
           if [ ! -x ./wp ]; then
             curl -sS -L -o wp.phar https://github.com/wp-cli/wp-cli/releases/latest/download/wp-cli.phar
-            php wp.phar --info >/dev/null 2>&1
-            chmod +x wp.phar && mv wp.phar wp
+            php wp.phar --info >/dev/null 2>&1 || true
+            chmod +x wp.phar && mv -f wp.phar wp || true
           fi
 
           mkdir -p .wtp/state/ci_logs
-          {
-            uname -a
-          } > .wtp/state/ci_logs/uname.txt 2>&1 || true
-          {
-            php -v
-          } > .wtp/state/ci_logs/php_version.txt 2>&1 || true
-          {
-            pwd
-          } > .wtp/state/ci_logs/pwd.txt 2>&1 || true
 
-          # raw dumps (JSON/text) – nic wrażliwego
-          php ./wp core version --path="$TARGET"                                 > .wtp/state/ci_logs/wp_version.txt  2>&1 || true
-          php ./wp option get siteurl --path="$TARGET"                           > .wtp/state/ci_logs/siteurl.txt     2>&1 || true
-          php ./wp theme list   --format=json --path="$TARGET"                   > .wtp/state/ci_logs/themes.json     2>&1 || echo "[]" > .wtp/state/ci_logs/themes.json
-          php ./wp plugin list  --format=json --path="$TARGET"                   > .wtp/state/ci_logs/plugins.json    2>&1 || echo "[]" > .wtp/state/ci_logs/plugins.json
-          php ./wp option get active_plugins --format=json --path="$TARGET"      > .wtp/state/ci_logs/active_plugins.json 2>&1 || echo "[]" > .wtp/state/ci_logs/active_plugins.json
-          # aktywny motyw (stylesheet)
-          php ./wp option get stylesheet --path="$TARGET"                        > .wtp/state/ci_logs/active_theme.txt 2>&1 || true
+          uname -a > .wtp/state/ci_logs/uname.txt 2>&1 || true
+          php -v  > .wtp/state/ci_logs/php_version.txt 2>&1 || true
+          pwd     > .wtp/state/ci_logs/pwd.txt 2>&1 || true
+
+          # gather WP info (non-sensitive)
+          php ./wp core version --path="$TARGET" > .wtp/state/ci_logs/wp_version.txt 2>&1 || true
+          php ./wp option get siteurl --path="$TARGET" > .wtp/state/ci_logs/siteurl.txt 2>&1 || true
+          php ./wp theme list --format=json --path="$TARGET" > .wtp/state/ci_logs/themes.json 2>&1 || echo "[]" > .wtp/state/ci_logs/themes.json
+          php ./wp plugin list --format=json --path="$TARGET" > .wtp/state/ci_logs/plugins.json 2>&1 || echo "[]" > .wtp/state/ci_logs/plugins.json
+          php ./wp option get active_plugins --format=json --path="$TARGET" > .wtp/state/ci_logs/active_plugins.json 2>&1 || echo "[]" > .wtp/state/ci_logs/active_plugins.json
+          php ./wp option get stylesheet --path="$TARGET" > .wtp/state/ci_logs/active_theme.txt 2>&1 || true
+
+          # done
           SH
+          chmod +x /tmp/remote_gather.sh
 
       - name: Run remote gather
         shell: bash
@@ -109,17 +109,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob
           ROOT="_ci_logs/${RUN_ID}/server"
           OUT_DIR=".wtp/state/ro/public/${RUN_ID}/server"
           mkdir -p "$ROOT" "$OUT_DIR"
 
-          echo "::group::Local files before build"
-          ls -la "$ROOT" || true
-          echo "::endgroup::"
-
-          # --- Bezpieczne wczytanie JSON-ów (fallback do [] / pustych stringów) ---
-          readfile() { cat "$1" 2>/dev/null || true; }
+          readfile(){ cat "$1" 2>/dev/null || true; }
 
           THEMES_JSON="$(readfile "$ROOT/themes.json")"
           jq -e . >/dev/null 2>&1 <<<"${THEMES_JSON:-[]}" || THEMES_JSON="[]"
@@ -136,49 +130,46 @@ jobs:
           UNAME="$(readfile "$ROOT/uname.txt")"
           PWD="$(readfile "$ROOT/pwd.txt")"
 
-          # --- Wyznacz aktywny motyw (z pliku lub z themes.json) ---
           ACTIVE_THEME="$(readfile "$ROOT/active_theme.txt")"
           if [ -z "${ACTIVE_THEME}" ] || [ "${ACTIVE_THEME}" = "null" ]; then
             ACTIVE_THEME="$(jq -r '.[] | select(.status=="active") | .stylesheet' <<<"${THEMES_JSON}" | head -n1)"
           fi
 
-          # --- Zbuduj listę slugów z active_plugins.json (gdy jest tablicą) ---
+          # derive slugs from active_plugins.json (array of "plugin/file.php")
           if jq -e 'type=="array"' >/dev/null 2>&1 <<<"${ACTIVE_PLUGINS_JSON}"; then
             mapfile -t SLUGS < <(jq -r '.[] | strings' <<<"${ACTIVE_PLUGINS_JSON}" | sed 's/\.php$//' | sed 's#.*/##' | sort -u)
           else
             SLUGS=()
           fi
 
-          # --- Pobierz meta dla aktywnych wtyczek (jeśli są) ---
-          mkdir -p "$ROOT/active_meta"
+          mkdir -p "$OUT_DIR/active_meta"
           if [ "${#SLUGS[@]}" -gt 0 ]; then
             for sl in "${SLUGS[@]}"; do
               sshpass -p "$PASS" ssh -p "$PORT" -o StrictHostKeyChecking=no "$USER@$HOST" \
                 "cd '$TARGET' && php ./wp plugin get '${sl}' --fields=name,version,author,plugin_uri,requires,requires_php,update,title,description,slug,status --format=json --path='$TARGET' 2>/dev/null || echo '{}'" \
-                > "$ROOT/active_meta/${sl}.json" || echo "{}" > "$ROOT/active_meta/${sl}.json"
+                > "$OUT_DIR/active_meta/${sl}.json" || echo "{}" > "$OUT_DIR/active_meta/${sl}.json"
             done
           fi
 
-          META_FILES=("$ROOT/active_meta/"*.json)
+          META_FILES=("$OUT_DIR/active_meta/"*.json)
           if [ ${#META_FILES[@]} -gt 0 ] && [ -f "${META_FILES[0]}" ]; then
             ACTIVE_META_JSON="$(jq -s 'map(select(type=="object"))' "${META_FILES[@]}")"
           else
             ACTIVE_META_JSON="[]"
           fi
 
-          # --- Złóż finalny snapshot.json całkowicie w pamięci (bez --slurpfile) ---
           jq -n \
-            --arg run_id        "${RUN_ID}" \
-            --arg siteurl       "${SITEURL}" \
-            --arg wp_version    "${WP_VERSION}" \
-            --arg php_version   "${PHPV}" \
-            --arg uname         "${UNAME}" \
-            --arg pwd           "${PWD}" \
-            --arg active_theme  "${ACTIVE_THEME}" \
-            --argjson themes    "${THEMES_JSON:-[]}" \
-            --argjson plugins   "${PLUGINS_JSON:-[]}" \
-            --argjson act       "${ACTIVE_PLUGINS_JSON:-[]}" \
-            --argjson apm       "${ACTIVE_META_JSON:-[]}" \
+            --arg run_id "${RUN_ID}" \
+            --arg siteurl "${SITEURL}" \
+            --arg wp_version "${WP_VERSION}" \
+            --arg php_version "${PHPV}" \
+            --arg uname "${UNAME}" \
+            --arg pwd "${PWD}" \
+            --arg active_theme "${ACTIVE_THEME}" \
+            --argjson themes "${THEMES_JSON:-[]}" \
+            --argjson plugins "${PLUGINS_JSON:-[]}" \
+            --argjson act "${ACTIVE_PLUGINS_JSON:-[]}" \
+            --argjson apm "${ACTIVE_META_JSON:-[]}" \
             '{
               run_id: $run_id,
               server: { uname: $uname, php_version: $php_version },
@@ -189,7 +180,6 @@ jobs:
               active_plugins_meta: $apm
             }' > "${OUT_DIR}/snapshot.json"
 
-          # --- Markdown podgląd ---
           {
             echo "# SERVER SNAPSHOT"
             echo "- Run ID: ${RUN_ID}"
@@ -197,35 +187,25 @@ jobs:
             echo "- WP: ${WP_VERSION}"
             echo "- PHP: ${PHPV}"
             echo "- Active theme: ${ACTIVE_THEME}"
-            echo
+            echo ""
             echo "## Active plugins (${#SLUGS[@]})"
             for sl in "${SLUGS[@]}"; do echo "- ${sl}"; done
           } > "${OUT_DIR}/SERVER_SNAPSHOT.md"
 
           printf '%s\n' "${ACTIVE_META_JSON}" > "${OUT_DIR}/active_plugins_meta.json"
 
-          # Krótka diagnostyka (nie przerywa biegu)
-          echo "::group::Snapshot summary"
-          echo "themes.json             : $(jq -r 'length' <<<"${THEMES_JSON}" 2>/dev/null || echo 0)"
-          echo "plugins.json            : $(jq -r 'length' <<<"${PLUGINS_JSON}" 2>/dev/null || echo 0)"
-          echo "active_plugins.json     : $(jq -r 'length' <<<"${ACTIVE_PLUGINS_JSON}" 2>/dev/null || echo 0)"
-          echo "active_plugins_meta[].  : $(jq -r 'length' "${OUT_DIR}/active_plugins_meta.json" 2>/dev/null || echo 0)"
-          echo "::endgroup::"
-
-      # --- Gating: latest tylko po sukcesie i non-empty ---
       - name: Validate snapshot outputs
         shell: bash
         run: |
           set -euo pipefail
           base=".wtp/state/ro/public/${RUN_ID}/server"
-          test -s "${base}/SERVER_SNAPSHOT.md"
-          test -s "${base}/snapshot.json"
-          test -s "${base}/active_plugins_meta.json"
-          # minimalna kontrola zawartości
-          jq -e '.wp | has("version") and has("siteurl")' "${base}/snapshot.json" >/dev/null
+          for f in SERVER_SNAPSHOT.md snapshot.json active_plugins_meta.json; do
+            test -s "${base}/${f}" || { echo "::error::Missing or empty ${f}"; exit 1; }
+          done
+          jq -e 'has("wp") and has("active_plugins")' "${base}/snapshot.json" >/dev/null
           jq -e 'type=="array"' "${base}/active_plugins_meta.json" >/dev/null
 
-      - name: Atomically update latest (server)
+      - name: Publish to latest/server (safe rsync)
         if: ${{ success() }}
         shell: bash
         run: |
@@ -233,14 +213,31 @@ jobs:
           run_dir=".wtp/state/ro/public/${RUN_ID}/server"
           latest_dir=".wtp/state/ro/public/latest/server"
           tmp_dir="${latest_dir}.tmp"
-          rm -rf "$tmp_dir"
-          mkdir -p "$tmp_dir"
-          cp -a "$run_dir"/. "$tmp_dir"/
-          # sanity-check przed podmianą
-          test -s "${tmp_dir}/SERVER_SNAPSHOT.md"
-          test -s "${tmp_dir}/snapshot.json"
-          test -s "${tmp_dir}/active_plugins_meta.json"
-          mv -f "$tmp_dir" "$latest_dir"
+
+          # remove stale tmp if present
+          [ -e "${tmp_dir}" ] && rm -rf "${tmp_dir}" || true
+
+          mkdir -p "${tmp_dir}"
+          cp -a "${run_dir}/." "${tmp_dir}/"
+
+          for f in SERVER_SNAPSHOT.md snapshot.json active_plugins_meta.json; do
+            test -s "${tmp_dir}/${f}" || { echo "::error::Missing ${f} in tmp"; ls -la "${tmp_dir}"; exit 1; }
+          done
+
+          if [ ! -d "${latest_dir}" ]; then
+            mv -f "${tmp_dir}" "${latest_dir}"
+            echo "::notice::Created latest/server via mv"
+            exit 0
+          fi
+
+          rsync -a --delete --delete-excluded "${tmp_dir}/" "${latest_dir}/"
+
+          for f in SERVER_SNAPSHOT.md snapshot.json active_plugins_meta.json; do
+            test -s "${latest_dir}/${f}" || { echo "::error::After rsync ${f} missing"; exit 1; }
+          done
+
+          rm -rf "${tmp_dir}"
+          echo "::notice::latest/server updated and tmp removed"
 
       - name: Commit & push (rebase-safe)
         shell: bash
