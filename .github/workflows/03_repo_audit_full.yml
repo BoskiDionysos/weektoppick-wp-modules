@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -y
-          sudo apt-get install -y jq
+          sudo apt-get install -y jq rsync
           python -m pip install --upgrade pip
           pip install pyyaml
 
@@ -318,15 +318,12 @@ jobs:
           for f in plugins-bundle_*.json; do
             [ -f "$f" ] || continue
             found=1
-            # Dla każdego obiektu próbujemy wyciągnąć kluczowe pola; jeśli brak 'slug', wyprowadzamy go z nazwy/source
             jq -c '.[]? | {slug:(.slug // .text_domain // .name // .id // ""), version, name, source: (input_filename)}' "$f" >> "${tmp}.rows" || true
           done
 
           if [ "$found" -eq 1 ] && [ -s "${tmp}.rows" ]; then
-            # Zbuduj unikalną listę po 'slug' (niepuste)
             jq -s '[ .[] | fromjson? | select(.slug != null and .slug != "") ] | unique_by(.slug)' "${tmp}.rows" > "${out}.bundle" || echo '[]' > "${out}.bundle"
             if [ -s "$out" ]; then
-              # merge: preferuj dane z pliku istniejącego, ale dołóż brakujące po slug
               jq -s '
                 def u(xs): xs | unique_by(.slug);
                 (.[0] // []) as $a |
@@ -345,11 +342,9 @@ jobs:
         run: |
           set -euo pipefail
           base="${OUT}"
-          # wymagane pliki
           for f in REPO_AUDIT.md repo-audit.json plugin_meta.json mu_meta.json hooks.json symbol_index.json includes_index.json dependencies.json dependencies.mmd; do
             [ -s "${base}/${f}" ] || { echo "::error::Missing or empty ${f}"; exit 1; }
           done
-          # szybkie sanity JSON
           jq -e 'has("run_id") and has("counts")' "${base}/repo-audit.json" >/dev/null
           jq -e 'type=="array"' "${base}/plugin_meta.json" >/dev/null
           jq -e 'type=="array"' "${base}/mu_meta.json" >/dev/null
@@ -358,7 +353,7 @@ jobs:
           jq -e 'type=="array"' "${base}/includes_index.json" >/dev/null
           jq -e 'has("nodes") and has("edges")' "${base}/dependencies.json" >/dev/null
 
-      - name: Atomically update latest (repo)
+      - name: Update latest (repo) safely via rsync (no tmp collisions)
         if: ${{ success() }}
         shell: bash
         run: |
@@ -366,14 +361,40 @@ jobs:
           run_dir="${OUT}"
           latest_dir="${LATEST}"
           tmp_dir="${latest_dir}.tmp"
-          rm -rf "$tmp_dir"
-          mkdir -p "$tmp_dir"
-          cp -a "$run_dir"/. "$tmp_dir"/
-          # sanity-check przed podmianą
+
+          # usuń stare tmp jeśli zostało w repo
+          if [ -e "${tmp_dir}" ]; then
+            echo "::warning::Stale tmp '${tmp_dir}' exists; removing"
+            rm -rf "${tmp_dir}" || true
+          fi
+
+          # zbuduj tmp i skopiuj wyniki runu
+          mkdir -p "${tmp_dir}"
+          cp -a "${run_dir}/." "${tmp_dir}/"
+
+          # sanity-check przed publikacją
           for f in REPO_AUDIT.md repo-audit.json plugin_meta.json mu_meta.json hooks.json symbol_index.json includes_index.json dependencies.json dependencies.mmd; do
-            test -s "${tmp_dir}/${f}"
+            test -s "${tmp_dir}/${f}" || { echo "::error::Missing ${f} in tmp"; exit 1; }
           done
-          mv -f "$tmp_dir" "$latest_dir"
+
+          # jeśli latest nie istnieje -> szybki mv
+          if [ ! -d "${latest_dir}" ]; then
+            mv -f "${tmp_dir}" "${latest_dir}"
+            echo "::notice::Latest did not exist; moved tmp -> latest"
+            exit 0
+          fi
+
+          # jeśli latest istnieje -> mirroruj rsync --delete (bez kolizji)
+          rsync -a --delete --delete-excluded "${tmp_dir}/" "${latest_dir}/"
+
+          # kontrola po rsync
+          for f in REPO_AUDIT.md repo-audit.json plugin_meta.json mu_meta.json hooks.json symbol_index.json includes_index.json dependencies.json dependencies.mmd; do
+            test -s "${latest_dir}/${f}" || { echo "::error::After rsync ${f} missing"; exit 1; }
+          done
+
+          # posprzątaj tmp
+          rm -rf "${tmp_dir}"
+          echo "::notice::Latest repo updated via rsync and tmp cleaned up."
 
       - name: Commit & push (rebase-safe)
         shell: bash
