@@ -31,31 +31,56 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y jq
           python -m pip install --upgrade pip
           pip install pyyaml
 
-      - name: Correlate & build reports
+      # ── (D) Twarda walidacja wejść: latest/server + latest/repo ─────────────────────
+      - name: Validate inputs (latest/server + latest/repo)
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=".wtp/state/ro/public/latest"
+          # wymagane pliki
+          test -s "${base}/server/snapshot.json"                 || { echo "::error::latest server snapshot missing/empty"; exit 2; }
+          test -s "${base}/server/active_plugins_meta.json"      || { echo "::error::latest active_plugins_meta missing/empty"; exit 2; }
+          test -s "${base}/repo/plugin_meta.json"                || { echo "::error::latest repo plugin_meta missing/empty"; exit 2; }
+          test -s "${base}/repo/mu_meta.json"                    || { echo "::error::latest repo mu_meta missing/empty"; exit 2; }
+          test -s "${base}/repo/hooks.json"                      || { echo "::error::latest repo hooks missing/empty"; exit 2; }
+          test -s "${base}/repo/symbol_index.json"               || { echo "::error::latest repo symbol_index missing/empty"; exit 2; }
+          test -s "${base}/repo/includes_index.json"             || { echo "::error::latest repo includes_index missing/empty"; exit 2; }
+
+          # szybka walidacja schematu (minimalna)
+          jq -e 'has("wp") and has("active_plugins")'                  "${base}/server/snapshot.json" >/dev/null
+          jq -e 'type=="array"'                                        "${base}/server/active_plugins_meta.json" >/dev/null
+          jq -e 'type=="array"'                                        "${base}/repo/plugin_meta.json" >/dev/null
+          jq -e 'type=="array"'                                        "${base}/repo/mu_meta.json" >/dev/null
+          jq -e 'type=="array"'                                        "${base}/repo/hooks.json" >/dev/null
+          jq -e 'has("functions") and has("classes")'                  "${base}/repo/symbol_index.json" >/dev/null
+          jq -e 'type=="array"'                                        "${base}/repo/includes_index.json" >/dev/null
+
+      - name: Correlate & build reports (to RUN dir only)
         shell: bash
         run: |
           set -euo pipefail
           OUT=".wtp/state/ro/public/${RUN_ID}/ecosystem"
-          LATEST=".wtp/state/ro/public/latest"
-          mkdir -p "$OUT" "$LATEST/ecosystem"
+          mkdir -p "$OUT"
 
           python - << 'PY'
-          import json, os, re, glob, pathlib, collections
+          import json, os, pathlib, collections
           RUN_ID = os.environ["RUN_ID"]
           latest = pathlib.Path(".wtp/state/ro/public/latest")
           outdir = pathlib.Path(f".wtp/state/ro/public/{RUN_ID}/ecosystem")
           outdir.mkdir(parents=True, exist_ok=True)
 
-          # --- load inputs (latest) ---
           def read_json(p):
             try:
               return json.loads(pathlib.Path(p).read_text(encoding="utf-8"))
             except Exception:
               return None
 
+          # --- load inputs (latest) ---
           server = read_json(latest/"server/snapshot.json") or {}
           apm    = read_json(latest/"server/active_plugins_meta.json") or []
           repo_plugin_meta = read_json(latest/"repo/plugin_meta.json") or []
@@ -63,34 +88,31 @@ jobs:
           hooks            = read_json(latest/"repo/hooks.json") or []
           symbols          = read_json(latest/"repo/symbol_index.json") or {"functions":[], "classes":[]}
           includes_index   = read_json(latest/"repo/includes_index.json") or []
+          repo_arch        = read_json(latest/"repo/repo-snapshot.json") if (latest/"repo/repo-snapshot.json").exists() else None
 
-          # Optional, jeśli jest:
-          repo_arch = None
-          if (latest/"repo/repo-snapshot.json").exists():
-            repo_arch = read_json(latest/"repo/repo-snapshot.json")
-
-          # --- normalize sets ---
+          # --- normalize / helpers ---
           def slug_from_plugin_file(p):
-            # 'classic-editor/classic-editor.php' -> 'classic-editor'
             base = p.rsplit("/",1)[0] if "/" in p else p
             base = base.replace(".php","")
             return base.split("/")[-1]
 
           server_active_slugs = []
-          for x in server.get("active_plugins") or []:
+          for x in (server.get("active_plugins") or []):
             s = slug_from_plugin_file(x)
             if s and s not in server_active_slugs:
               server_active_slugs.append(s)
 
-          repo_plugins = {}  # slug -> meta
-          for pm in repo_plugin_meta:
+          repo_plugins = {}
+          for pm in (repo_plugin_meta or []):
             path = pm.get("path") or ""
-            sl = slug_from_plugin_file(path)
-            repo_plugins[sl] = pm
+            if path:
+              sl = slug_from_plugin_file(path)
+              if sl:
+                repo_plugins[sl] = pm
 
-          repo_mu = list(repo_mu_meta)  # list of dicts
+          repo_mu = list(repo_mu_meta or [])
 
-          # --- ownership map (who-owns-what) ---
+          # --- ownership (heurystyka) ---
           ownership = {
             "seo/meta":        [],
             "seo/sitemap":     [],
@@ -107,7 +129,6 @@ jobs:
             if slug not in ownership.get(key, []):
               ownership[key].append(slug)
 
-          # heurystyka po znanych slugach
           for sl in server_active_slugs:
             if sl in ("seo-by-rank-math","rank-math","rankmath","seo-by-rankmath"):
               own("seo/meta", sl); own("seo/sitemap", sl); own("seo/schema", sl); own("seo/redirects", sl)
@@ -123,30 +144,21 @@ jobs:
           # --- mismatches ---
           repo_plugin_slugs = set(repo_plugins.keys())
           server_slugs_set  = set(server_active_slugs)
-
           server_plugins_not_in_repo = sorted(list(server_slugs_set - repo_plugin_slugs))
           repo_plugins_not_on_server = sorted(list(repo_plugin_slugs - server_slugs_set))
 
-          # --- validations ---
+          # --- QA / warnings ---
           warnings = []
 
-          # 1) empty includes_index but repo likely has inc/ or includes/
-          if isinstance(includes_index, list) and len(includes_index)==0:
-            # heurystyka na podstawie repo_arch (jeśli jest)
-            stat_inc = False
+          # includes empty but repo appears to have inc/includes
+          if isinstance(includes_index, list) and len(includes_index) == 0:
             if repo_arch and "files" in repo_arch:
-              for f in repo_arch["files"]:
-                p = f.get("path","")
-                if "/inc/" in p or "/includes/" in p:
-                  stat_inc = True; break
-            if stat_inc:
-              warnings.append("includes_index.json is empty, but repo contains 'inc/' or 'includes/' directories.")
+              if any(("/inc/" in f.get("path","")) or ("/includes/" in f.get("path","")) for f in repo_arch["files"]):
+                warnings.append("includes_index.json is empty, but repo contains 'inc/' or 'includes/' directories.")
 
-          # 2) empty MU (no hooks and no symbols)
-          # zbuduj mapę: plik -> liczba hooków i symboli
-          hooks_by_file = collections.Counter([h.get("file","") for h in hooks])
-          funcs_by_file = collections.Counter([s.get("file","") for s in symbols.get("functions",[])])
-          classes_by_file = collections.Counter([s.get("file","") for s in symbols.get("classes",[])])
+          hooks_by_file   = collections.Counter([h.get("file","") for h in (hooks or [])])
+          funcs_by_file   = collections.Counter([s.get("file","") for s in (symbols.get("functions",[]) or [])])
+          classes_by_file = collections.Counter([s.get("file","") for s in (symbols.get("classes",[]) or [])])
 
           empty_mu = []
           for m in repo_mu:
@@ -156,21 +168,19 @@ jobs:
             cc = classes_by_file[path]
             if (hc + fc + cc) == 0:
               empty_mu.append(path)
-
           if empty_mu:
             warnings.append(f"MU plugins with no hooks/functions/classes ({len(empty_mu)}): " + ", ".join(empty_mu[:10]) + ("..." if len(empty_mu)>10 else ""))
 
-          # 3) symbol collisions (functions/classes defined multiple times)
-          func_names = [s.get("name") for s in symbols.get("functions",[]) if s.get("name")]
-          class_names= [s.get("name") for s in symbols.get("classes",[]) if s.get("name")]
-          func_dupes = [n for n,c in collections.Counter(func_names).items() if c>1]
-          class_dupes= [n for n,c in collections.Counter(class_names).items() if c>1]
+          func_names  = [s.get("name") for s in (symbols.get("functions",[]) or []) if s.get("name")]
+          class_names = [s.get("name") for s in (symbols.get("classes",[]) or []) if s.get("name")]
+          from collections import Counter
+          func_dupes  = [n for n,c in Counter(func_names).items() if c>1]
+          class_dupes = [n for n,c in Counter(class_names).items() if c>1]
           if func_dupes:
-            warnings.append(f"Duplicate function names detected: {', '.join(func_dupes[:15])}" + ("..." if len(func_dupes)>15 else ""))
+            warnings.append("Duplicate function names detected: " + ", ".join(func_dupes[:15]) + ("..." if len(func_dupes)>15 else ""))
           if class_dupes:
-            warnings.append(f"Duplicate class names detected: {', '.join(class_dupes[:15])}" + ("..." if len(class_dupes)>15 else ""))
+            warnings.append("Duplicate class names detected: " + ", ".join(class_dupes[:15]) + ("..." if len(class_dupes)>15 else ""))
 
-          # --- build JSON & MD ---
           eco = {
             "run_id": RUN_ID,
             "server": {
@@ -190,12 +200,12 @@ jobs:
             "qa": {
               "warnings": warnings,
               "counts": {
-                "hooks": len(hooks),
-                "functions": len(symbols.get("functions",[])),
-                "classes": len(symbols.get("classes",[])),
+                "hooks": len(hooks or []),
+                "functions": len((symbols.get("functions",[]) or [])),
+                "classes": len((symbols.get("classes",[]) or [])),
                 "includes": len(includes_index) if isinstance(includes_index, list) else 0,
                 "mu_count": len(repo_mu),
-                "repo_plugins_count": len(repo_plugins),
+                "repo_plugins_count": len(repo_plugin_slugs),
                 "server_active_plugins_count": len(server_active_slugs)
               }
             }
@@ -206,10 +216,7 @@ jobs:
           md.append(f"- Run ID: {RUN_ID}")
           md.append("")
           md.append("## Server → Active plugins")
-          if server_active_slugs:
-            md.extend([f"- {s}" for s in server_active_slugs])
-          else:
-            md.append("_none_")
+          md.extend([f"- {s}" for s in server_active_slugs] or ["_none_"])
           md.append("")
           md.append("## Repo → Plugins")
           md.append(", ".join(sorted(list(repo_plugin_slugs))) if repo_plugin_slugs else "_none_")
@@ -245,9 +252,32 @@ jobs:
           (outdir/"ECOSYSTEM_AUDIT.md").write_text("\n".join(md)+"\n", encoding="utf-8")
           PY
 
-          # mirror to latest
-          cp -f ".wtp/state/ro/public/${RUN_ID}/ecosystem/ecosystem-audit.json" ".wtp/state/ro/public/latest/ecosystem/ecosystem-audit.json"
-          cp -f ".wtp/state/ro/public/${RUN_ID}/ecosystem/ECOSYSTEM_AUDIT.md"    ".wtp/state/ro/public/latest/ecosystem/ECOSYSTEM_AUDIT.md"
+      - name: Validate outputs (non-empty + basic schema)
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=".wtp/state/ro/public/${RUN_ID}/ecosystem"
+          test -s "${base}/ecosystem-audit.json"
+          test -s "${base}/ECOSYSTEM_AUDIT.md"
+          jq -e 'has("run_id") and has("server") and has("repo") and has("mismatch") and has("ownership") and has("qa")' "${base}/ecosystem-audit.json" >/dev/null
+
+      - name: Atomically update latest (ecosystem)
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_dir=".wtp/state/ro/public/${RUN_ID}/ecosystem"
+          latest_dir=".wtp/state/ro/public/latest/ecosystem"
+          tmp_dir="${latest_dir}.tmp"
+          rm -rf "$tmp_dir"
+          mkdir -p "$tmp_dir"
+          cp -a "$run_dir"/. "$tmp_dir"/
+
+          # sanity-check przed podmianą
+          test -s "${tmp_dir}/ecosystem-audit.json"
+          test -s "${tmp_dir}/ECOSYSTEM_AUDIT.md"
+
+          mv -f "$tmp_dir" "$latest_dir"
 
       - name: Commit & push (rebase-safe)
         shell: bash
