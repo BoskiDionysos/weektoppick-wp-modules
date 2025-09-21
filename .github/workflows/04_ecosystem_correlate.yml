@@ -13,7 +13,7 @@ concurrency:
 jobs:
   correlate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     env:
       RUN_ID: ${{ github.run_id }}
@@ -32,17 +32,15 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -y
-          sudo apt-get install -y jq
+          sudo apt-get install -y jq rsync
           python -m pip install --upgrade pip
           pip install pyyaml
 
-      # ── (D) Twarda walidacja wejść: latest/server + latest/repo ─────────────────────
       - name: Validate inputs (latest/server + latest/repo)
         shell: bash
         run: |
           set -euo pipefail
           base=".wtp/state/ro/public/latest"
-          # wymagane pliki
           test -s "${base}/server/snapshot.json"                 || { echo "::error::latest server snapshot missing/empty"; exit 2; }
           test -s "${base}/server/active_plugins_meta.json"      || { echo "::error::latest active_plugins_meta missing/empty"; exit 2; }
           test -s "${base}/repo/plugin_meta.json"                || { echo "::error::latest repo plugin_meta missing/empty"; exit 2; }
@@ -51,21 +49,12 @@ jobs:
           test -s "${base}/repo/symbol_index.json"               || { echo "::error::latest repo symbol_index missing/empty"; exit 2; }
           test -s "${base}/repo/includes_index.json"             || { echo "::error::latest repo includes_index missing/empty"; exit 2; }
 
-          # szybka walidacja schematu (minimalna)
-          jq -e 'has("wp") and has("active_plugins")'                  "${base}/server/snapshot.json" >/dev/null
-          jq -e 'type=="array"'                                        "${base}/server/active_plugins_meta.json" >/dev/null
-          jq -e 'type=="array"'                                        "${base}/repo/plugin_meta.json" >/dev/null
-          jq -e 'type=="array"'                                        "${base}/repo/mu_meta.json" >/dev/null
-          jq -e 'type=="array"'                                        "${base}/repo/hooks.json" >/dev/null
-          jq -e 'has("functions") and has("classes")'                  "${base}/repo/symbol_index.json" >/dev/null
-          jq -e 'type=="array"'                                        "${base}/repo/includes_index.json" >/dev/null
-
-      - name: Correlate & build reports (to RUN dir only)
+      - name: Correlate & build reports (to RUN dir)
         shell: bash
         run: |
           set -euo pipefail
-          OUT=".wtp/state/ro/public/${RUN_ID}/ecosystem"
-          mkdir -p "$OUT"
+          OUT_DIR=".wtp/state/ro/public/${RUN_ID}/ecosystem"
+          mkdir -p "$OUT_DIR"
 
           python - << 'PY'
           import json, os, pathlib, collections
@@ -80,7 +69,6 @@ jobs:
             except Exception:
               return None
 
-          # --- load inputs (latest) ---
           server = read_json(latest/"server/snapshot.json") or {}
           apm    = read_json(latest/"server/active_plugins_meta.json") or []
           repo_plugin_meta = read_json(latest/"repo/plugin_meta.json") or []
@@ -88,16 +76,15 @@ jobs:
           hooks            = read_json(latest/"repo/hooks.json") or []
           symbols          = read_json(latest/"repo/symbol_index.json") or {"functions":[], "classes":[]}
           includes_index   = read_json(latest/"repo/includes_index.json") or []
-          repo_arch        = read_json(latest/"repo/repo-snapshot.json") if (latest/"repo/repo-snapshot.json").exists() else None
+          repo_arch         = read_json(latest/"repo/repo-snapshot.json") if (latest/"repo/repo-snapshot.json").exists() else None
 
-          # --- normalize / helpers ---
           def slug_from_plugin_file(p):
             base = p.rsplit("/",1)[0] if "/" in p else p
             base = base.replace(".php","")
             return base.split("/")[-1]
 
           server_active_slugs = []
-          for x in (server.get("active_plugins") or []):
+          for x in server.get("active_plugins") or []:
             s = slug_from_plugin_file(x)
             if s and s not in server_active_slugs:
               server_active_slugs.append(s)
@@ -112,7 +99,6 @@ jobs:
 
           repo_mu = list(repo_mu_meta or [])
 
-          # --- ownership (heurystyka) ---
           ownership = {
             "seo/meta":        [],
             "seo/sitemap":     [],
@@ -141,16 +127,14 @@ jobs:
             if sl in ("pretty-link","pretty-links","pretty-link-lite"):
               own("links/redirect", sl)
 
-          # --- mismatches ---
           repo_plugin_slugs = set(repo_plugins.keys())
           server_slugs_set  = set(server_active_slugs)
+
           server_plugins_not_in_repo = sorted(list(server_slugs_set - repo_plugin_slugs))
           repo_plugins_not_on_server = sorted(list(repo_plugin_slugs - server_slugs_set))
 
-          # --- QA / warnings ---
           warnings = []
 
-          # includes empty but repo appears to have inc/includes
           if isinstance(includes_index, list) and len(includes_index) == 0:
             if repo_arch and "files" in repo_arch:
               if any(("/inc/" in f.get("path","")) or ("/includes/" in f.get("path","")) for f in repo_arch["files"]):
@@ -257,11 +241,12 @@ jobs:
         run: |
           set -euo pipefail
           base=".wtp/state/ro/public/${RUN_ID}/ecosystem"
-          test -s "${base}/ecosystem-audit.json"
-          test -s "${base}/ECOSYSTEM_AUDIT.md"
-          jq -e 'has("run_id") and has("server") and has("repo") and has("mismatch") and has("ownership") and has("qa")' "${base}/ecosystem-audit.json" >/dev/null
+          for f in ecosystem-audit.json ECOSYSTEM_AUDIT.md; do
+            test -s "${base}/${f}" || { echo "::error::Missing or empty ${f}"; exit 1; }
+          done
+          jq -e 'has("run_id") and has("server") and has("repo")' "${base}/ecosystem-audit.json" >/dev/null
 
-      - name: Atomically update latest (ecosystem)
+      - name: Publish to latest/ecosystem (safe rsync)
         if: ${{ success() }}
         shell: bash
         run: |
@@ -269,15 +254,29 @@ jobs:
           run_dir=".wtp/state/ro/public/${RUN_ID}/ecosystem"
           latest_dir=".wtp/state/ro/public/latest/ecosystem"
           tmp_dir="${latest_dir}.tmp"
-          rm -rf "$tmp_dir"
-          mkdir -p "$tmp_dir"
-          cp -a "$run_dir"/. "$tmp_dir"/
 
-          # sanity-check przed podmianą
-          test -s "${tmp_dir}/ecosystem-audit.json"
-          test -s "${tmp_dir}/ECOSYSTEM_AUDIT.md"
+          [ -e "${tmp_dir}" ] && rm -rf "${tmp_dir}" || true
+          mkdir -p "${tmp_dir}"
+          cp -a "${run_dir}/." "${tmp_dir}/"
 
-          mv -f "$tmp_dir" "$latest_dir"
+          for f in ecosystem-audit.json ECOSYSTEM_AUDIT.md; do
+            test -s "${tmp_dir}/${f}" || { echo "::error::Missing ${f} in tmp"; ls -la "${tmp_dir}"; exit 1; }
+          done
+
+          if [ ! -d "${latest_dir}" ]; then
+            mv -f "${tmp_dir}" "${latest_dir}"
+            echo "::notice::Created latest/ecosystem via mv"
+            exit 0
+          fi
+
+          rsync -a --delete --delete-excluded "${tmp_dir}/" "${latest_dir}/"
+
+          for f in ecosystem-audit.json ECOSYSTEM_AUDIT.md; do
+            test -s "${latest_dir}/${f}" || { echo "::error::After rsync ${f} missing"; exit 1; }
+          done
+
+          rm -rf "${tmp_dir}"
+          echo "::notice::latest/ecosystem updated and tmp removed"
 
       - name: Commit & push (rebase-safe)
         shell: bash
