@@ -1,0 +1,34 @@
+[
+  {
+    "kind": "mu",
+    "path": "wp-content/mu-plugins/000-wtp-safemode.php",
+    "name": "mu-plugins",
+    "plugin_uri": null,
+    "description": null,
+    "version": null,
+    "author": null,
+    "author_uri": null,
+    "text_domain": null,
+    "domain_path": null,
+    "requires_wp": null,
+    "tested_wp": null,
+    "requires_php": null,
+    "network": null
+  },
+  {
+    "kind": "mu",
+    "path": "wp-content/mu-plugins/zzz-wtp-emergency-recovery.php",
+    "name": "mu-plugins",
+    "plugin_uri": null,
+    "description": null,
+    "version": null,
+    "author": null,
+    "author_uri": null,
+    "text_domain": null,
+    "domain_path": null,
+    "requires_wp": null,
+    "tested_wp": null,
+    "requires_php": null,
+    "network": null
+  }
+]

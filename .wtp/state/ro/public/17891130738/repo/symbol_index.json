@@ -1,0 +1,9 @@
+{
+  "functions": [
+    {
+      "name": "wtp_render_top3_shortcode",
+      "file": "wp-content/themes/wtp-core-theme/functions.php"
+    }
+  ],
+  "classes": []
+}
