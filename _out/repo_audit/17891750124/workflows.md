@@ -8,7 +8,7 @@
 - Triggers: `None`
 - Jobs: deploy
 
-## 02a_server_snapshot (server state, strict, final) (02_server_snapshot.yml)
+## 02a_server_snapshot (server read-only snapshot + active_plugins_meta) (02_server_snapshot.yml)
 - Triggers: `None`
 - Jobs: snapshot
 
@@ -16,7 +16,7 @@
 - Triggers: `None`
 - Jobs: wpcli
 
-## 03_repo_audit_full (read-only, final) (03_repo_audit_full.yml)
+## 03_repo_audit_full (repo audit + dependencies enrichment) (03_repo_audit_full.yml)
 - Triggers: `None`
 - Jobs: audit
 
@@ -24,7 +24,7 @@
 - Triggers: `None`
 - Jobs: snapshot
 
-## 04_ecosystem_correlate (repo ↔ server) (04_ecosystem_correlate.yml)
+## 04_ecosystem_correlate (repo ↔ server correlation + ownership + QA) (04_ecosystem_correlate.yml)
 - Triggers: `None`
 - Jobs: correlate
 

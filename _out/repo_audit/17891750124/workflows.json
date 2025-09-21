@@ -17,7 +17,7 @@
   },
   {
     "file": "02_server_snapshot.yml",
-    "name": "02a_server_snapshot (server state, strict, final)",
+    "name": "02a_server_snapshot (server read-only snapshot + active_plugins_meta)",
     "on": null,
     "jobs": [
       "snapshot"
@@ -33,7 +33,7 @@
   },
   {
     "file": "03_repo_audit_full.yml",
-    "name": "03_repo_audit_full (read-only, final)",
+    "name": "03_repo_audit_full (repo audit + dependencies enrichment)",
     "on": null,
     "jobs": [
       "audit"
@@ -49,7 +49,7 @@
   },
   {
     "file": "04_ecosystem_correlate.yml",
-    "name": "04_ecosystem_correlate (repo ↔ server)",
+    "name": "04_ecosystem_correlate (repo ↔ server correlation + ownership + QA)",
     "on": null,
     "jobs": [
       "correlate"
