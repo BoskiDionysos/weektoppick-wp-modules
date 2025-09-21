@@ -1,0 +1,78 @@
+{
+  "run_id": "17891756248",
+  "server": {
+    "wp": {
+      "version": "",
+      "siteurl": "",
+      "path": "",
+      "active_theme": ""
+    },
+    "active_plugins": [],
+    "active_plugins_meta": []
+  },
+  "repo": {
+    "plugins": [],
+    "mu_plugins": [
+      {
+        "kind": "mu",
+        "path": "wp-content/mu-plugins/000-wtp-safemode.php",
+        "name": "mu-plugins",
+        "plugin_uri": null,
+        "description": null,
+        "version": null,
+        "author": null,
+        "author_uri": null,
+        "text_domain": null,
+        "domain_path": null,
+        "requires_wp": null,
+        "tested_wp": null,
+        "requires_php": null,
+        "network": null
+      },
+      {
+        "kind": "mu",
+        "path": "wp-content/mu-plugins/zzz-wtp-emergency-recovery.php",
+        "name": "mu-plugins",
+        "plugin_uri": null,
+        "description": null,
+        "version": null,
+        "author": null,
+        "author_uri": null,
+        "text_domain": null,
+        "domain_path": null,
+        "requires_wp": null,
+        "tested_wp": null,
+        "requires_php": null,
+        "network": null
+      }
+    ]
+  },
+  "mismatch": {
+    "server_plugins_not_in_repo": [],
+    "repo_plugins_not_on_server": []
+  },
+  "ownership": {
+    "seo/meta": [],
+    "seo/sitemap": [],
+    "seo/schema": [],
+    "seo/redirects": [],
+    "perf/cache": [],
+    "perf/image": [],
+    "security/waf": [],
+    "security/login": [],
+    "consent/cookie": [],
+    "links/redirect": []
+  },
+  "qa": {
+    "warnings": [],
+    "counts": {
+      "hooks": 11,
+      "functions": 1,
+      "classes": 0,
+      "includes": 0,
+      "mu_count": 2,
+      "repo_plugins_count": 0,
+      "server_active_plugins_count": 0
+    }
+  }
+}
