@@ -18,6 +18,7 @@ jobs:
       RUN_ID: ${{ github.run_id }}
       OUT: .wtp/state/ro/public/${{ github.run_id }}/repo
       LATEST: .wtp/state/ro/public/latest/repo
+
     steps:
       - uses: actions/checkout@v4
 
@@ -27,17 +28,22 @@ jobs:
           python-version: "3.x"
 
       - name: Install deps
+        shell: bash
         run: |
           set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y jq
           python -m pip install --upgrade pip
           pip install pyyaml
 
       - name: Ensure dirs
+        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "_out/repo_audit/${RUN_ID}" "${OUT}" "${LATEST}"
+          mkdir -p "_out/repo_audit/${RUN_ID}" "${OUT}"
 
       - name: Build file/workflow indexes
+        shell: bash
         run: |
           set -euo pipefail
           git ls-files -co --exclude-standard > "_out/repo_audit/${RUN_ID}/filelist.txt"
@@ -70,6 +76,7 @@ jobs:
           PY
 
       - name: Scan repo -> plugin/mu meta + hooks/symbols/includes
+        shell: bash
         run: |
           set -euo pipefail
           python - << 'PY'
@@ -86,7 +93,7 @@ jobs:
           def walk_php(paths):
               for base in paths:
                   p = Path(base)
-                  if not p.exists(): 
+                  if not p.exists():
                       continue
                   for f in p.rglob("*.php"):
                       s = str(f)
@@ -212,8 +219,6 @@ jobs:
           (OUT/"repo-audit.json").write_text(json.dumps(repo_audit, ensure_ascii=False, indent=2), encoding="utf-8")
 
           # ---------- Dependencies enrichment ----------
-          # Heurystyka: jeśli plik A (w obrębie pluginu/mu/theme) include'uje ścieżkę,
-          # to tworzymy krawędź z komponentu właściciela A -> komponent docelowy (po prefiksie ścieżki).
           def bucket_for(path):
               s = str(path)
               for prefix in ["wp-content/plugins/","wp-content/mu-plugins/","wp-content/themes/"]:
@@ -226,21 +231,20 @@ jobs:
               return "other"
 
           edges = {}
+          with open(OUT/"includes_index.json","r",encoding="utf-8") as f:
+              includes = json.load(f)
+
           for inc in includes:
               src_file = inc["file"]
               trg      = inc["target"]
               src_b = bucket_for(src_file)
-              # docelowy bucket po ścieżce względnej: szukamy prefiksów
-              # Jeśli target zawiera np. 'wp-content/plugins/foo/...' przypisz do plugins:foo
-              t = trg
-              if "wp-content/plugins/" in t:
-                  dst = "plugins:" + t.split("wp-content/plugins/")[1].split("/",1)[0]
-              elif "wp-content/mu-plugins/" in t:
-                  dst = "mu-plugins:" + t.split("wp-content/mu-plugins/")[1].split("/",1)[0]
-              elif "wp-content/themes/" in t:
-                  dst = "themes:" + t.split("wp-content/themes/")[1].split("/",1)[0]
+              if "wp-content/plugins/" in trg:
+                  dst = "plugins:" + trg.split("wp-content/plugins/")[1].split("/",1)[0]
+              elif "wp-content/mu-plugins/" in trg:
+                  dst = "mu-plugins:" + trg.split("wp-content/mu-plugins/")[1].split("/",1)[0]
+              elif "wp-content/themes/" in trg:
+                  dst = "themes:" + trg.split("wp-content/themes/")[1].split("/",1)[0]
               else:
-                  # spróbuj po relacji źródła — często include jest względny do tego samego komponentu
                   dst = src_b
               if src_b != dst:
                   edges.setdefault(src_b, set()).add(dst)
@@ -278,21 +282,101 @@ jobs:
           md.extend(lines)
           md.append("```")
           (OUT/"REPO_AUDIT.md").write_text("\n".join(md)+"\n", encoding="utf-8")
-
-          # Mirror to latest/
-          latest = Path(os.environ["LATEST"])
-          latest.mkdir(parents=True, exist_ok=True)
-          for name in [
-            "REPO_AUDIT.md","repo-audit.json","plugin_meta.json","mu_meta.json",
-            "hooks.json","symbol_index.json","includes_index.json",
-            "dependencies.json","dependencies.mmd"
-          ]:
-              src = OUT/name
-              if src.exists():
-                  (latest/name).write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
           PY
 
+      # --- NORMALIZACJA ŚCIEŻEK: themes/... -> wp-content/themes/... (hooks + symbols) ---
+      - name: Normalize file paths in hooks/symbol_index
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          hooks="${OUT}/hooks.json"
+          symbols="${OUT}/symbol_index.json"
+
+          if [ -s "$hooks" ]; then
+            jq 'map( if (.file|startswith("themes/")) then .file = ("wp-content/" + .file) else . end )' "$hooks" > "${hooks}.norm" && mv "${hooks}.norm" "$hooks"
+          fi
+
+          if [ -s "$symbols" ]; then
+            jq '{
+                  functions: ( .functions // [] | map( if (.file|startswith("themes/")) then .file = ("wp-content/" + .file) else . end ) ),
+                  classes:   ( .classes   // [] | map( if (.file|startswith("themes/")) then .file = ("wp-content/" + .file) else . end ) )
+                }' "$symbols" > "${symbols}.norm" && mv "${symbols}.norm" "$symbols"
+          fi
+
+      # --- UZUPEŁNIENIE plugin_meta.json z plugins-bundle_*.json (jeśli istnieją) ---
+      - name: Enrich plugin_meta from plugins-bundle_*.json
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="${OUT}/plugin_meta.json"
+          tmp="$(mktemp)"
+          echo '[]' > "$tmp"
+          shopt -s nullglob
+          found=0
+          for f in plugins-bundle_*.json; do
+            [ -f "$f" ] || continue
+            found=1
+            # Dla każdego obiektu próbujemy wyciągnąć kluczowe pola; jeśli brak 'slug', wyprowadzamy go z nazwy/source
+            jq -c '.[]? | {slug:(.slug // .text_domain // .name // .id // ""), version, name, source: (input_filename)}' "$f" >> "${tmp}.rows" || true
+          done
+
+          if [ "$found" -eq 1 ] && [ -s "${tmp}.rows" ]; then
+            # Zbuduj unikalną listę po 'slug' (niepuste)
+            jq -s '[ .[] | fromjson? | select(.slug != null and .slug != "") ] | unique_by(.slug)' "${tmp}.rows" > "${out}.bundle" || echo '[]' > "${out}.bundle"
+            if [ -s "$out" ]; then
+              # merge: preferuj dane z pliku istniejącego, ale dołóż brakujące po slug
+              jq -s '
+                def u(xs): xs | unique_by(.slug);
+                (.[0] // []) as $a |
+                (.[1] // []) as $b |
+                u($a + [ .[] for . in $b | select( (.slug as $s | ($a | map(.slug) | index($s)) | not) ) ])
+              ' "$out" "${out}.bundle" > "${out}.merged" || cp -f "${out}.bundle" "${out}.merged"
+              mv "${out}.merged" "$out"
+              rm -f "${out}.bundle"
+            else
+              mv "${out}.bundle" "$out"
+            fi
+          fi
+
+      - name: Validate outputs (non-empty + basic schema)
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${OUT}"
+          # wymagane pliki
+          for f in REPO_AUDIT.md repo-audit.json plugin_meta.json mu_meta.json hooks.json symbol_index.json includes_index.json dependencies.json dependencies.mmd; do
+            [ -s "${base}/${f}" ] || { echo "::error::Missing or empty ${f}"; exit 1; }
+          done
+          # szybkie sanity JSON
+          jq -e 'has("run_id") and has("counts")' "${base}/repo-audit.json" >/dev/null
+          jq -e 'type=="array"' "${base}/plugin_meta.json" >/dev/null
+          jq -e 'type=="array"' "${base}/mu_meta.json" >/dev/null
+          jq -e 'type=="array"' "${base}/hooks.json" >/dev/null
+          jq -e 'has("functions") and has("classes")' "${base}/symbol_index.json" >/dev/null
+          jq -e 'type=="array"' "${base}/includes_index.json" >/dev/null
+          jq -e 'has("nodes") and has("edges")' "${base}/dependencies.json" >/dev/null
+
+      - name: Atomically update latest (repo)
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_dir="${OUT}"
+          latest_dir="${LATEST}"
+          tmp_dir="${latest_dir}.tmp"
+          rm -rf "$tmp_dir"
+          mkdir -p "$tmp_dir"
+          cp -a "$run_dir"/. "$tmp_dir"/
+          # sanity-check przed podmianą
+          for f in REPO_AUDIT.md repo-audit.json plugin_meta.json mu_meta.json hooks.json symbol_index.json includes_index.json dependencies.json dependencies.mmd; do
+            test -s "${tmp_dir}/${f}"
+          done
+          mv -f "$tmp_dir" "$latest_dir"
+
       - name: Commit & push (rebase-safe)
+        shell: bash
         run: |
           set -euo pipefail
           git config user.name  "github-actions[bot]"
