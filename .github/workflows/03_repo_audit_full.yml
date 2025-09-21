@@ -29,6 +29,13 @@ jobs:
         with:
           python-version: "3.x"
 
+      - name: Install deps (PyYAML)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install pyyaml
+
       - name: Ensure dirs
         shell: bash
         run: |
@@ -83,7 +90,6 @@ jobs:
           OUT_RUN = Path(os.environ["OUT_RUN"]); OUT_RUN.mkdir(parents=True, exist_ok=True)
           OUT_LATEST = Path(os.environ["OUT_LATEST"]); OUT_LATEST.mkdir(parents=True, exist_ok=True)
 
-          # ścieżki w obu wariantach (jak w repo i jak w WP standard)
           SEARCH_PLUGINS = ["wp-content/plugins", "plugins"]
           SEARCH_MU      = ["wp-content/mu-plugins", "mu-plugins"]
           SEARCH_THEMES  = ["wp-content/themes", "themes"]
@@ -153,7 +159,7 @@ jobs:
                               if "Plugin Name" in h:
                                   plugin_meta.append(mk_rec(p, h, "plugin")); break
 
-          # mu-plugins (pojedyncze pliki i foldery)
+          # mu-plugins
           mu_meta=[]
           for base in SEARCH_MU:
               bp = Path(base)
@@ -190,7 +196,6 @@ jobs:
               for m in rx["inc"].finditer(s):
                   includes.append({"type":m.group(1),"target":m.group(2),"file":str(php)})
 
-          # deps (prosty graf require/include)
           nodes=set(); edges=[]
           for inc in includes:
               src = inc["file"]; tgt = inc["target"]
@@ -198,7 +203,6 @@ jobs:
               edges.append({"from":src,"to":tgt,"type":inc["type"]})
           deps = {"nodes": sorted(nodes), "edges": edges}
 
-          # repo-audit summary
           audit = {
             "run_id": rid,
             "counts": {
@@ -213,7 +217,6 @@ jobs:
             }
           }
 
-          # write outputs (RUN)
           (OUT_RUN/"plugin_meta.json").write_text(json.dumps(plugin_meta, ensure_ascii=False, indent=2), encoding="utf-8")
           (OUT_RUN/"mu_meta.json").write_text(json.dumps(mu_meta, ensure_ascii=False, indent=2), encoding="utf-8")
           (OUT_RUN/"hooks.json").write_text(json.dumps(hooks, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -222,7 +225,6 @@ jobs:
           (OUT_RUN/"dependencies.json").write_text(json.dumps(deps, ensure_ascii=False, indent=2), encoding="utf-8")
           (OUT_RUN/"repo-audit.json").write_text(json.dumps(audit, ensure_ascii=False, indent=2), encoding="utf-8")
 
-          # REPO_AUDIT.md
           md=[]
           md.append("# REPO AUDIT (full)")
           md.append(f"- Run ID: {rid}")
@@ -232,7 +234,6 @@ jobs:
           md.append("")
           (OUT_RUN/"REPO_AUDIT.md").write_text("\n".join(md)+"\n", encoding="utf-8")
 
-          # mirror -> latest
           for name in ["plugin_meta.json","mu_meta.json","hooks.json","symbol_index.json","includes_index.json","dependencies.json","repo-audit.json","REPO_AUDIT.md"]:
               dst = OUT_LATEST/name
               src = OUT_RUN/name
@@ -297,6 +298,6 @@ jobs:
               exit 0
             fi
             sleep 2
-          done
+          endfor
           echo "::error::Push failed after 3 attempts"
           exit 1
