@@ -1,4 +1,4 @@
-name: 04_ecosystem_correlate (repo ↔ server)
+name: 04_ecosystem_correlate (repo ↔ server correlation + ownership + QA)
 
 on:
   workflow_dispatch: {}
@@ -14,259 +14,243 @@ jobs:
   correlate:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
     env:
       RUN_ID: ${{ github.run_id }}
-      OUT_DIR: .wtp/state/ro/public/${{ github.run_id }}/ecosystem
-      LATEST_DIR: .wtp/state/ro/public/latest/ecosystem
-      SERVER_SNAPSHOT: .wtp/state/ro/public/latest/server/snapshot.json
-      REPO_DIR: .wtp/state/ro/public/latest/repo
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Ensure output dirs
-        run: |
-          set -euo pipefail
-          mkdir -p "${OUT_DIR}" "${LATEST_DIR}"
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
 
-      - name: Correlate repo ↔ server and render reports
+      - name: Install deps
         shell: bash
         run: |
           set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install pyyaml
 
-          # sanity: wejścia muszą istnieć
-          test -f "${SERVER_SNAPSHOT}" || { echo "::error::Missing ${SERVER_SNAPSHOT} (run 02a_server_snapshot first)"; exit 1; }
-          test -f "${REPO_DIR}/repo-audit.json" || { echo "::error::Missing ${REPO_DIR}/repo-audit.json (run 03_repo_audit_full first)"; exit 1; }
-          test -f "${REPO_DIR}/plugin_meta.json" || { echo "::error::Missing ${REPO_DIR}/plugin_meta.json (run 03_repo_audit_full first)"; exit 1; }
-          test -f "${REPO_DIR}/mu_meta.json" || { echo "::error::Missing ${REPO_DIR}/mu_meta.json (run 03_repo_audit_full first)"; exit 1; }
+      - name: Correlate & build reports
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT=".wtp/state/ro/public/${RUN_ID}/ecosystem"
+          LATEST=".wtp/state/ro/public/latest"
+          mkdir -p "$OUT" "$LATEST/ecosystem"
 
           python - << 'PY'
-          import json, os
-          from pathlib import Path
+          import json, os, re, glob, pathlib, collections
+          RUN_ID = os.environ["RUN_ID"]
+          latest = pathlib.Path(".wtp/state/ro/public/latest")
+          outdir = pathlib.Path(f".wtp/state/ro/public/{RUN_ID}/ecosystem")
+          outdir.mkdir(parents=True, exist_ok=True)
 
-          RUN_ID     = os.environ["RUN_ID"]
-          OUT_DIR    = Path(os.environ["OUT_DIR"])
-          LATEST_DIR = Path(os.environ["LATEST_DIR"])
-          REPO_DIR   = Path(os.environ["REPO_DIR"])
-          SNAP_FILE  = Path(os.environ["SERVER_SNAPSHOT"])
+          # --- load inputs (latest) ---
+          def read_json(p):
+            try:
+              return json.loads(pathlib.Path(p).read_text(encoding="utf-8"))
+            except Exception:
+              return None
 
-          OUT_DIR.mkdir(parents=True, exist_ok=True)
-          LATEST_DIR.mkdir(parents=True, exist_ok=True)
+          server = read_json(latest/"server/snapshot.json") or {}
+          apm    = read_json(latest/"server/active_plugins_meta.json") or []
+          repo_plugin_meta = read_json(latest/"repo/plugin_meta.json") or []
+          repo_mu_meta     = read_json(latest/"repo/mu_meta.json") or []
+          hooks            = read_json(latest/"repo/hooks.json") or []
+          symbols          = read_json(latest/"repo/symbol_index.json") or {"functions":[], "classes":[]}
+          includes_index   = read_json(latest/"repo/includes_index.json") or []
 
-          def load_json(p: Path, desc: str):
-              if not p.exists():
-                  raise SystemExit(f"::error::Missing {desc}: {p}")
-              try:
-                  return json.loads(p.read_text(encoding="utf-8"))
-              except Exception as e:
-                  raise SystemExit(f"::error::Failed to read {desc}: {p} ({e})")
+          # Optional, jeśli jest:
+          repo_arch = None
+          if (latest/"repo/repo-snapshot.json").exists():
+            repo_arch = read_json(latest/"repo/repo-snapshot.json")
 
-          # --- LOAD INPUTS ---
-          server = load_json(SNAP_FILE, "server snapshot")
-          repo_audit = load_json(REPO_DIR / "repo-audit.json", "repo-audit.json")
-          repo_plugins_meta = load_json(REPO_DIR / "plugin_meta.json", "plugin_meta.json")
-          repo_mu_meta = load_json(REPO_DIR / "mu_meta.json", "mu_meta.json")
+          # --- normalize sets ---
+          def slug_from_plugin_file(p):
+            # 'classic-editor/classic-editor.php' -> 'classic-editor'
+            base = p.rsplit("/",1)[0] if "/" in p else p
+            base = base.replace(".php","")
+            return base.split("/")[-1]
 
-          # --- SAFETY / SHAPES ---
-          # server plugins come from wp plugin list --format=json
-          server_plugins = server.get("wp", {}).get("plugins") or []
-          if not isinstance(server_plugins, list):
-              server_plugins = []
+          server_active_slugs = []
+          for x in server.get("active_plugins") or []:
+            s = slug_from_plugin_file(x)
+            if s and s not in server_active_slugs:
+              server_active_slugs.append(s)
 
-          server_themes = server.get("wp", {}).get("themes") or []
-          if not isinstance(server_themes, list):
-              server_themes = []
+          repo_plugins = {}  # slug -> meta
+          for pm in repo_plugin_meta:
+            path = pm.get("path") or ""
+            sl = slug_from_plugin_file(path)
+            repo_plugins[sl] = pm
 
-          active_theme = None
-          for th in server_themes:
-              # heurystyka: active == true (jeśli nasz snapshot tak zwraca)
-              if isinstance(th, dict) and (th.get("status") == "active" or th.get("active") is True):
-                  active_theme = th.get("name") or th.get("stylesheet") or th.get("slug")
-                  break
-          # fallback: niektóre listy nie oznaczają aktywności; spróbuj z options
-          if not active_theme:
-              # w snapshot.json mamy też "options": {"stylesheet": "...", "template": "..."}
-              stylesheet = (server.get("wp", {}).get("options") or {}).get("stylesheet")
-              if isinstance(stylesheet, str) and stylesheet:
-                  active_theme = stylesheet
+          repo_mu = list(repo_mu_meta)  # list of dicts
 
-          # server active plugins (z wp option get active_plugins)
-          server_active_plugins = server.get("wp", {}).get("active_plugins") or []
-          if not isinstance(server_active_plugins, list):
-              server_active_plugins = []
+          # --- ownership map (who-owns-what) ---
+          ownership = {
+            "seo/meta":        [],
+            "seo/sitemap":     [],
+            "seo/schema":      [],
+            "seo/redirects":   [],
+            "perf/cache":      [],
+            "perf/image":      [],
+            "security/waf":    [],
+            "security/login":  [],
+            "consent/cookie":  [],
+            "links/redirect":  [],
+          }
+          def own(key, slug):
+            if slug not in ownership.get(key, []):
+              ownership[key].append(slug)
 
-          # repo-side plugins: budujemy mapę slug -> meta
-          # meta zawiera m.in. "path" (pełna ścieżka w repo) oraz header 'Plugin Name', 'Version' itd.
-          def slug_from_meta(m):
-              # spróbuj slug wyciągnąć z katalogu (wp-content/plugins/<slug>/file.php) albo z samego pliku
-              p = m.get("path") or ""
-              parts = p.split("/")
-              try:
-                  i = parts.index("wp-content")
-                  if len(parts) > i+2 and parts[i+1] == "plugins":
-                      return parts[i+2]  # katalog pluginu
-              except ValueError:
-                  pass
-              # fallback: nazwa pliku bez rozszerzenia
-              return Path(p).stem or m.get("name")
+          # heurystyka po znanych slugach
+          for sl in server_active_slugs:
+            if sl in ("seo-by-rank-math","rank-math","rankmath","seo-by-rankmath"):
+              own("seo/meta", sl); own("seo/sitemap", sl); own("seo/schema", sl); own("seo/redirects", sl)
+            if sl in ("litespeed-cache","litespeedcache","litespeed"):
+              own("perf/cache", sl); own("perf/image", sl)
+            if sl in ("wordfence",):
+              own("security/waf", sl); own("security/login", sl)
+            if sl in ("cookie-law-info","cookieyes","cookie-law-info-premium"):
+              own("consent/cookie", sl)
+            if sl in ("pretty-link","pretty-links","pretty-link-lite"):
+              own("links/redirect", sl)
 
-          repo_plugins = {}
-          for m in repo_plugins_meta:
-              sl = slug_from_meta(m)
-              if sl:
-                  repo_plugins[sl] = m
-
-          # MU-plugins w repo – użyjemy listy ścieżek do korelacji, bo MU bywa w plikach pojedynczych
-          repo_mu_set = set()
-          for m in repo_mu_meta:
-              p = (m.get("path") or "").strip()
-              if p:
-                  repo_mu_set.add(p)
-
-          # aktywne i zainstalowane po stronie serwera (plugins)
-          server_installed_slugs = set()
-          server_active_slugs = set()
-
-          for pl in server_plugins:
-              if not isinstance(pl, dict): 
-                  continue
-              # WordPress wp plugin list zazwyczaj zwraca: name, status (active/inactive), update, version
-              # Slug możemy spróbować z name (czasem to slug), lub dorobić heurystyką z "name".
-              # Lepsza metoda: jeśli mamy server_active_plugins (ścieżki), z nich wyłuskamy slug.
-              name = (pl.get("name") or "").strip()
-              version = (pl.get("version") or "").strip()
-              status = (pl.get("status") or "").strip().lower()
-              # heurystyka sluga z nazwy: zamień spacje na myślniki, małe litery
-              heur_slug = name.lower().replace(" ", "-") if name else ""
-              if heur_slug:
-                  server_installed_slugs.add(heur_slug)
-              if status == "active":
-                  if heur_slug:
-                      server_active_slugs.add(heur_slug)
-
-          # jeśli mamy "active_plugins" (ścieżki typu "akismet/akismet.php"), z nich wyłuskaj dokładny slug
-          for ap in server_active_plugins:
-              # format: folder/file.php → slug = folder
-              try:
-                  slug = ap.split("/")[0]
-                  if slug:
-                      server_active_slugs.add(slug)
-                      server_installed_slugs.add(slug)
-              except Exception:
-                  pass
-
-          # --- DIFFS ---
+          # --- mismatches ---
           repo_plugin_slugs = set(repo_plugins.keys())
-          only_on_server = sorted(server_installed_slugs - repo_plugin_slugs)
-          only_in_repo   = sorted(repo_plugin_slugs - server_installed_slugs)
-          active_not_in_repo = sorted([s for s in server_active_slugs if s not in repo_plugin_slugs])
+          server_slugs_set  = set(server_active_slugs)
 
-          # wersje (jeśli repo meta ma headers.Version)
-          version_mismatches = []
-          for sl in sorted(server_installed_slugs & repo_plugin_slugs):
-              repo_ver = (repo_plugins[sl].get("version") or "").strip()
-              # znajdź wersję z listy serwera (mapa name->version jest niepewna, więc dopasowanie heurystyczne)
-              srv_ver = ""
-              for pl in server_plugins:
-                  nm = (pl.get("name") or "").strip().lower().replace(" ", "-")
-                  if nm == sl:
-                      srv_ver = (pl.get("version") or "").strip()
-                      break
-              if srv_ver and repo_ver and srv_ver != repo_ver:
-                  version_mismatches.append({"slug": sl, "server_version": srv_ver, "repo_version": repo_ver})
+          server_plugins_not_in_repo = sorted(list(server_slugs_set - repo_plugin_slugs))
+          repo_plugins_not_on_server = sorted(list(repo_plugin_slugs - server_slugs_set))
 
-          # MU-plugins korelacja: na serwerze nie mamy listy MU; to jest tylko repo-check
-          # raportujemy wyłącznie to, co repo posiada (przegląd), bo server snapshot nie zna MU aktywności
-          mu_overview = sorted(repo_mu_set)
+          # --- validations ---
+          warnings = []
 
-          # --- BUILD JSON OUTPUT ---
-          out_json = {
-              "run_id": RUN_ID,
-              "theme": {
-                  "server_active": active_theme,
-              },
-              "plugins": {
-                  "server_installed_slugs": sorted(server_installed_slugs),
-                  "server_active_slugs": sorted(server_active_slugs),
-                  "repo_available_slugs": sorted(repo_plugin_slugs),
-                  "only_on_server": only_on_server,
-                  "only_in_repo": only_in_repo,
-                  "active_not_in_repo": active_not_in_repo,
-                  "version_mismatches": version_mismatches,
-              },
-              "mu_plugins": {
-                  "repo_paths": mu_overview
-              },
-              "meta": {
-                  "server_snapshot_file": str(SNAP_FILE),
-                  "repo_dir": str(REPO_DIR),
+          # 1) empty includes_index but repo likely has inc/ or includes/
+          if isinstance(includes_index, list) and len(includes_index)==0:
+            # heurystyka na podstawie repo_arch (jeśli jest)
+            stat_inc = False
+            if repo_arch and "files" in repo_arch:
+              for f in repo_arch["files"]:
+                p = f.get("path","")
+                if "/inc/" in p or "/includes/" in p:
+                  stat_inc = True; break
+            if stat_inc:
+              warnings.append("includes_index.json is empty, but repo contains 'inc/' or 'includes/' directories.")
+
+          # 2) empty MU (no hooks and no symbols)
+          # zbuduj mapę: plik -> liczba hooków i symboli
+          hooks_by_file = collections.Counter([h.get("file","") for h in hooks])
+          funcs_by_file = collections.Counter([s.get("file","") for s in symbols.get("functions",[])])
+          classes_by_file = collections.Counter([s.get("file","") for s in symbols.get("classes",[])])
+
+          empty_mu = []
+          for m in repo_mu:
+            path = m.get("path") or ""
+            hc = hooks_by_file[path]
+            fc = funcs_by_file[path]
+            cc = classes_by_file[path]
+            if (hc + fc + cc) == 0:
+              empty_mu.append(path)
+
+          if empty_mu:
+            warnings.append(f"MU plugins with no hooks/functions/classes ({len(empty_mu)}): " + ", ".join(empty_mu[:10]) + ("..." if len(empty_mu)>10 else ""))
+
+          # 3) symbol collisions (functions/classes defined multiple times)
+          func_names = [s.get("name") for s in symbols.get("functions",[]) if s.get("name")]
+          class_names= [s.get("name") for s in symbols.get("classes",[]) if s.get("name")]
+          func_dupes = [n for n,c in collections.Counter(func_names).items() if c>1]
+          class_dupes= [n for n,c in collections.Counter(class_names).items() if c>1]
+          if func_dupes:
+            warnings.append(f"Duplicate function names detected: {', '.join(func_dupes[:15])}" + ("..." if len(func_dupes)>15 else ""))
+          if class_dupes:
+            warnings.append(f"Duplicate class names detected: {', '.join(class_dupes[:15])}" + ("..." if len(class_dupes)>15 else ""))
+
+          # --- build JSON & MD ---
+          eco = {
+            "run_id": RUN_ID,
+            "server": {
+              "wp": server.get("wp",{}),
+              "active_plugins": server_active_slugs,
+              "active_plugins_meta": apm
+            },
+            "repo": {
+              "plugins": sorted(list(repo_plugin_slugs)),
+              "mu_plugins": repo_mu,
+            },
+            "mismatch": {
+              "server_plugins_not_in_repo": server_plugins_not_in_repo,
+              "repo_plugins_not_on_server": repo_plugins_not_on_server
+            },
+            "ownership": ownership,
+            "qa": {
+              "warnings": warnings,
+              "counts": {
+                "hooks": len(hooks),
+                "functions": len(symbols.get("functions",[])),
+                "classes": len(symbols.get("classes",[])),
+                "includes": len(includes_index) if isinstance(includes_index, list) else 0,
+                "mu_count": len(repo_mu),
+                "repo_plugins_count": len(repo_plugins),
+                "server_active_plugins_count": len(server_active_slugs)
               }
+            }
           }
 
-          # --- BUILD MD REPORT ---
-          md = []  # <== ważne: inicjalizacja, żeby nie było "no binding for nonlocal 'md'"
-
-          md.append("# ECOSYSTEM AUDIT (repo ↔ server)")
+          md = []
+          md.append("# ECOSYSTEM AUDIT")
           md.append(f"- Run ID: {RUN_ID}")
           md.append("")
-          md.append("## Theme")
-          md.append(f"- Active theme on server: **{active_theme or '(unknown)'}**")
-          md.append("")
-          md.append("## Plugins – overview")
-          md.append(f"- Server installed (approx slugs): {len(server_installed_slugs)}")
-          md.append(f"- Server active (slugs): {len(server_active_slugs)}")
-          md.append(f"- Repo available (slugs): {len(repo_plugin_slugs)}")
-          md.append("")
-          md.append("### Diff – only on server")
-          if only_on_server:
-              for sl in only_on_server:
-                  md.append(f"- {sl}")
+          md.append("## Server → Active plugins")
+          if server_active_slugs:
+            md.extend([f"- {s}" for s in server_active_slugs])
           else:
-              md.append("_none_")
+            md.append("_none_")
           md.append("")
-          md.append("### Diff – only in repo (not installed on server)")
-          if only_in_repo:
-              for sl in only_in_repo:
-                  md.append(f"- {sl}")
+          md.append("## Repo → Plugins")
+          md.append(", ".join(sorted(list(repo_plugin_slugs))) if repo_plugin_slugs else "_none_")
+          md.append("")
+          md.append("## Repo → MU-plugins")
+          if repo_mu:
+            md.extend([f"- {m.get('path','(unknown)')}" for m in repo_mu[:30]])
+            if len(repo_mu) > 30: md.append("...")
           else:
-              md.append("_none_")
+            md.append("_none_")
           md.append("")
-          md.append("### Active on server but missing in repo")
-          if active_not_in_repo:
-              for sl in active_not_in_repo:
-                  md.append(f"- {sl}")
+          md.append("## Ownership (who-owns-what)")
+          for k,v in ownership.items():
+            md.append(f"- **{k}**: {', '.join(v) if v else '-'}")
+          md.append("")
+          md.append("## Mismatch")
+          md.append(f"- server_plugins_not_in_repo: {', '.join(server_plugins_not_in_repo) if server_plugins_not_in_repo else '-'}")
+          md.append(f"- repo_plugins_not_on_server: {', '.join(repo_plugins_not_on_server) if repo_plugins_not_on_server else '-'}")
+          md.append("")
+          md.append("## QA / Warnings")
+          if eco["qa"]["warnings"]:
+            for w in eco["qa"]["warnings"]:
+              md.append(f"- {w}")
           else:
-              md.append("_none_")
+            md.append("- _none_")
           md.append("")
-          md.append("### Version mismatches (server vs repo headers)")
-          if out_json["plugins"]["version_mismatches"]:
-              for m in out_json["plugins"]["version_mismatches"]:
-                  md.append(f"- {m['slug']}: server {m['server_version']} ≠ repo {m['repo_version']}")
-          else:
-              md.append("_none_")
+          md.append("## Counts")
+          for k,v in eco["qa"]["counts"].items():
+            md.append(f"- {k}: **{v}**")
           md.append("")
-          md.append("## MU-plugins (repo overview)")
-          if mu_overview:
-              for p in mu_overview:
-                  md.append(f"- {p}")
-          else:
-              md.append("_none_")
-          md.append("")
-          md.append("## Notes")
-          md.append("- Slug detection on server uses heuristics; authoritative active list comes from `active_plugins` paths.")
-          md.append("- MU-plugins activity cannot be derived from server list; here we show only what exists in the repo.")
-          md.append("- Use this report to decide **which plugins to promote into SSOT** and which to **migrate into custom MU**.")
 
-          # --- WRITE OUTPUTS ---
-          (OUT_DIR / "ecosystem-audit.json").write_text(json.dumps(out_json, ensure_ascii=False, indent=2), encoding="utf-8")
-          (OUT_DIR / "ECOSYSTEM_AUDIT.md").write_text("\n".join(md) + "\n", encoding="utf-8")
-
-          # mirror to latest
-          (LATEST_DIR / "ecosystem-audit.json").write_text(json.dumps(out_json, ensure_ascii=False, indent=2), encoding="utf-8")
-          (LATEST_DIR / "ECOSYSTEM_AUDIT.md").write_text("\n".join(md) + "\n", encoding="utf-8")
+          (outdir/"ecosystem-audit.json").write_text(json.dumps(eco, ensure_ascii=False, indent=2), encoding="utf-8")
+          (outdir/"ECOSYSTEM_AUDIT.md").write_text("\n".join(md)+"\n", encoding="utf-8")
           PY
 
+          # mirror to latest
+          cp -f ".wtp/state/ro/public/${RUN_ID}/ecosystem/ecosystem-audit.json" ".wtp/state/ro/public/latest/ecosystem/ecosystem-audit.json"
+          cp -f ".wtp/state/ro/public/${RUN_ID}/ecosystem/ECOSYSTEM_AUDIT.md"    ".wtp/state/ro/public/latest/ecosystem/ECOSYSTEM_AUDIT.md"
+
       - name: Commit & push (rebase-safe)
+        shell: bash
         run: |
           set -euo pipefail
           git config user.name  "github-actions[bot]"
