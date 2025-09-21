@@ -11,3 +11,4 @@ _ci_logs/
 **/wp-config.php.head.txt
 **/wp-config.php.tail.txt
 **/*.env
+.wtp/state/ro/public/latest/*/*.tmp/
