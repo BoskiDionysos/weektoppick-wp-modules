@@ -37,6 +37,7 @@ jobs:
           done
           echo "::add-mask::$HOST"
           echo "::add-mask::$USER"
+          echo "::add-mask::$PASS"
 
       - name: Install tools
         shell: bash
@@ -82,13 +83,13 @@ jobs:
           } > .wtp/state/ci_logs/pwd.txt 2>&1 || true
 
           # raw dumps (JSON/text) – nic wrażliwego
-          php ./wp core version --path="$TARGET"           > .wtp/state/ci_logs/wp_version.txt  2>&1 || true
-          php ./wp option get siteurl --path="$TARGET"     > .wtp/state/ci_logs/siteurl.txt     2>&1 || true
-          php ./wp theme list --format=json --path="$TARGET"    > .wtp/state/ci_logs/themes.json     2>&1 || echo "[]" > .wtp/state/ci_logs/themes.json
-          php ./wp plugin list --format=json --path="$TARGET"   > .wtp/state/ci_logs/plugins.json    2>&1 || echo "[]" > .wtp/state/ci_logs/plugins.json
-          php ./wp option get active_plugins --format=json --path="$TARGET" > .wtp/state/ci_logs/active_plugins.json 2>&1 || echo "[]" > .wtp/state/ci_logs/active_plugins.json
+          php ./wp core version --path="$TARGET"                                 > .wtp/state/ci_logs/wp_version.txt  2>&1 || true
+          php ./wp option get siteurl --path="$TARGET"                           > .wtp/state/ci_logs/siteurl.txt     2>&1 || true
+          php ./wp theme list   --format=json --path="$TARGET"                   > .wtp/state/ci_logs/themes.json     2>&1 || echo "[]" > .wtp/state/ci_logs/themes.json
+          php ./wp plugin list  --format=json --path="$TARGET"                   > .wtp/state/ci_logs/plugins.json    2>&1 || echo "[]" > .wtp/state/ci_logs/plugins.json
+          php ./wp option get active_plugins --format=json --path="$TARGET"      > .wtp/state/ci_logs/active_plugins.json 2>&1 || echo "[]" > .wtp/state/ci_logs/active_plugins.json
           # aktywny motyw (stylesheet)
-          php ./wp option get stylesheet --path="$TARGET"   > .wtp/state/ci_logs/active_theme.txt 2>&1 || true
+          php ./wp option get stylesheet --path="$TARGET"                        > .wtp/state/ci_logs/active_theme.txt 2>&1 || true
           SH
 
       - name: Run remote gather
@@ -110,7 +111,8 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           ROOT="_ci_logs/${RUN_ID}/server"
-          mkdir -p "$ROOT" ".wtp/state/ro/public/${RUN_ID}/server" ".wtp/state/ro/public/latest/server"
+          OUT_DIR=".wtp/state/ro/public/${RUN_ID}/server"
+          mkdir -p "$ROOT" "$OUT_DIR"
 
           echo "::group::Local files before build"
           ls -la "$ROOT" || true
@@ -185,9 +187,9 @@ jobs:
               plugins: $plugins,
               active_plugins: $act,
               active_plugins_meta: $apm
-            }' > ".wtp/state/ro/public/${RUN_ID}/server/snapshot.json"
+            }' > "${OUT_DIR}/snapshot.json"
 
-          # --- Markdown podgląd + mirrory do latest ---
+          # --- Markdown podgląd ---
           {
             echo "# SERVER SNAPSHOT"
             echo "- Run ID: ${RUN_ID}"
@@ -195,24 +197,51 @@ jobs:
             echo "- WP: ${WP_VERSION}"
             echo "- PHP: ${PHPV}"
             echo "- Active theme: ${ACTIVE_THEME}"
-            echo ""
+            echo
             echo "## Active plugins (${#SLUGS[@]})"
             for sl in "${SLUGS[@]}"; do echo "- ${sl}"; done
-          } > ".wtp/state/ro/public/${RUN_ID}/server/SERVER_SNAPSHOT.md"
+          } > "${OUT_DIR}/SERVER_SNAPSHOT.md"
 
-          cp -f ".wtp/state/ro/public/${RUN_ID}/server/snapshot.json"     ".wtp/state/ro/public/latest/server/snapshot.json"
-          cp -f ".wtp/state/ro/public/${RUN_ID}/server/SERVER_SNAPSHOT.md" ".wtp/state/ro/public/latest/server/SERVER_SNAPSHOT.md"
-          printf '%s\n' "${ACTIVE_META_JSON}" > ".wtp/state/ro/public/${RUN_ID}/server/active_plugins_meta.json"
-          cp -f ".wtp/state/ro/public/${RUN_ID}/server/active_plugins_meta.json" ".wtp/state/ro/public/latest/server/active_plugins_meta.json"
+          printf '%s\n' "${ACTIVE_META_JSON}" > "${OUT_DIR}/active_plugins_meta.json"
 
           # Krótka diagnostyka (nie przerywa biegu)
           echo "::group::Snapshot summary"
-          echo "themes.json            : $(jq -r 'length' <<<"${THEMES_JSON}" 2>/dev/null || echo 0)"
-          echo "plugins.json           : $(jq -r 'length' <<<"${PLUGINS_JSON}" 2>/dev/null || echo 0)"
-          echo "active_plugins.json    : $(jq -r 'length' <<<"${ACTIVE_PLUGINS_JSON}" 2>/dev/null || echo 0)"
-          echo "active_plugins_meta[]. : $(jq -r 'length' ".wtp/state/ro/public/${RUN_ID}/server/active_plugins_meta.json" 2>/dev/null || echo 0)"
+          echo "themes.json             : $(jq -r 'length' <<<"${THEMES_JSON}" 2>/dev/null || echo 0)"
+          echo "plugins.json            : $(jq -r 'length' <<<"${PLUGINS_JSON}" 2>/dev/null || echo 0)"
+          echo "active_plugins.json     : $(jq -r 'length' <<<"${ACTIVE_PLUGINS_JSON}" 2>/dev/null || echo 0)"
+          echo "active_plugins_meta[].  : $(jq -r 'length' "${OUT_DIR}/active_plugins_meta.json" 2>/dev/null || echo 0)"
           echo "::endgroup::"
-          
+
+      # --- Gating: latest tylko po sukcesie i non-empty ---
+      - name: Validate snapshot outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=".wtp/state/ro/public/${RUN_ID}/server"
+          test -s "${base}/SERVER_SNAPSHOT.md"
+          test -s "${base}/snapshot.json"
+          test -s "${base}/active_plugins_meta.json"
+          # minimalna kontrola zawartości
+          jq -e '.wp | has("version") and has("siteurl")' "${base}/snapshot.json" >/dev/null
+          jq -e 'type=="array"' "${base}/active_plugins_meta.json" >/dev/null
+
+      - name: Atomically update latest (server)
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_dir=".wtp/state/ro/public/${RUN_ID}/server"
+          latest_dir=".wtp/state/ro/public/latest/server"
+          tmp_dir="${latest_dir}.tmp"
+          rm -rf "$tmp_dir"
+          mkdir -p "$tmp_dir"
+          cp -a "$run_dir"/. "$tmp_dir"/
+          # sanity-check przed podmianą
+          test -s "${tmp_dir}/SERVER_SNAPSHOT.md"
+          test -s "${tmp_dir}/snapshot.json"
+          test -s "${tmp_dir}/active_plugins_meta.json"
+          mv -f "$tmp_dir" "$latest_dir"
+
       - name: Commit & push (rebase-safe)
         shell: bash
         run: |
