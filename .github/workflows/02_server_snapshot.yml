@@ -108,17 +108,46 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob  # <— kluczowe: globy bez dopasowań dają pustą listę
+          shopt -s nullglob
           ROOT="_ci_logs/${RUN_ID}/server"
           mkdir -p "$ROOT" ".wtp/state/ro/public/${RUN_ID}/server" ".wtp/state/ro/public/latest/server"
 
-          # Zbierz slugi z active_plugins.json (tablica lub pustka)
-          if jq -e 'type=="array"' "$ROOT/active_plugins.json" >/dev/null 2>&1; then
-            mapfile -t SLUGS < <(jq -r '.[] | strings' "$ROOT/active_plugins.json" | sed 's/\.php$//' | sed 's#.*/##' | sort -u)
+          echo "::group::Local files before build"
+          ls -la "$ROOT" || true
+          echo "::endgroup::"
+
+          # --- Bezpieczne wczytanie JSON-ów (fallback do [] / pustych stringów) ---
+          readfile() { cat "$1" 2>/dev/null || true; }
+
+          THEMES_JSON="$(readfile "$ROOT/themes.json")"
+          jq -e . >/dev/null 2>&1 <<<"${THEMES_JSON:-[]}" || THEMES_JSON="[]"
+
+          PLUGINS_JSON="$(readfile "$ROOT/plugins.json")"
+          jq -e . >/dev/null 2>&1 <<<"${PLUGINS_JSON:-[]}" || PLUGINS_JSON="[]"
+
+          ACTIVE_PLUGINS_JSON="$(readfile "$ROOT/active_plugins.json")"
+          jq -e . >/dev/null 2>&1 <<<"${ACTIVE_PLUGINS_JSON:-[]}" || ACTIVE_PLUGINS_JSON="[]"
+
+          SITEURL="$(readfile "$ROOT/siteurl.txt")"
+          WP_VERSION="$(readfile "$ROOT/wp_version.txt")"
+          PHPV="$(head -n1 "$ROOT/php_version.txt" 2>/dev/null || true)"
+          UNAME="$(readfile "$ROOT/uname.txt")"
+          PWD="$(readfile "$ROOT/pwd.txt")"
+
+          # --- Wyznacz aktywny motyw (z pliku lub z themes.json) ---
+          ACTIVE_THEME="$(readfile "$ROOT/active_theme.txt")"
+          if [ -z "${ACTIVE_THEME}" ] || [ "${ACTIVE_THEME}" = "null" ]; then
+            ACTIVE_THEME="$(jq -r '.[] | select(.status=="active") | .stylesheet' <<<"${THEMES_JSON}" | head -n1)"
+          fi
+
+          # --- Zbuduj listę slugów z active_plugins.json (gdy jest tablicą) ---
+          if jq -e 'type=="array"' >/dev/null 2>&1 <<<"${ACTIVE_PLUGINS_JSON}"; then
+            mapfile -t SLUGS < <(jq -r '.[] | strings' <<<"${ACTIVE_PLUGINS_JSON}" | sed 's/\.php$//' | sed 's#.*/##' | sort -u)
           else
             SLUGS=()
           fi
 
+          # --- Pobierz meta dla aktywnych wtyczek (jeśli są) ---
           mkdir -p "$ROOT/active_meta"
           if [ "${#SLUGS[@]}" -gt 0 ]; then
             for sl in "${SLUGS[@]}"; do
@@ -128,26 +157,14 @@ jobs:
             done
           fi
 
-          # Agregacja meta aktywnych wtyczek — bezpieczna gdy brak plików
           META_FILES=("$ROOT/active_meta/"*.json)
-          if [ ${#META_FILES[@]} -gt 0 ]; then
-            jq -s 'map(select(type=="object"))' "${META_FILES[@]}" > "$ROOT/active_plugins_meta.json"
+          if [ ${#META_FILES[@]} -gt 0 ] && [ -f "${META_FILES[0]}" ]; then
+            ACTIVE_META_JSON="$(jq -s 'map(select(type=="object"))' "${META_FILES[@]}")"
           else
-            echo "[]" > "$ROOT/active_plugins_meta.json"
+            ACTIVE_META_JSON="[]"
           fi
 
-          # themes.json → active_theme (fallback: option stylesheet)
-          ACTIVE_THEME="$(cat "$ROOT/active_theme.txt" 2>/dev/null || true)"
-          if [ -z "$ACTIVE_THEME" ] || [ "$ACTIVE_THEME" = "null" ]; then
-            ACTIVE_THEME="$(jq -r '.[] | select(.status=="active") | .stylesheet' "$ROOT/themes.json" 2>/dev/null | head -n1)"
-          fi
-
-          SITEURL="$(cat "$ROOT/siteurl.txt" 2>/dev/null || true)"
-          WP_VERSION="$(cat "$ROOT/wp_version.txt" 2>/dev/null || true)"
-          PHPV="$(head -n1 "$ROOT/php_version.txt" 2>/dev/null || true)"
-          UNAME="$(cat "$ROOT/uname.txt" 2>/dev/null || true)"
-          PWD="$(cat "$ROOT/pwd.txt" 2>/dev/null || true)"
-
+          # --- Złóż finalny snapshot.json całkowicie w pamięci (bez --slurpfile) ---
           jq -n \
             --arg run_id        "${RUN_ID}" \
             --arg siteurl       "${SITEURL}" \
@@ -156,20 +173,21 @@ jobs:
             --arg uname         "${UNAME}" \
             --arg pwd           "${PWD}" \
             --arg active_theme  "${ACTIVE_THEME}" \
-            --slurpfile themes  "$ROOT/themes.json" \
-            --slurpfile plugins "$ROOT/plugins.json" \
-            --slurpfile act     "$ROOT/active_plugins.json" \
-            --slurpfile apm     "$ROOT/active_plugins_meta.json" \
+            --argjson themes    "${THEMES_JSON:-[]}" \
+            --argjson plugins   "${PLUGINS_JSON:-[]}" \
+            --argjson act       "${ACTIVE_PLUGINS_JSON:-[]}" \
+            --argjson apm       "${ACTIVE_META_JSON:-[]}" \
             '{
               run_id: $run_id,
               server: { uname: $uname, php_version: $php_version },
               wp: { version: $wp_version, siteurl: $siteurl, path: $pwd, active_theme: $active_theme },
-              themes: ( ($themes|first)//[] ),
-              plugins: ( ($plugins|first)//[] ),
-              active_plugins: ( ($act|first)//[] ),
-              active_plugins_meta: ( ($apm|first)//[] )
+              themes: $themes,
+              plugins: $plugins,
+              active_plugins: $act,
+              active_plugins_meta: $apm
             }' > ".wtp/state/ro/public/${RUN_ID}/server/snapshot.json"
 
+          # --- Markdown podgląd + mirrory do latest ---
           {
             echo "# SERVER SNAPSHOT"
             echo "- Run ID: ${RUN_ID}"
@@ -182,10 +200,19 @@ jobs:
             for sl in "${SLUGS[@]}"; do echo "- ${sl}"; done
           } > ".wtp/state/ro/public/${RUN_ID}/server/SERVER_SNAPSHOT.md"
 
-          cp -f ".wtp/state/ro/public/${RUN_ID}/server/snapshot.json" ".wtp/state/ro/public/latest/server/snapshot.json"
+          cp -f ".wtp/state/ro/public/${RUN_ID}/server/snapshot.json"     ".wtp/state/ro/public/latest/server/snapshot.json"
           cp -f ".wtp/state/ro/public/${RUN_ID}/server/SERVER_SNAPSHOT.md" ".wtp/state/ro/public/latest/server/SERVER_SNAPSHOT.md"
-          cp -f "$ROOT/active_plugins_meta.json" ".wtp/state/ro/public/${RUN_ID}/server/active_plugins_meta.json"
-          cp -f "$ROOT/active_plugins_meta.json" ".wtp/state/ro/public/latest/server/active_plugins_meta.json"
+          printf '%s\n' "${ACTIVE_META_JSON}" > ".wtp/state/ro/public/${RUN_ID}/server/active_plugins_meta.json"
+          cp -f ".wtp/state/ro/public/${RUN_ID}/server/active_plugins_meta.json" ".wtp/state/ro/public/latest/server/active_plugins_meta.json"
+
+          # Krótka diagnostyka (nie przerywa biegu)
+          echo "::group::Snapshot summary"
+          echo "themes.json            : $(jq -r 'length' <<<"${THEMES_JSON}" 2>/dev/null || echo 0)"
+          echo "plugins.json           : $(jq -r 'length' <<<"${PLUGINS_JSON}" 2>/dev/null || echo 0)"
+          echo "active_plugins.json    : $(jq -r 'length' <<<"${ACTIVE_PLUGINS_JSON}" 2>/dev/null || echo 0)"
+          echo "active_plugins_meta[]. : $(jq -r 'length' ".wtp/state/ro/public/${RUN_ID}/server/active_plugins_meta.json" 2>/dev/null || echo 0)"
+          echo "::endgroup::"
+          
       - name: Commit & push (rebase-safe)
         shell: bash
         run: |
