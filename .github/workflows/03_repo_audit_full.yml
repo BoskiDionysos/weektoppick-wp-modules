@@ -63,7 +63,7 @@ jobs:
                   f.write(f"## {w['name']} ({w['file']})\n- Triggers: `{w['on']}`\n- Jobs: {', '.join(w['jobs']) if w['jobs'] else '-'}\n\n")
           PY
 
-      - name: Scan repo: plugins/MU + hooks/symbols/includes + validations
+      - name: Scan repo plugins/MU + hooks/symbols/includes + validations
         shell: bash
         run: |
           set -euo pipefail
