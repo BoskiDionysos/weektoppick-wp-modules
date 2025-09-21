@@ -73,7 +73,6 @@ jobs:
                   f.write(f"- Triggers: `{w['on']}`\n")
                   f.write(f"- Jobs: {', '.join(w['jobs']) if w['jobs'] else '-'}\n\n")
           PY
-          # skopiuj lekkie indeksy do latest/repo
           cp -f "_out/repo_audit/${RUN_ID}/filelist.txt" ".wtp/state/ro/public/latest/repo/filelist.txt" || true
           cp -f "_out/repo_audit/${RUN_ID}/tree.txt"     ".wtp/state/ro/public/latest/repo/tree.txt" || true
           cp -f "_out/repo_audit/${RUN_ID}/workflows.json" ".wtp/state/ro/public/latest/repo/workflows.json" || true
@@ -137,7 +136,6 @@ jobs:
                   "network": headers.get("Network"),
               }
 
-          # plugins
           plugin_meta=[]
           for base in SEARCH_PLUGINS:
               bp = Path(base)
@@ -159,7 +157,6 @@ jobs:
                               if "Plugin Name" in h:
                                   plugin_meta.append(mk_rec(p, h, "plugin")); break
 
-          # mu-plugins
           mu_meta=[]
           for base in SEARCH_MU:
               bp = Path(base)
@@ -168,7 +165,6 @@ jobs:
                   h = parse_headers(p)
                   mu_meta.append(mk_rec(p, h, "mu"))
 
-          # hooks/symbols/includes
           hooks=[]; symbols={"functions":[],"classes":[]}; includes=[]
           rx = {
             "add_action": re.compile(r"\badd_action\s*\(\s*['\"]([^'\"]+)['\"]", re.I),
@@ -247,8 +243,8 @@ jobs:
           python - << 'PY'
           import os, re, pathlib
           bases = [
-            pathlib.Path(os.environ["OUT_RUN"]).parent.parent,     # .wtp/state/ro/public/<RUN>/
-            pathlib.Path(os.environ["OUT_LATEST"]).parent.parent,  # .wtp/state/ro/public/latest/
+            pathlib.Path(os.environ["OUT_RUN"]).parent.parent,
+            pathlib.Path(os.environ["OUT_LATEST"]).parent.parent,
           ]
           patterns = [
             (re.compile(r"ghp_[A-Za-z0-9]{20,}"), "<REDACTED:GHP>"),
@@ -280,7 +276,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name  "github-actions[bot]"
+          git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           if git diff --staged --quiet; then
@@ -298,6 +294,6 @@ jobs:
               exit 0
             fi
             sleep 2
-          endfor
+          done
           echo "::error::Push failed after 3 attempts"
           exit 1
