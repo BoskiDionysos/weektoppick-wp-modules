@@ -1,4 +1,4 @@
-name: 04_ecosystem_correlate (repo ↔ server)
+name: 04_ecosystem_correlate (repo ↔ server, final)
 
 on:
   workflow_dispatch: {}
@@ -13,246 +13,161 @@ concurrency:
 jobs:
   correlate:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
+    timeout-minutes: 15
     env:
       RUN_ID: ${{ github.run_id }}
-      OUT_LATEST: .wtp/state/ro/public/latest
-      OUT_RUN: .wtp/state/ro/public/${{ github.run_id }}
+      LATEST_REPO: .wtp/state/ro/public/latest/repo
+      LATEST_SERVER: .wtp/state/ro/public/latest/server
+      OUT: .wtp/state/ro/public/${{ github.run_id }}/ecosystem
+      LATEST_OUT: .wtp/state/ro/public/latest/ecosystem
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.x"
 
-      - name: Ensure dirs
+      - name: Install deps
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "${OUT_LATEST}/ecosystem" "${OUT_RUN}/ecosystem"
+          python -m pip install --upgrade pip
+          pip install pyyaml
 
-      - name: Correlate (Python; no jq)
+      - name: Ensure inputs exist + build correlation
         shell: bash
         run: |
           set -euo pipefail
-          python - << 'PY'
-          import json, os
-          from pathlib import Path
-          run_id = os.environ["RUN_ID"]
-          out_latest = Path(os.environ["OUT_LATEST"]) / "ecosystem"
-          out_run    = Path(os.environ["OUT_RUN"])    / "ecosystem"
-          out_latest.mkdir(parents=True, exist_ok=True)
-          out_run.mkdir(parents=True, exist_ok=True)
-
-          # źródła
-          srv_p   = Path(".wtp/state/ro/public/latest/server/snapshot.json")
-          repo_p  = Path(".wtp/state/ro/public/latest/repo/repo-audit.json")
-          plug_p  = Path(".wtp/state/ro/public/latest/repo/plugin_meta.json")
-          mu_p    = Path(".wtp/state/ro/public/latest/repo/mu_meta.json")
-          hooks_p = Path(".wtp/state/ro/public/latest/repo/hooks.json")
-          deps_p  = Path(".wtp/state/ro/public/latest/repo/dependencies.json")
-          sym_p   = Path(".wtp/state/ro/public/latest/repo/symbol_index.json")
-
-          def jload(p):
-            try:
-              return json.loads(Path(p).read_text(encoding="utf-8"))
-            except Exception:
-              return None
-
-          srv   = jload(srv_p)
-          repo  = jload(repo_p) or {}
-          plugs = jload(plug_p) or []
-          mus   = jload(mu_p) or []
-          hooks = jload(hooks_p) or []
-          deps  = jload(deps_p) or {}
-          sym   = jload(sym_p) or {"functions":[],"classes":[]}
-
-          # walidacja minimalna
-          problems = []
-          if not srv or "wp_core" not in srv or "plugins" not in srv:
-            problems.append("server snapshot missing/invalid (no wp_core/plugins)")
-          if not isinstance(plugs, list):
-            problems.append("plugin_meta.json missing/invalid")
-          if not isinstance(mus, list):
-            problems.append("mu_meta.json missing/invalid")
-
-          # mapy pomocnicze
-          srv_plugins = srv.get("plugins", []) if srv else []
-          active = [p["name"] for p in srv_plugins if p.get("status")=="active"]
-          inactive = [p["name"] for p in srv_plugins if p.get("status")=="inactive"]
-
-          repo_plugin_names = set()
-          for r in plugs:
-            nm = (r.get("name") or "").strip()
-            if nm:
-              repo_plugin_names.add(nm)
-          # MU rozpoznawalne po nagłówku „Plugin Name” (nie zawsze jest)
-          repo_mu_names = set()
-          for r in mus:
-            nm = (r.get("name") or "").strip()
-            if nm:
-              repo_mu_names.add(nm)
-
-          # zgodności / rozbieżności
-          active_missing_in_repo = sorted([n for n in active if n not in repo_plugin_names])
-          present_in_repo_but_inactive = sorted([n for n in repo_plugin_names if n in inactive])
-
-          # proste KPI
-          kpi = {
-            "server": {
-              "wp_core": srv.get("wp_core") if srv else None,
-              "active_plugins": len(active),
-              "inactive_plugins": len(inactive),
-              "active_theme": srv.get("theme_active"),
-            },
-            "repo_counts": {
-              "plugin_meta": len(plugs),
-              "mu_meta": len(mus),
-              "hooks": len(hooks),
-              "functions": len((sym or {}).get("functions", [])),
-              "classes": len((sym or {}).get("classes", [])),
-              "deps_nodes": len((deps or {}).get("nodes", [])),
-              "deps_edges": len((deps or {}).get("edges", [])),
+          test -f "${LATEST_REPO}/plugin_meta.json" || { echo "::error::missing plugin_meta.json (run 03)"; exit 1; }
+          test -f "${LATEST_REPO}/mu_meta.json" || { echo "::error::missing mu_meta.json (run 03)"; exit 1; }
+          test -f "${LATEST_REPO}/hooks.json" || { echo "::error::missing hooks.json (run 03)"; exit 1; }
+          test -f "${LATEST_SERVER}/snapshot.json" || { echo "::error::missing server snapshot (run 02a)"; exit 1; }
+          mkdir -p "${OUT}" "${LATEST_OUT}"
+          python - <<'PY'
+          import os, json, pathlib, re
+          RUN_ID=os.environ["RUN_ID"]
+          LREPO=os.environ["LATEST_REPO"]; LSRV=os.environ["LATEST_SERVER"]
+          OUT=os.environ["OUT"]; LOUT=os.environ["LATEST_OUT"]
+          out=pathlib.Path(OUT); out.mkdir(parents=True,exist_ok=True)
+          def jload(p): return json.load(open(p,"r",encoding="utf-8"))
+          plugin_meta=jload(f"{LREPO}/plugin_meta.json")
+          mu_meta=jload(f"{LREPO}/mu_meta.json")
+          hooks=jload(f"{LREPO}/hooks.json")
+          server=jload(f"{LSRV}/snapshot.json")
+          # normalize repo entities by slug (folder)
+          def slug_from_path(p):
+            p=p.replace("\\","/")
+            # try wp-content/plugins/<slug>/...
+            m=re.search(r"wp-content/plugins/([^/]+)/", p)
+            if m: return m.group(1)
+            # mu-plugins can be flat; use filename or parent
+            m=re.search(r"(?:wp-content/)?mu-plugins/([^/]+)/", p)
+            if m: return m.group(1)
+            m=re.search(r"(?:wp-content/)?mu-plugins/([^/]+)\.php$", p)
+            if m: return m.group(1)
+            return None
+          repo_plugins={}
+          for r in plugin_meta:
+            sl=slug_from_path(r.get("path","")) or r.get("name") or "unknown"
+            repo_plugins.setdefault(sl,[]).append(r)
+          repo_mu={}
+          for r in mu_meta:
+            sl=slug_from_path(r.get("path","")) or r.get("name") or "unknown"
+            repo_mu.setdefault(sl,[]).append(r)
+          # server plugins
+          s_plugins=server.get("wp",{}).get("plugins",[])
+          s_active_raw=server.get("wp",{}).get("active_plugins_option","").strip()
+          s_template=server.get("wp",{}).get("template","")
+          # try decode serialized PHP array (best-effort); fallback to search slugs
+          active_slugs=[]
+          if s_active_raw.startswith("a:") or s_active_raw.startswith("b:") or s_active_raw.startswith("s:"):
+            # very rough fallback: extract '/<slug>.php' fragments
+            for m in re.finditer(r"/([^/]+)\.php", s_active_raw): active_slugs.append(m.group(1))
+          else:
+            # maybe JSON-ish array
+            for m in re.finditer(r"['\"]([^'\"]+)\/([^'\"]+)\.php['\"]", s_active_raw):
+              active_slugs.append(m.group(1))
+          active_slugs=sorted(set(active_slugs))
+          # correlation
+          missing_on_repo=[]; zombie_in_repo=[]; version_mismatch=[]
+          s_by_slug={}
+          for sp in s_plugins:
+            # wp-cli plugin list uses 'name' as slug typically
+            sl=sp.get("name") or sp.get("plugin") or sp.get("title") or ""
+            if sl: s_by_slug[sl]=sp
+          # compare active
+          for sl in active_slugs:
+            if sl not in repo_plugins:
+              missing_on_repo.append({"slug":sl,"why":"active_on_server_but_absent_in_repo"})
+          # zombie: repo but not on server list at all
+          for sl in repo_plugins.keys():
+            if sl not in s_by_slug:
+              zombie_in_repo.append({"slug":sl,"why":"present_in_repo_but_not_listed_on_server"})
+          # version mismatch (best effort)
+          for sl, rs in repo_plugins.items():
+            sv=s_by_slug.get(sl,{}).get("version")
+            if sv:
+              # pick first repo version header if exists
+              rv=rs[0].get("version")
+              if rv and rv != sv:
+                version_mismatch.append({"slug":sl,"repo_version":rv,"server_version":sv})
+          # theme presence
+          theme_mismatch=None
+          if s_template:
+            # check if theme dir exists in repo
+            tdir=pathlib.Path(f"wp-content/themes/{s_template}")
+            theme_mismatch = None if tdir.exists() else {"active_theme":s_template,"present_in_repo": tdir.exists()}
+          # hooks gap (only simple check: hooks referenced by active slugs should exist somewhere in repo)
+          # Build set of repo files per slug for quick scan
+          repo_hook_names=set([h["hook"] for h in hooks if isinstance(h,dict) and "hook" in h])
+          hooks_gap=[]
+          # heuristic: if no hooks at all for active slugs (cannot map exactly callback→slug here), skip
+          if not repo_hook_names:
+            hooks_gap.append({"note":"no hooks detected in repo; run 03 again if this seems wrong"})
+          # build report
+          report={
+            "run_id": RUN_ID,
+            "active_slugs": active_slugs,
+            "missing_on_repo": missing_on_repo,
+            "zombie_in_repo": zombie_in_repo,
+            "version_mismatch": version_mismatch,
+            "theme_mismatch": theme_mismatch,
+            "summary": {
+              "active_slugs": len(active_slugs),
+              "missing_on_repo": len(missing_on_repo),
+              "zombie_in_repo": len(zombie_in_repo),
+              "version_mismatch": len(version_mismatch),
+              "theme_mismatch": 1 if theme_mismatch else 0
             }
           }
-
-          # rekomendacje
-          recs = []
-          if active_missing_in_repo:
-            recs.append({
-              "level":"warn",
-              "title":"Aktywne na serwerze, brak w repo",
-              "items": active_missing_in_repo
-            })
-          if present_in_repo_but_inactive:
-            recs.append({
-              "level":"info",
-              "title":"W repo są, ale nieaktywne na serwerze",
-              "items": present_in_repo_but_inactive
-            })
-          if problems:
-            recs.append({
-              "level":"error",
-              "title":"Problemy z danymi wejściowymi",
-              "items": problems
-            })
-
-          eco = {
-            "run_id": run_id,
-            "kpi": kpi,
-            "mismatch": {
-              "active_missing_in_repo": active_missing_in_repo,
-              "present_in_repo_but_inactive": present_in_repo_but_inactive
-            },
-            "notes": recs
-          }
-
-          # zapis JSON
-          (out_run/"ecosystem-audit.json").write_text(json.dumps(eco, ensure_ascii=False, indent=2), encoding="utf-8")
-          (out_latest/"ecosystem-audit.json").write_text(json.dumps(eco, ensure_ascii=False, indent=2), encoding="utf-8")
-
-          # zapis Markdown
-          md = []
+          out.joinpath("ecosystem-audit.json").write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding="utf-8")
+          md=[]
           md.append("# ECOSYSTEM AUDIT")
-          md.append(f"- Run ID: {run_id}")
+          md.append(f"- Run: {RUN_ID}")
+          md.append("## Summary")
+          for k,v in report["summary"].items(): md.append(f"- {k}: **{v}**")
           md.append("")
-          md.append("## KPI")
-          md.append(f"- WP core: `{kpi['server']['wp_core']}`")
-          md.append(f"- Active plugins (server): **{kpi['server']['active_plugins']}**")
-          md.append(f"- Inactive plugins (server): {kpi['server']['inactive_plugins']}")
-          md.append(f"- Active theme: `{kpi['server']['active_theme']}`")
-          md.append(f"- Repo: plugins={kpi['repo_counts']['plugin_meta']} • MU={kpi['repo_counts']['mu_meta']} • hooks={kpi['repo_counts']['hooks']} • functions={kpi['repo_counts']['functions']} • classes={kpi['repo_counts']['classes']}")
-          md.append("")
-          md.append("## Mismatch")
-          if active_missing_in_repo:
-            md.append("**Active on server but missing in repo:**")
-            for n in active_missing_in_repo:
-              md.append(f"- {n}")
+          def section(title, arr):
+            nonlocal md
+            md.append(f"## {title}")
+            if not arr: md.append("- none"); return
+            for it in arr[:200]: md.append(f"- {json.dumps(it,ensure_ascii=False)}")
             md.append("")
-          if present_in_repo_but_inactive:
-            md.append("**Present in repo but inactive on server:**")
-            for n in present_in_repo_but_inactive:
-              md.append(f"- {n}")
-            md.append("")
-          if problems:
-            md.append("## Problems")
-            for p in problems:
-              md.append(f"- {p}")
-            md.append("")
-          (out_run/"ECOSYSTEM_AUDIT.md").write_text("\n".join(md)+"\n", encoding="utf-8")
-          (out_latest/"ECOSYSTEM_AUDIT.md").write_text("\n".join(md)+"\n", encoding="utf-8")
+          section("Missing on repo (active on server, absent in repo)", report["missing_on_repo"])
+          section("Zombie in repo (present in repo, not listed on server)", report["zombie_in_repo"])
+          section("Version mismatch", report["version_mismatch"])
+          md.append("## Theme mismatch")
+          md.append(f"- {json.dumps(report['theme_mismatch'],ensure_ascii=False) if report['theme_mismatch'] else 'none'}")
+          pathlib.Path(os.environ["OUT"]).joinpath("ECOSYSTEM_AUDIT.md").write_text("\n".join(md)+"\n",encoding="utf-8")
+          # mirror to latest
+          lout=pathlib.Path(LOUT); lout.mkdir(parents=True,exist_ok=True)
+          for n in ["ecosystem-audit.json","ECOSYSTEM_AUDIT.md"]:
+            lout.joinpath(n).write_text(out.joinpath(n).read_text(encoding="utf-8"), encoding="utf-8")
           PY
 
-      - name: Secret scrub (redact tokens in public outputs)
-        shell: bash
-        env:
-          RUN_ID: ${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          SCAN_DIRS=(
-            ".wtp/state/ro/public/${RUN_ID}"
-            ".wtp/state/ro/public/latest"
-          )
-          export SCAN_DIRS="$(printf "%s\n" "${SCAN_DIRS[@]}")"
-
-          python - << 'PY'
-          import os, re, json, pathlib, sys
-          scan_dirs = [p for p in os.environ.get("SCAN_DIRS","").splitlines() if p.strip()]
-
-          patterns = [
-            (re.compile(r"ghp_[A-Za-z0-9]{20,}"), "<REDACTED:GHP>"),
-            (re.compile(r"[A-Za-z0-9-_]{10,}\.[A-Za-z0-9-_]{10,}\.[A-Za-z0-9-_]{10,}"), "<REDACTED:JWT>"),
-            (re.compile(r"AKIA[0-9A-Z]{16}"), "<REDACTED:AWS_AK>"),
-            (re.compile(r"(?i)authorization\s*:\s*bearer\s+[A-Za-z0-9._-]{10,}"), "Authorization: Bearer <REDACTED>"),
-            (re.compile(r"(?i)(api[_-]?key|secret|token|passwd|password)\s*[=:]\s*[A-Za-z0-9._-]{6,}"), r"\1=<REDACTED>"),
-            (re.compile(r"https?://[^/\s:@]+:[^@\s]+@"), "https://<REDACTED>@"),
-          ]
-
-          def is_text(path: pathlib.Path) -> bool:
-            try:
-              b = path.read_bytes()
-            except Exception:
-              return False
-            if b.startswith(b"\x89PNG") or b.startswith(b"\xFF\xD8") or b[:4] == b"%PDF":
-              return False
-            try:
-              b.decode("utf-8")
-              return True
-            except Exception:
-              return False
-
-          redacted = []
-          for base in scan_dirs:
-            p = pathlib.Path(base)
-            if not p.exists():
-              continue
-            for f in p.rglob("*"):
-              if not f.is_file() or not is_text(f):
-                continue
-              try:
-                s = f.read_text(encoding="utf-8", errors="ignore")
-              except Exception:
-                continue
-              orig = s
-              for rx, repl in patterns:
-                s = rx.sub(repl, s)
-              if s != orig:
-                f.write_text(s, encoding="utf-8")
-                redacted.append(str(f))
-
-          if redacted:
-            print("::group::Redacted potential secrets")
-            for r in redacted:
-              print(r)
-            print("::endgroup::")
-            print("::warning::Some outputs contained secret-like strings and were REDACTED before commit.")
-          PY
-
-      - name: Commit & push (rebase-safe)
+      - name: Commit & push correlation
         shell: bash
         run: |
           set -euo pipefail
@@ -264,16 +179,7 @@ jobs:
             exit 0
           fi
           git commit -m "ecosystem correlate ${RUN_ID}"
-          BRANCH="${GITHUB_REF_NAME:-main}"
-          git branch --show-current >/dev/null 2>&1 || git checkout -B "$BRANCH"
-          for i in 1 2 3; do
-            git fetch origin "$BRANCH"
-            git pull --rebase origin "$BRANCH" || { git rebase --continue || true; }
-            if git push origin "HEAD:$BRANCH"; then
-              echo "::notice::Pushed (attempt $i)"
-              exit 0
-            fi
-            sleep 2
-          done
-          echo "::error::Push failed after 3 attempts"
-          exit 1
+          BR="${GITHUB_REF_NAME:-main}"
+          git fetch origin "$BR"
+          git pull --rebase origin "$BR" || { git rebase --continue || true; }
+          git push origin "HEAD:$BR"
