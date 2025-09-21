@@ -28,49 +28,48 @@ jobs:
           python-version: "3.x"
 
       - name: Install deps
+        shell: bash
         run: |
           set -euo pipefail
           python -m pip install --upgrade pip
           pip install pyyaml
 
-      - name: Build repo-snapshot.json + REPO_ARCHITECTURE.md + REPO_AUDIT.md
+      - name: Build repo-snapshot.json + REPO_ARCHITECTURE.md + REPO_AUDIT.md (to RUN dir only)
+        shell: bash
         run: |
           set -euo pipefail
           python - << 'PY'
-          import os, json, sys, stat
+          import os, json
           from pathlib import Path
+          from datetime import datetime
 
           RUN_ID = os.environ.get("RUN_ID","unknown")
-
           root = Path(".").resolve()
 
-          # Wykluczenia – żeby nie kopiować „toksycznych”/ciężkich rzeczy:
-          EXCLUDE_DIRS = {
-            ".git", ".github/workflows._quarantine", "_ci_logs",
-            ".wtp/state/ci_logs", ".wtp/state/tmp", ".wtp/snapshots",
-            "node_modules", "vendor", ".idea", ".vscode",
-            # debug packi itp. (mogą zawierać ślady sekretów)
-            ".wtp/state/ro/public/latest/wpcli",
-            ".wtp/state/ro/public/latest/debug-pack",
-          }
+          # Katalogi/ścieżki do wykluczeń (prefiksy)
+          EXCLUDE_PREFIXES = [
+            ".git/",
+            ".github/workflows._quarantine/",
+            "_ci_logs/",
+            ".wtp/state/ci_logs/",
+            ".wtp/state/tmp/",
+            ".wtp/snapshots/",
+            ".wtp/state/ro/public/latest/wpcli/",
+            ".wtp/state/ro/public/latest/debug-pack/",
+            "node_modules/",
+            "vendor/",
+            ".idea/",
+            ".vscode/",
+          ]
 
-          def is_excluded(p: Path) -> bool:
-            parts = set(p.parts)
-            # jeśli którykolwiek element ścieżki zaczyna się jak wykluczenie – pomiń
-            for ex in EXCLUDE_DIRS:
-              ex_parts = Path(ex).parts
-              if p.as_posix().startswith(ex):
-                return True
-              # szybka ścieżka: dopasowanie katalogu top-level
-              if ex_parts and ex_parts[0] in parts and str(p).startswith(ex):
-                return True
-            return False
+          def excluded(rel_posix: str) -> bool:
+            return any(rel_posix.startswith(p) for p in EXCLUDE_PREFIXES)
 
           def category_for(path: str) -> str:
             if path.startswith(".github/workflows/"):
-              if "/workflows._quarantine/" in path:
-                return "workflow-quarantine"
               return "workflow-active"
+            if path.startswith(".github/workflows._quarantine/"):
+              return "workflow-quarantine"
             if path.startswith("wp-content/mu-plugins/"):
               return "mu-plugin"
             if path.startswith("wp-content/plugins/"):
@@ -86,24 +85,22 @@ jobs:
 
           for p in root.rglob("*"):
             if p.is_dir():
-              if is_excluded(p.relative_to(root)):
-                # nie schodzimy głębiej w wykluczony katalog
-                # skip children by modifying generator is hard; instead, rely on startswith check later
-                pass
               continue
             rel = p.relative_to(root).as_posix()
-            if any(rel.startswith(ex) for ex in EXCLUDE_DIRS):
+            if excluded(rel):
               continue
             try:
               st = p.stat()
               size = st.st_size
+              mode = oct(st.st_mode & 0o777)
             except Exception:
               size = 0
+              mode = None
             total_size += size
             files.append({
               "path": rel,
               "size": size,
-              "mode": oct(st.st_mode & 0o777) if 'st' in locals() else None,
+              "mode": mode,
               "category": category_for(rel),
             })
 
@@ -117,7 +114,7 @@ jobs:
 
           snapshot = {
             "run_id": RUN_ID,
-            "run_ts": __import__("datetime").datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            "run_ts": datetime.utcnow().isoformat(timespec="seconds") + "Z",
             "counts": {
               "files": len(files),
               "size": total_size,
@@ -126,36 +123,31 @@ jobs:
             "files": files,
           }
 
-          out_dir_run   = Path(f".wtp/state/ro/public/{RUN_ID}/repo")
-          out_dir_latest= Path(".wtp/state/ro/public/latest/repo")
-          out_dir_run.mkdir(parents=True, exist_ok=True)
-          out_dir_latest.mkdir(parents=True, exist_ok=True)
+          out_run = Path(f".wtp/state/ro/public/{RUN_ID}/repo")
+          out_run.mkdir(parents=True, exist_ok=True)
 
-          # Zapis JSON
-          (out_dir_run / "repo-snapshot.json").write_text(
-            json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8"
-          )
-          (out_dir_latest / "repo-snapshot.json").write_text(
+          # Zapis JSON (tylko do RUN dir)
+          (out_run / "repo-snapshot.json").write_text(
             json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8"
           )
 
-          # REPO_ARCHITECTURE.md: prosta mapa wg top-level + krótkie listy
+          # REPO_ARCHITECTURE.md
           def human(n):
-            for u in ["B","KB","MB","GB","TB"]:
-              if n < 1024:
-                return f"{n:.1f} {u}"
-              n /= 1024
-            return f"{n:.1f} PB"
+            units = ["B","KB","MB","GB","TB","PB"]
+            i = 0
+            f = float(n)
+            while f >= 1024 and i < len(units)-1:
+              f /= 1024.0
+              i += 1
+            return f"{f:.1f} {units[i]}"
 
-          # grupy top-level
           top = {}
           for f in files:
-            parts = f["path"].split("/",1)
-            head = parts[0]
+            head = f["path"].split("/",1)[0]
             g = top.setdefault(head, {"count":0,"size":0,"sample":[]})
             g["count"] += 1
             g["size"]  += f["size"]
-            if len(g["sample"])<10:
+            if len(g["sample"]) < 10:
               g["sample"].append(f["path"])
 
           arch = []
@@ -174,10 +166,9 @@ jobs:
             for s in top[k]["sample"]:
               arch.append(f"- `{s}`")
             arch.append("")
-          (out_dir_run / "REPO_ARCHITECTURE.md").write_text("\n".join(arch)+"\n", encoding="utf-8")
-          (out_dir_latest / "REPO_ARCHITECTURE.md").write_text("\n".join(arch)+"\n", encoding="utf-8")
+          (out_run / "REPO_ARCHITECTURE.md").write_text("\n".join(arch)+"\n", encoding="utf-8")
 
-          # REPO_AUDIT.md – kompaktowe podsumowanie (w razie gdy poprzedni brakował)
+          # REPO_AUDIT.md (zwięzłe)
           L=[]
           L.append("# REPO_AUDIT")
           L.append(f"- Run ID: {RUN_ID}")
@@ -191,15 +182,46 @@ jobs:
             L.append(f"| {c} | {v['count']} | {human(v['size'])} |")
           L.append("")
           L.append("## Recommendations")
-          L.append("- Keep tylko niezbędne workflows aktywne; reszta do `.github/workflows._quarantine/`.")
-          L.append("- Nie commitować ciężkich zrzutów/packów – używać artifacts.")
-          L.append("- Pilnować, by debug-packi nie trafiały do `latest/` (ryzyko secret-scanning).")
+          L.append("- Keep tylko niezbędne workflows aktywne; resztę przenieś do `.github/workflows._quarantine/`.")
+          L.append("- Nie commitować ciężkich dumpów – używaj GitHub Artifacts/Releases.")
+          L.append("- Uważaj, by debug-packi nie trafiały do `latest/` (secret-scanning).")
           L.append("")
-          (out_dir_run / "REPO_AUDIT.md").write_text("\n".join(L)+"\n", encoding="utf-8")
-          (out_dir_latest / "REPO_AUDIT.md").write_text("\n".join(L)+"\n", encoding="utf-8")
+          (out_run / "REPO_AUDIT.md").write_text("\n".join(L)+"\n", encoding="utf-8")
           PY
 
+      - name: Validate outputs (non-empty + schema)
+        shell: bash
+        run: |
+          set -euo pipefail
+          base=".wtp/state/ro/public/${RUN_ID}/repo"
+          test -s "${base}/repo-snapshot.json"
+          test -s "${base}/REPO_ARCHITECTURE.md"
+          test -s "${base}/REPO_AUDIT.md"
+          # Minimalna walidacja struktury JSON
+          jq -e 'has("counts") and has("files") and (.files|type=="array") and (.counts|has("files"))' "${base}/repo-snapshot.json" >/dev/null
+
+      - name: Atomically update latest (repo)
+        if: ${{ success() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_dir=".wtp/state/ro/public/${RUN_ID}/repo"
+          latest_dir=".wtp/state/ro/public/latest/repo"
+          tmp_dir="${latest_dir}.tmp"
+
+          rm -rf "$tmp_dir"
+          mkdir -p "$tmp_dir"
+          cp -a "$run_dir"/. "$tmp_dir"/
+
+          # sanity-check przed podmianą
+          test -s "${tmp_dir}/repo-snapshot.json"
+          test -s "${tmp_dir}/REPO_ARCHITECTURE.md"
+          test -s "${tmp_dir}/REPO_AUDIT.md"
+
+          mv -f "$tmp_dir" "$latest_dir"
+
       - name: Commit & push (rebase-safe)
+        shell: bash
         run: |
           set -euo pipefail
           git config user.name  "github-actions[bot]"
